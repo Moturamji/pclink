@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "781922287934",
+    "project_id": "pclink-34bfa",
+    "storage_bucket": "pclink-34bfa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:781922287934:android:8f85f6ccf6b1a0f9e2ac6f",
+        "android_client_info": {
+          "package_name": "com.example.pclink"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCVnLPcUtCWZK41nC-PqaOx9briB-Bgt8s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
