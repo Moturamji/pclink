@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'app.dart';
 import 'data/services/notification_service.dart';
+import 'features/clipboard/services/clipboard_service.dart';
 import 'firebase_options.dart';
 
 /// Application bootstrap entry point.
@@ -26,9 +27,10 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    // Register FCM Background Handler on Android
+    // Register FCM Background Handler & Foreground Clipboard Task on Android
     if (!kIsWeb && Platform.isAndroid) {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      await ClipboardService.initForegroundTask();
     }
   } catch (e, stack) {
     debugPrint('Firebase initialization warning: $e\n$stack');
