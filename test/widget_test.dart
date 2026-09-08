@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pclink/core/utils/validators.dart';
 import 'package:pclink/data/models/device_details.dart';
+import 'package:pclink/data/models/linked_device.dart';
 import 'package:pclink/data/services/auth_service.dart';
 
 void main() {
@@ -39,6 +40,32 @@ void main() {
       expect(details.isAndroid, isTrue);
       expect(details.isWindows, isFalse);
       expect(details.isConnected, isTrue);
+    });
+  });
+
+  group('LinkedDevice Model Tests', () {
+    test('LinkedDevice serializes and deserializes correctly', () {
+      final map = {
+        'deviceId': 'android-uuid-1234',
+        'deviceName': 'TECNO KG5k',
+        'osVersion': 'Android 11',
+        'ipAddress': '192.168.1.45',
+        'lastSeen': '2026-09-08T12:00:00.000Z',
+        'isOnline': true,
+      };
+
+      final device = LinkedDevice.fromMap('android', map);
+      expect(device.platformKey, 'android');
+      expect(device.isAndroid, isTrue);
+      expect(device.isWindows, isFalse);
+      expect(device.deviceId, 'android-uuid-1234');
+      expect(device.ipAddress, '192.168.1.45');
+      expect(device.isOnline, isTrue);
+
+      final toMapResult = device.toMap();
+      expect(toMapResult['deviceId'], 'android-uuid-1234');
+      expect(toMapResult['ipAddress'], '192.168.1.45');
+      expect(toMapResult['isOnline'], isTrue);
     });
   });
 

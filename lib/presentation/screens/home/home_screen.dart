@@ -4,9 +4,11 @@ import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/clipboard_helper.dart';
 import '../../../data/models/device_details.dart';
 import '../../../data/services/auth_service.dart';
+import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
 import '../auth/auth_screen.dart';
 import 'widgets/interfaces_card.dart';
+import 'widgets/linked_devices_card.dart';
 import 'widgets/metric_card.dart';
 import 'widgets/platform_header.dart';
 import 'widgets/specs_card.dart';
@@ -16,11 +18,13 @@ import 'widgets/user_session_card.dart';
 class HomeScreen extends StatefulWidget {
   final DeviceService? deviceService;
   final AuthService? authService;
+  final DatabaseService? databaseService;
 
   const HomeScreen({
     super.key,
     this.deviceService,
     this.authService,
+    this.databaseService,
   });
 
   @override
@@ -30,6 +34,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late final DeviceService _deviceService;
   late final AuthService _authService;
+  late final DatabaseService _databaseService;
+
   late Future<DeviceDetails> _deviceDetailsFuture;
   bool _isRefreshing = false;
 
@@ -38,13 +44,31 @@ class _HomeScreenState extends State<HomeScreen> {
     super.initState();
     _deviceService = widget.deviceService ?? DeviceService();
     _authService = widget.authService ?? AuthService();
+    _databaseService = widget.databaseService ?? DatabaseService();
     _loadDeviceDetails();
   }
 
   void _loadDeviceDetails() {
     setState(() {
-      _deviceDetailsFuture = _deviceService.getDeviceDetails();
+      _deviceDetailsFuture = _deviceService.getDeviceDetails().then((details) {
+        _syncWithCloud(details);
+        return details;
+      });
     });
+  }
+
+  Future<void> _syncWithCloud(DeviceDetails details) async {
+    final user = _authService.currentUser;
+    if (user != null) {
+      try {
+        await _databaseService.syncUserAndDevice(
+          user: user,
+          details: details,
+        );
+      } catch (_) {
+        // Handled silently for offline scenarios
+      }
+    }
   }
 
   Future<void> _refresh() async {
@@ -213,6 +237,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       PlatformHeader(details: details),
                       const SizedBox(height: 20),
+
+                      // Realtime Database Cloud-Linked Devices
+                      if (user != null) ...[
+                        LinkedDevicesCard(
+                          devicesStream:
+                              _databaseService.watchUserDevices(user.uid),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
 
                       MetricCard(
                         title: AppStrings.deviceIdTitle,

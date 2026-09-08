@@ -37,6 +37,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '781922287934',
     projectId: 'pclink-34bfa',
     authDomain: 'pclink-34bfa.firebaseapp.com',
+    databaseURL: 'https://pclink-34bfa-default-rtdb.firebaseio.com',
     storageBucket: 'pclink-34bfa.firebasestorage.app',
     measurementId: 'G-522D04T73K',
   );
@@ -46,6 +47,7 @@ class DefaultFirebaseOptions {
     appId: '1:781922287934:android:8f85f6ccf6b1a0f9e2ac6f',
     messagingSenderId: '781922287934',
     projectId: 'pclink-34bfa',
+    databaseURL: 'https://pclink-34bfa-default-rtdb.firebaseio.com',
     storageBucket: 'pclink-34bfa.firebasestorage.app',
   );
 
@@ -55,6 +57,7 @@ class DefaultFirebaseOptions {
     messagingSenderId: '781922287934',
     projectId: 'pclink-34bfa',
     authDomain: 'pclink-34bfa.firebaseapp.com',
+    databaseURL: 'https://pclink-34bfa-default-rtdb.firebaseio.com',
     storageBucket: 'pclink-34bfa.firebasestorage.app',
     measurementId: 'G-4DWKJ1XW4H',
   );
