@@ -106,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _currentServerInfo = info;
           });
+          _clipboardService.refreshHistory();
         }
       });
     }

@@ -31,11 +31,14 @@ class ServerService {
   Stream<ServerInfo> get serverStateStream => _stateController.stream;
   ServerInfo get currentServerInfo => _currentInfo;
   bool get isRunning => _server != null;
-  List<ClipboardItem> get clipboardHistory => List.unmodifiable(_clipboardHistory);
+  List<ClipboardItem> get clipboardHistory =>
+      List.unmodifiable(_clipboardHistory);
 
   /// Stores a locally copied clip in the server history.
   void addLocalClipboardItem(ClipboardItem item) {
-    _clipboardHistory.removeWhere((c) => c.id == item.id || c.text == item.text);
+    _clipboardHistory.removeWhere(
+      (c) => c.id == item.id || c.text == item.text,
+    );
     _clipboardHistory.insert(0, item);
     if (_clipboardHistory.length > 50) {
       _clipboardHistory.removeLast();
@@ -95,8 +98,11 @@ class ServerService {
 
       _stateController.add(_currentInfo);
       _listenToRequests();
+      _ensureFirewallRule(port);
 
-      debugPrint('ServerService: Windows server listening on $serverUrl (Public WAN: $publicIp)');
+      debugPrint(
+        'ServerService: Windows server listening on $serverUrl (Public WAN: $publicIp)',
+      );
       return _currentInfo;
     } catch (e) {
       debugPrint('ServerService: Failed to start server: $e');
@@ -127,7 +133,7 @@ class ServerService {
       try {
         switch (path) {
           case ServerConstants.healthEndpoint:
-            _handleHealth(request);
+            await _handleHealth(request);
             break;
 
           case ServerConstants.authEndpoint:
@@ -135,11 +141,11 @@ class ServerService {
             break;
 
           case ServerConstants.pingEndpoint:
-            _handlePing(request);
+            await _handlePing(request);
             break;
 
           case ServerConstants.statusEndpoint:
-            _handleStatus(request);
+            await _handleStatus(request);
             break;
 
           case ServerConstants.clipboardEndpoint:
@@ -147,7 +153,7 @@ class ServerService {
             break;
 
           case ServerConstants.clipboardLatestEndpoint:
-            _handleClipboardLatest(request);
+            await _handleClipboardLatest(request);
             break;
 
           default:
@@ -176,7 +182,9 @@ class ServerService {
             addLocalClipboardItem(item);
             onClipboardReceived?.call(item);
             request.response.statusCode = HttpStatus.ok;
-            request.response.write(jsonEncode({'success': true, 'id': item.id}));
+            request.response.write(
+              jsonEncode({'success': true, 'id': item.id}),
+            );
             await request.response.close();
             return;
           }
@@ -185,11 +193,15 @@ class ServerService {
         }
       }
       request.response.statusCode = HttpStatus.badRequest;
-      request.response.write(jsonEncode({'error': 'Invalid clipboard payload'}));
+      request.response.write(
+        jsonEncode({'error': 'Invalid clipboard payload'}),
+      );
       await request.response.close();
     } else if (request.method == 'GET') {
       request.response.statusCode = HttpStatus.ok;
-      request.response.write(jsonEncode(_clipboardHistory.map((c) => c.toMap()).toList()));
+      request.response.write(
+        jsonEncode(_clipboardHistory.map((c) => c.toMap()).toList()),
+      );
       await request.response.close();
     } else if (request.method == 'DELETE') {
       clearClipboardHistory();
@@ -202,7 +214,7 @@ class ServerService {
     }
   }
 
-  void _handleClipboardLatest(HttpRequest request) {
+  Future<void> _handleClipboardLatest(HttpRequest request) async {
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
     if (_clipboardHistory.isNotEmpty) {
@@ -210,21 +222,23 @@ class ServerService {
     } else {
       request.response.write('null');
     }
-    request.response.close();
+    await request.response.close();
   }
 
-  void _handleHealth(HttpRequest request) {
+  Future<void> _handleHealth(HttpRequest request) async {
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
-    request.response.write(jsonEncode({
-      'status': 'ok',
-      'message': ServerConstants.msgServerRunning,
-      'serverPlatform': 'Windows',
-      'hostName': Platform.localHostname,
-      'encryption': 'TLS_1_3_RELAY',
-      'timestamp': DateTime.now().toIso8601String(),
-    }));
-    request.response.close();
+    request.response.write(
+      jsonEncode({
+        'status': 'ok',
+        'message': ServerConstants.msgServerRunning,
+        'serverPlatform': 'Windows',
+        'hostName': Platform.localHostname,
+        'encryption': 'TLS_1_3_RELAY',
+        'timestamp': DateTime.now().toIso8601String(),
+      }),
+    );
+    await request.response.close();
   }
 
   Future<void> _handleAuth(HttpRequest request) async {
@@ -234,7 +248,9 @@ class ServerService {
       return;
     }
 
-    String? candidateDeviceId = request.headers.value(ServerConstants.authHeader);
+    String? candidateDeviceId = request.headers.value(
+      ServerConstants.authHeader,
+    );
     String? requestTimestamp;
 
     final bodyStr = await utf8.decoder.bind(request).join();
@@ -258,12 +274,15 @@ class ServerService {
     if (requestTimestamp != null) {
       final reqTime = DateTime.tryParse(requestTimestamp);
       if (reqTime != null &&
-          DateTime.now().difference(reqTime).abs() > const Duration(seconds: 90)) {
+          DateTime.now().difference(reqTime).abs() >
+              const Duration(seconds: 90)) {
         request.response.statusCode = HttpStatus.unauthorized;
-        request.response.write(jsonEncode({
-          'success': false,
-          'error': 'Authentication request expired (replay protection).',
-        }));
+        request.response.write(
+          jsonEncode({
+            'success': false,
+            'error': 'Authentication request expired (replay protection).',
+          }),
+        );
         await request.response.close();
         return;
       }
@@ -289,19 +308,20 @@ class ServerService {
       _stateController.add(_currentInfo);
 
       request.response.statusCode = HttpStatus.ok;
-      request.response.write(jsonEncode({
-        'success': true,
-        'message': ServerConstants.msgAuthSuccess,
-        'windowsHost': Platform.localHostname,
-        'connectionMode': 'wan_direct',
-        'encrypted': true,
-      }));
+      request.response.write(
+        jsonEncode({
+          'success': true,
+          'message': ServerConstants.msgAuthSuccess,
+          'windowsHost': Platform.localHostname,
+          'connectionMode': 'wan_direct',
+          'encrypted': true,
+        }),
+      );
     } else {
       request.response.statusCode = HttpStatus.unauthorized;
-      request.response.write(jsonEncode({
-        'success': false,
-        'error': ServerConstants.msgAuthFailed,
-      }));
+      request.response.write(
+        jsonEncode({'success': false, 'error': ServerConstants.msgAuthFailed}),
+      );
     }
 
     await request.response.close();
@@ -354,21 +374,20 @@ class ServerService {
     }
   }
 
-  void _handlePing(HttpRequest request) {
+  Future<void> _handlePing(HttpRequest request) async {
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
-    request.response.write(jsonEncode({
-      'pong': true,
-      'timestamp': DateTime.now().toIso8601String(),
-    }));
-    request.response.close();
+    request.response.write(
+      jsonEncode({'pong': true, 'timestamp': DateTime.now().toIso8601String()}),
+    );
+    await request.response.close();
   }
 
-  void _handleStatus(HttpRequest request) {
+  Future<void> _handleStatus(HttpRequest request) async {
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
     request.response.write(jsonEncode(_currentInfo.toMap()));
-    request.response.close();
+    await request.response.close();
   }
 
   bool _verifyDeviceId(String? candidate) {
@@ -385,11 +404,66 @@ class ServerService {
     return true;
   }
 
+  /// Best-effort attempt to add a Windows Firewall inbound rule for the server port.
+  /// Requires admin privileges — if it fails, logs a helpful message for the user.
+  void _ensureFirewallRule(int port) async {
+    try {
+      // Check if rule already exists
+      final checkResult = await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'show',
+        'rule',
+        'name=PCLink Server',
+      ]);
+      if (checkResult.stdout.toString().contains('$port')) {
+        debugPrint(
+          'ServerService: ✅ Firewall rule for port $port already exists',
+        );
+        return;
+      }
+
+      // Try to add the rule
+      final result = await Process.run('netsh', [
+        'advfirewall',
+        'firewall',
+        'add',
+        'rule',
+        'name=PCLink Server',
+        'dir=in',
+        'action=allow',
+        'protocol=TCP',
+        'localport=$port',
+      ]);
+
+      if (result.exitCode == 0) {
+        debugPrint(
+          'ServerService: ✅ Firewall rule added for inbound TCP port $port',
+        );
+      } else {
+        debugPrint(
+          'ServerService: ⚠️ Could not add firewall rule (needs admin). Run this in an elevated terminal:',
+        );
+        debugPrint(
+          '  netsh advfirewall firewall add rule name="PCLink Server" dir=in action=allow protocol=TCP localport=$port',
+        );
+      }
+    } catch (e) {
+      debugPrint('ServerService: ⚠️ Firewall check error: $e');
+      debugPrint(
+        '  Manually run as Admin: netsh advfirewall firewall add rule name="PCLink Server" dir=in action=allow protocol=TCP localport=$port',
+      );
+    }
+  }
+
   void _addSecurityHeaders(HttpResponse response) {
     response.headers.set('X-Content-Type-Options', 'nosniff');
     response.headers.set('X-Frame-Options', 'DENY');
     response.headers.set('Access-Control-Allow-Origin', '*');
-    response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    response.headers.set(
+      'Access-Control-Allow-Methods',
+      'GET, POST, OPTIONS, DELETE',
+    );
     response.headers.set(
       'Access-Control-Allow-Headers',
       'Origin, X-Requested-With, Content-Type, Accept, ${ServerConstants.authHeader}',
@@ -473,7 +547,8 @@ class ServerService {
         } else if (response.statusCode == 401) {
           return {
             'success': false,
-            'error': 'Authentication failed: Android Device ID was rejected by the PC.',
+            'error':
+                'Authentication failed: Android Device ID was rejected by the PC.',
           };
         }
       } catch (_) {
@@ -505,17 +580,15 @@ class ServerService {
             'windowsHost': response['windowsHost'] ?? 'Windows PC',
           };
         } else if (response['error'] != null) {
-          return {
-            'success': false,
-            'error': response['error'],
-          };
+          return {'success': false, 'error': response['error']};
         }
       }
     }
 
     return {
       'success': false,
-      'error': 'Failed to reach Windows PC. Make sure PCLink is running on your PC.',
+      'error':
+          'Failed to reach Windows PC. Make sure PCLink is running on your PC.',
     };
   }
 
@@ -524,4 +597,3 @@ class ServerService {
     _stateController.close();
   }
 }
-

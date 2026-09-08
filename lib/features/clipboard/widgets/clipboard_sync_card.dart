@@ -29,7 +29,7 @@ class ClipboardSyncCard extends StatefulWidget {
 
 class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
   bool _autoSync = true;
-  String _filter = 'peer'; // 'all', 'peer'
+  String _filter = 'all'; // 'all', 'peer', 'local'
 
   @override
   void initState() {
@@ -149,95 +149,124 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
             ),
             const SizedBox(height: 14),
 
-            // Filter Pills
-            Row(
-              children: [
-                _buildFilterPill(
-                  label: 'From $peerPlatformLabel',
-                  keyName: 'peer',
-                ),
-                const SizedBox(width: 8),
-                _buildFilterPill(
-                  label: 'All Clips',
-                  keyName: 'all',
-                ),
-                const Spacer(),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.textMuted),
-                  tooltip: 'Clear history',
-                  onPressed: _confirmClear,
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-
             // Stream of clips from direct local server route
             StreamBuilder<List<ClipboardItem>>(
               stream: widget.clipboardService.clipboardHistoryStream,
               initialData: widget.clipboardService.currentHistory,
               builder: (context, snapshot) {
                 final allClips = snapshot.data ?? widget.clipboardService.currentHistory;
-                final displayClips = _filter == 'peer'
-                    ? allClips.where((c) => c.sourcePlatform != currentPlatform).toList()
-                    : allClips;
+                final peerClips = allClips.where((c) => c.sourcePlatform != currentPlatform).toList();
+                final localClips = allClips.where((c) => c.sourcePlatform == currentPlatform).toList();
 
-                if (displayClips.isEmpty) {
-                  return Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: AppColors.cardBorder),
-                    ),
-                    child: Column(
-                      children: [
-                        const Icon(
-                          Icons.content_paste_go_rounded,
-                          size: 32,
-                          color: AppColors.textMuted,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          _filter == 'peer'
-                              ? 'No clips from $peerPlatformLabel yet.'
-                              : 'No clipboard history.',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Copy any text on $peerPlatformLabel and it will appear here instantly!',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppColors.textMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
+                final List<ClipboardItem> displayClips;
+                if (_filter == 'peer') {
+                  displayClips = peerClips;
+                } else if (_filter == 'local') {
+                  displayClips = localClips;
+                } else {
+                  displayClips = allClips;
                 }
 
                 return Column(
-                  children: displayClips.take(10).map((clip) {
-                    return ClipboardItemTile(
-                      item: clip,
-                      isCurrentPlatform: clip.sourcePlatform == currentPlatform,
-                      onCopied: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Copied to system clipboard!'),
-                            duration: Duration(seconds: 1),
-                            backgroundColor: AppColors.success,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Filter Pills
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: [
+                                _buildFilterPill(
+                                  label: 'All (${allClips.length})',
+                                  keyName: 'all',
+                                ),
+                                const SizedBox(width: 6),
+                                _buildFilterPill(
+                                  label: 'Peer (${peerClips.length})',
+                                  keyName: 'peer',
+                                ),
+                                const SizedBox(width: 6),
+                                _buildFilterPill(
+                                  label: 'Mine (${localClips.length})',
+                                  keyName: 'local',
+                                ),
+                              ],
+                            ),
                           ),
-                        );
-                      },
-                    );
-                  }).toList(),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.textMuted),
+                          tooltip: 'Clear history',
+                          onPressed: allClips.isEmpty ? null : _confirmClear,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+
+                    if (displayClips.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: AppColors.surface,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.cardBorder),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(
+                              Icons.content_paste_go_rounded,
+                              size: 32,
+                              color: AppColors.textMuted,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              _filter == 'peer'
+                                  ? 'No clips received from $peerPlatformLabel yet.'
+                                  : _filter == 'local'
+                                      ? 'No clips copied on this device yet.'
+                                      : 'No clipboard history yet.',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _filter == 'peer'
+                                  ? 'Copy text on $peerPlatformLabel and it will appear here instantly.'
+                                  : 'Copy any text on either device and it will sync automatically.',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppColors.textMuted,
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Column(
+                        children: displayClips.take(15).map((clip) {
+                          return ClipboardItemTile(
+                            item: clip,
+                            isCurrentPlatform: clip.sourcePlatform == currentPlatform,
+                            onCopied: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Copied to system clipboard!'),
+                                  duration: Duration(seconds: 1),
+                                  backgroundColor: AppColors.success,
+                                ),
+                              );
+                            },
+                          );
+                        }).toList(),
+                      ),
+                  ],
                 );
               },
             ),

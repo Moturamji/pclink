@@ -56,6 +56,12 @@ class ClipboardService with WidgetsBindingObserver {
   String? _lastReceivedRemoteText;
   bool isAutoSyncEnabled = true;
 
+  // Connection health tracking
+  bool _serverReachable = false;
+  int _consecutiveFailures = 0;
+  bool _refreshInProgress = false;
+  String? _lastLoggedUrl;
+
   bool get isListening => _clipboardPollTimer != null;
   Stream<List<ClipboardItem>> get clipboardHistoryStream => _historyController.stream;
   List<ClipboardItem> get currentHistory => List.unmodifiable(_history);
@@ -105,7 +111,8 @@ class ClipboardService with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
 
-    // 1. High-frequency local clipboard poll (400ms)
+    // 1. Check local clipboard immediately and start local clipboard poll (400ms)
+    _checkLocalClipboard();
     _clipboardPollTimer = Timer.periodic(const Duration(milliseconds: 400), (_) async {
       await _checkLocalClipboard();
     });
@@ -118,8 +125,8 @@ class ClipboardService with WidgetsBindingObserver {
       _history.addAll(_serverService!.clipboardHistory);
       _historyController.add(List.from(_history));
     } else {
-      // Android: Fast poll of latest clip directly from Windows server route (800ms)
-      _remoteFetchTimer = Timer.periodic(const Duration(milliseconds: 800), (_) async {
+      // Android: Poll latest clip from Windows server (2s interval with smart backoff)
+      _remoteFetchTimer = Timer.periodic(const Duration(seconds: 2), (_) async {
         await _fetchLatestRemoteClipFromWindowsServer();
       });
 
@@ -129,7 +136,8 @@ class ClipboardService with WidgetsBindingObserver {
         _startAndroidForegroundService();
       }
 
-      refreshHistory();
+      // Initial connectivity check + history fetch
+      _checkServerConnectivityAndSync();
     }
 
     debugPrint('ClipboardService: Started 100% direct server clipboard sync for $_currentPlatformName ($deviceName)');
@@ -164,7 +172,51 @@ class ClipboardService with WidgetsBindingObserver {
     // Whenever app focus changes or resumes, check clipboard immediately
     _checkLocalClipboard();
     if (_currentPlatformName == 'android') {
+      _consecutiveFailures = 0; // Reset backoff on app resume
       _fetchLatestRemoteClipFromWindowsServer();
+    }
+  }
+
+  /// Checks connectivity to the Windows server and syncs history if reachable.
+  Future<void> _checkServerConnectivityAndSync() async {
+    final serverUrl = _getTargetServerUrl?.call();
+    if (serverUrl == null || serverUrl.isEmpty) {
+      debugPrint('ClipboardService: ⚠️ Server URL is null/empty — waiting for discovery...');
+      return;
+    }
+
+    final sanitizedUrl = serverUrl.endsWith('/')
+        ? serverUrl.substring(0, serverUrl.length - 1)
+        : serverUrl;
+
+    // Log the URL being targeted (only when it changes)
+    if (_lastLoggedUrl != sanitizedUrl) {
+      _lastLoggedUrl = sanitizedUrl;
+      debugPrint('ClipboardService: 🎯 Target server URL: $sanitizedUrl');
+    }
+
+    // Try a quick health check first
+    try {
+      final healthUri = Uri.parse('$sanitizedUrl${ServerConstants.healthEndpoint}');
+      debugPrint('ClipboardService: 🔍 Testing connectivity to $healthUri ...');
+      final response = await _client.get(healthUri).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        _serverReachable = true;
+        _consecutiveFailures = 0;
+        debugPrint('ClipboardService: ✅ Server reachable! Response: ${response.body}');
+        await refreshHistory();
+      } else {
+        _serverReachable = false;
+        debugPrint('ClipboardService: ❌ Server returned status ${response.statusCode}');
+      }
+    } catch (e) {
+      _serverReachable = false;
+      debugPrint('ClipboardService: ❌ Cannot reach server at $sanitizedUrl — $e');
+      debugPrint('ClipboardService: 💡 Make sure:');
+      debugPrint('  1. Both devices are on the SAME Wi-Fi network (192.168.20.x)');
+      debugPrint('  2. Windows Firewall allows inbound TCP on port 8088');
+      debugPrint('     Run as Admin: netsh advfirewall firewall add rule name="PCLink" dir=in action=allow protocol=TCP localport=8088');
+      debugPrint('  3. The Windows PCLink app is running');
     }
   }
 
@@ -210,7 +262,10 @@ class ClipboardService with WidgetsBindingObserver {
   /// Android -> Windows: Directly sends copied text to Windows server.
   Future<void> _postClipToWindowsServer(ClipboardItem item) async {
     final serverUrl = _getTargetServerUrl?.call();
-    if (serverUrl == null || serverUrl.isEmpty) return;
+    if (serverUrl == null || serverUrl.isEmpty) {
+      debugPrint('ClipboardService _postClip: serverUrl is null/empty yet');
+      return;
+    }
 
     try {
       final sanitizedUrl = serverUrl.endsWith('/')
@@ -227,10 +282,17 @@ class ClipboardService with WidgetsBindingObserver {
           .timeout(const Duration(seconds: 3));
 
       if (response.statusCode == 200) {
-        debugPrint('ClipboardService: Direct clip sent to Windows server (${item.charCount} chars)');
+        _serverReachable = true;
+        _consecutiveFailures = 0;
+        debugPrint('ClipboardService: ✅ Direct clip sent to Windows server at $sanitizedUrl (${item.charCount} chars)');
+      } else {
+        debugPrint('ClipboardService _postClip error: status ${response.statusCode} - ${response.body}');
       }
     } catch (e) {
-      debugPrint('ClipboardService _postClipToWindowsServer error: $e');
+      _consecutiveFailures++;
+      if (_consecutiveFailures <= 3) {
+        debugPrint('ClipboardService: ❌ _postClipToWindowsServer error (attempt $_consecutiveFailures): $e');
+      }
     }
   }
 
@@ -239,24 +301,46 @@ class ClipboardService with WidgetsBindingObserver {
     final serverUrl = _getTargetServerUrl?.call();
     if (serverUrl == null || serverUrl.isEmpty) return;
 
+    // Smart backoff: skip polls when server is proven unreachable
+    if (_consecutiveFailures > 5) {
+      // Only retry every 10th attempt (20s effective interval)
+      if (_consecutiveFailures % 10 != 0) {
+        return;
+      }
+      debugPrint('ClipboardService: 🔄 Retrying server connection after $_consecutiveFailures failures...');
+    }
+
     try {
       final sanitizedUrl = serverUrl.endsWith('/')
           ? serverUrl.substring(0, serverUrl.length - 1)
           : serverUrl;
       final uri = Uri.parse('$sanitizedUrl${ServerConstants.clipboardLatestEndpoint}');
 
-      final response = await _client.get(uri).timeout(const Duration(seconds: 2));
-      if (response.statusCode == 200 && response.body.isNotEmpty && response.body != 'null') {
-        final dynamic data = jsonDecode(response.body);
-        if (data is Map) {
-          final item = ClipboardItem.fromMap(data);
-          if (item.sourcePlatform != _currentPlatformName && item.text != _lastReceivedRemoteText) {
-            _handleRemoteClipReceived(item);
+      final response = await _client.get(uri).timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200) {
+        // Mark as reachable
+        if (!_serverReachable) {
+          debugPrint('ClipboardService: ✅ Server connection restored!');
+        }
+        _serverReachable = true;
+        _consecutiveFailures = 0;
+
+        if (response.body.isNotEmpty && response.body != 'null') {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map) {
+            final item = ClipboardItem.fromMap(data);
+            if (item.sourcePlatform != _currentPlatformName && item.text != _lastReceivedRemoteText) {
+              debugPrint('ClipboardService: 📋 Android received new clip from PC: ${item.previewText}');
+              _handleRemoteClipReceived(item);
+            }
           }
         }
       }
-    } catch (_) {
-      // Server might be temporarily unreachable; handled gracefully
+    } catch (e) {
+      _consecutiveFailures++;
+      if (_consecutiveFailures <= 3 || _consecutiveFailures % 20 == 0) {
+        debugPrint('ClipboardService: ❌ Fetch from server failed ($_consecutiveFailures): $e');
+      }
     }
   }
 
@@ -288,6 +372,7 @@ class ClipboardService with WidgetsBindingObserver {
   }
 
   /// Refreshes full clipboard history directly from the Windows server route.
+  /// Debounced — will not fire concurrently.
   Future<void> refreshHistory() async {
     if (_currentPlatformName == 'windows') {
       if (_serverService != null) {
@@ -298,8 +383,15 @@ class ClipboardService with WidgetsBindingObserver {
       return;
     }
 
+    // Debounce: skip if already in progress
+    if (_refreshInProgress) return;
+    _refreshInProgress = true;
+
     final serverUrl = _getTargetServerUrl?.call();
-    if (serverUrl == null || serverUrl.isEmpty) return;
+    if (serverUrl == null || serverUrl.isEmpty) {
+      _refreshInProgress = false;
+      return;
+    }
 
     try {
       final sanitizedUrl = serverUrl.endsWith('/')
@@ -307,21 +399,37 @@ class ClipboardService with WidgetsBindingObserver {
           : serverUrl;
       final uri = Uri.parse('$sanitizedUrl${ServerConstants.clipboardEndpoint}');
 
-      final response = await _client.get(uri).timeout(const Duration(seconds: 3));
+      final response = await _client.get(uri).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200 && response.body.isNotEmpty && response.body != 'null') {
+        _serverReachable = true;
+        _consecutiveFailures = 0;
         final dynamic listData = jsonDecode(response.body);
         if (listData is List) {
-          _history.clear();
           for (final raw in listData) {
             if (raw is Map) {
-              _history.add(ClipboardItem.fromMap(raw));
+              final item = ClipboardItem.fromMap(raw);
+              if (!_history.any((c) => c.id == item.id || c.text == item.text)) {
+                _history.add(item);
+              }
             }
+          }
+          _history.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          if (_history.length > 50) {
+            _history.removeRange(50, _history.length);
           }
           _historyController.add(List.from(_history));
         }
       }
     } catch (e) {
-      debugPrint('ClipboardService refreshHistory error: $e');
+      _consecutiveFailures++;
+      // Only log first 3 failures, then throttle
+      if (_consecutiveFailures <= 3) {
+        debugPrint('ClipboardService: ❌ refreshHistory error ($_consecutiveFailures): $e');
+      } else if (_consecutiveFailures == 4) {
+        debugPrint('ClipboardService: ⚠️ Server unreachable — suppressing repeat logs. Will retry periodically.');
+      }
+    } finally {
+      _refreshInProgress = false;
     }
   }
 
