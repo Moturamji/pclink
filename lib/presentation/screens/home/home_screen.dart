@@ -48,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<DeviceDetails> _deviceDetailsFuture;
   ServerInfo? _currentServerInfo;
   StreamSubscription<ServerInfo>? _serverSub;
+  StreamSubscription<Map<String, dynamic>?>? _cloudHandshakeSub;
   bool _isRefreshing = false;
 
   @override
@@ -58,6 +59,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _databaseService = widget.databaseService ?? DatabaseService();
     _serverService = widget.serverService ?? ServerService();
 
+    final user = _authService.currentUser;
+
     if (!kIsWeb && Platform.isWindows) {
       _currentServerInfo = _serverService.currentServerInfo;
       _serverSub = _serverService.serverStateStream.listen((info) {
@@ -67,6 +70,20 @@ class _HomeScreenState extends State<HomeScreen> {
           });
         }
       });
+
+      if (user != null) {
+        _cloudHandshakeSub = _databaseService
+            .listenCloudHandshakeRequests(user)
+            .listen((request) {
+          if (request != null) {
+            _serverService.handleCloudHandshakeRequest(
+              request,
+              user: user,
+              databaseService: _databaseService,
+            );
+          }
+        });
+      }
     }
 
     _loadDeviceDetails();
@@ -75,6 +92,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _serverSub?.cancel();
+    _cloudHandshakeSub?.cancel();
     if (!kIsWeb && Platform.isWindows) {
       final user = _authService.currentUser;
       if (user != null) {
@@ -107,6 +125,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!kIsWeb && details.isWindows) {
           final serverInfo = await _serverService.startServer(
             hostIp: details.primaryIp,
+            publicIp: details.publicIp,
           );
           if (serverInfo != null) {
             await _databaseService.updateServerInfo(
@@ -131,6 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       final serverInfo = await _serverService.startServer(
         hostIp: details.primaryIp,
+        publicIp: details.publicIp,
       );
       if (user != null && serverInfo != null) {
         await _databaseService.updateServerInfo(
@@ -315,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       PlatformHeader(details: details),
                       const SizedBox(height: 20),
 
-                      // Local Windows Server or Android Server Listener Card
+                      // Local/Public Windows Server or Android Server Listener Card
                       ServerControlCard(
                         isWindows: details.isWindows,
                         currentServerInfo: _currentServerInfo ??
@@ -325,6 +345,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             : null,
                         onToggleServer: () => _toggleServer(details),
                         localDeviceId: details.deviceId,
+                        user: user,
+                        databaseService: _databaseService,
                       ),
                       const SizedBox(height: 20),
 
@@ -382,4 +404,5 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
 

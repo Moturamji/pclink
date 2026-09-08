@@ -1,12 +1,15 @@
 import 'package:flutter/foundation.dart';
 
-/// Immutable model representing the status and address of the local Windows server.
+/// Immutable model representing the status, address, and public WAN/relay connectivity of the Windows server.
 @immutable
 class ServerInfo {
   final bool isLive;
   final String ipAddress;
   final int port;
   final String url;
+  final String? publicIp;
+  final String? publicUrl;
+  final String connectionMode;
   final DateTime? startedAt;
   final DateTime? lastHeartbeat;
   final String? connectedClientId;
@@ -16,6 +19,9 @@ class ServerInfo {
     required this.ipAddress,
     required this.port,
     required this.url,
+    this.publicIp,
+    this.publicUrl,
+    this.connectionMode = 'cloud_relay',
     this.startedAt,
     this.lastHeartbeat,
     this.connectedClientId,
@@ -33,6 +39,9 @@ class ServerInfo {
       ipAddress: (map['ipAddress'] as String?) ?? '127.0.0.1',
       port: (map['port'] as int?) ?? 8088,
       url: (map['url'] as String?) ?? 'http://127.0.0.1:8088',
+      publicIp: map['publicIp'] as String?,
+      publicUrl: map['publicUrl'] as String?,
+      connectionMode: (map['connectionMode'] as String?) ?? 'cloud_relay',
       startedAt: parseDate(map['startedAt']),
       lastHeartbeat: parseDate(map['lastHeartbeat']),
       connectedClientId: map['connectedClientId'] as String?,
@@ -45,6 +54,9 @@ class ServerInfo {
       'ipAddress': ipAddress,
       'port': port,
       'url': url,
+      'publicIp': publicIp,
+      'publicUrl': publicUrl ?? (publicIp != null ? 'http://$publicIp:$port' : null),
+      'connectionMode': connectionMode,
       'startedAt': startedAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
       'lastHeartbeat': DateTime.now().toIso8601String(),
       'connectedClientId': connectedClientId,
@@ -60,6 +72,9 @@ class ServerInfo {
           ipAddress == other.ipAddress &&
           port == other.port &&
           url == other.url &&
+          publicIp == other.publicIp &&
+          publicUrl == other.publicUrl &&
+          connectionMode == other.connectionMode &&
           connectedClientId == other.connectedClientId;
 
   @override
@@ -68,5 +83,9 @@ class ServerInfo {
       ipAddress.hashCode ^
       port.hashCode ^
       url.hashCode ^
+      publicIp.hashCode ^
+      publicUrl.hashCode ^
+      connectionMode.hashCode ^
       connectedClientId.hashCode;
 }
+

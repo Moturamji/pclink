@@ -1,16 +1,22 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import '../models/device_details.dart';
 
 /// Service responsible for querying device hardware specifications and network interfaces.
 class DeviceService {
   final DeviceInfoPlugin _deviceInfoPlugin;
+  final http.Client _httpClient;
 
-  DeviceService({DeviceInfoPlugin? deviceInfoPlugin})
-      : _deviceInfoPlugin = deviceInfoPlugin ?? DeviceInfoPlugin();
+  DeviceService({
+    DeviceInfoPlugin? deviceInfoPlugin,
+    http.Client? httpClient,
+  })  : _deviceInfoPlugin = deviceInfoPlugin ?? DeviceInfoPlugin(),
+        _httpClient = httpClient ?? http.Client();
 
-  /// Queries all platform specs and network addresses asynchronously.
+  /// Queries all platform specs, network addresses, and public WAN IP asynchronously.
   Future<DeviceDetails> getDeviceDetails() async {
     String platform = 'Unknown';
     String deviceId = 'Unknown ID';
@@ -72,6 +78,7 @@ class DeviceService {
 
     final List<NetworkAddressInfo> interfaces = await _getNetworkInterfaces();
     final String primaryIp = _determinePrimaryIp(interfaces);
+    final String? publicIp = await getPublicIpAddress();
 
     return DeviceDetails(
       platform: platform,
@@ -79,9 +86,36 @@ class DeviceService {
       deviceName: deviceName,
       osVersion: osVersion,
       primaryIp: primaryIp,
+      publicIp: publicIp,
       interfaces: interfaces,
       additionalDetails: additionalDetails,
     );
+  }
+
+  /// Resolves the device's public WAN IP address over the Internet.
+  Future<String?> getPublicIpAddress() async {
+    try {
+      final response = await _httpClient
+          .get(Uri.parse('https://api.ipify.org?format=json'))
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final dynamic data = jsonDecode(response.body);
+        if (data is Map && data['ip'] != null) {
+          return data['ip'].toString().trim();
+        }
+      }
+    } catch (_) {
+      try {
+        final fallback = await _httpClient
+            .get(Uri.parse('https://icanhazip.com'))
+            .timeout(const Duration(seconds: 3));
+        if (fallback.statusCode == 200 && fallback.body.trim().isNotEmpty) {
+          return fallback.body.trim();
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 
   Future<List<NetworkAddressInfo>> _getNetworkInterfaces() async {
@@ -140,3 +174,4 @@ class DeviceService {
     return nonLoopbackIpv4.address;
   }
 }
+

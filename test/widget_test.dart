@@ -79,6 +79,9 @@ void main() {
         'ipAddress': '192.168.1.50',
         'port': ServerConstants.defaultPort,
         'url': 'http://192.168.1.50:8088',
+        'publicIp': '203.0.113.195',
+        'publicUrl': 'http://203.0.113.195:8088',
+        'connectionMode': 'cloud_relay',
         'startedAt': now.toIso8601String(),
         'lastHeartbeat': now.toIso8601String(),
         'connectedClientId': 'android-client-123',
@@ -89,11 +92,16 @@ void main() {
       expect(serverInfo.ipAddress, '192.168.1.50');
       expect(serverInfo.port, 8088);
       expect(serverInfo.url, 'http://192.168.1.50:8088');
+      expect(serverInfo.publicIp, '203.0.113.195');
+      expect(serverInfo.publicUrl, 'http://203.0.113.195:8088');
+      expect(serverInfo.connectionMode, 'cloud_relay');
       expect(serverInfo.connectedClientId, 'android-client-123');
 
       final serialized = serverInfo.toMap();
       expect(serialized['isLive'], isTrue);
       expect(serialized['ipAddress'], '192.168.1.50');
+      expect(serialized['publicIp'], '203.0.113.195');
+      expect(serialized['connectionMode'], 'cloud_relay');
       expect(serialized['port'], 8088);
       expect(serialized['connectedClientId'], 'android-client-123');
     });
@@ -104,17 +112,22 @@ void main() {
         ipAddress: '192.168.1.10',
         port: 8088,
         url: 'http://192.168.1.10:8088',
+        publicIp: '203.0.113.10',
+        connectionMode: 'cloud_relay',
       );
       const s2 = ServerInfo(
         isLive: true,
         ipAddress: '192.168.1.10',
         port: 8088,
         url: 'http://192.168.1.10:8088',
+        publicIp: '203.0.113.10',
+        connectionMode: 'cloud_relay',
       );
       expect(s1, equals(s2));
       expect(s1.hashCode, equals(s2.hashCode));
     });
   });
+
 
   group('AuthService Tests', () {
     test('getErrorMessage returns proper message for exceptions', () {

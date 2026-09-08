@@ -29,12 +29,18 @@
   - Real-time `LinkedDevicesCard` displaying all connected devices in dashboard
 - [x] Windows-Exclusive Lightweight Local Server (`ServerService`):
   - Automatically starts on Windows application launch (`http://<primaryIp>:8088`)
+  - Resolves Public WAN IP (`api.ipify.org` / `icanhazip.com`) and publishes public URL
   - Real-time cloud announcement of server state to `/users/{userId}/server`
   - Password-protected authentication: Android Device ID acts as the secret pre-shared key
   - Clean platform isolation: completely bypassed on Android builds
+- [x] Public Network & Cloud Relay Channel Support:
+  - Supports cross-network connection over 4G/5G mobile data, remote Wi-Fi, and public WAN
+  - Real-time Firebase RTDB cloud channel (`/users/{userId}/channel/`) handles cross-network requests & responses seamlessly without requiring router port-forwarding
+  - Dual handshake strategy: Direct Public WAN attempt + Instant Cloud Relay fallback
 - [x] Android Live Server Notification & 1-Click Connect (`ServerControlCard`):
   - Scoped strictly to the logged-in user's node in Firebase RTDB
   - Real-time live status notification when Windows PC starts the app
-  - "Authenticate & Connect" action sending Android Device ID as header/payload
+  - "Authenticate & Connect" action sending Android Device ID as password across local or public networks
 - [x] Comprehensive Unit Testing & Static Analysis (`flutter test` & `flutter analyze` 100% passing)
+
 

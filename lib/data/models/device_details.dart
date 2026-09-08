@@ -42,6 +42,7 @@ class DeviceDetails {
   final String deviceName;
   final String osVersion;
   final String primaryIp;
+  final String? publicIp;
   final List<NetworkAddressInfo> interfaces;
   final Map<String, String> additionalDetails;
 
@@ -51,6 +52,7 @@ class DeviceDetails {
     required this.deviceName,
     required this.osVersion,
     required this.primaryIp,
+    this.publicIp,
     required this.interfaces,
     required this.additionalDetails,
   });
@@ -69,6 +71,7 @@ class DeviceDetails {
           deviceName == other.deviceName &&
           osVersion == other.osVersion &&
           primaryIp == other.primaryIp &&
+          publicIp == other.publicIp &&
           listEquals(interfaces, other.interfaces) &&
           mapEquals(additionalDetails, other.additionalDetails);
 
@@ -79,6 +82,8 @@ class DeviceDetails {
       deviceName.hashCode ^
       osVersion.hashCode ^
       primaryIp.hashCode ^
+      publicIp.hashCode ^
       interfaces.hashCode ^
       additionalDetails.hashCode;
 }
+

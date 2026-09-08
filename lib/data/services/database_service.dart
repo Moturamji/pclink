@@ -227,6 +227,145 @@ class DatabaseService {
 
     return controller.stream;
   }
+
+  // -------------------------------------------------------------
+  // Public Network / Cloud Relay Channel Methods
+  // -------------------------------------------------------------
+
+  /// Sends a cross-network handshake request from Android to Windows via Firebase RTDB channel.
+  Future<bool> sendCloudHandshakeRequest({
+    required User user,
+    required String androidDeviceId,
+    required String requestId,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_request.json$authQuery');
+
+      final response = await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'requestId': requestId,
+          'deviceId': androidDeviceId,
+          'timestamp': DateTime.now().toIso8601String(),
+          'clientPlatform': 'Android',
+        }),
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService sendCloudHandshakeRequest error: $e');
+      return false;
+    }
+  }
+
+  /// Listens on Windows for incoming cloud handshake requests.
+  Stream<Map<String, dynamic>?> listenCloudHandshakeRequests(User user) {
+    late final StreamController<Map<String, dynamic>?> controller;
+    Timer? timer;
+    String? lastProcessedRequestId;
+
+    Future<void> fetchRequest() async {
+      try {
+        final token = await user.getIdToken();
+        final authQuery = token != null ? '?auth=$token' : '';
+        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_request.json$authQuery');
+        final response = await _client.get(uri);
+
+        if (response.statusCode == 200 &&
+            response.body.isNotEmpty &&
+            response.body != 'null') {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map) {
+            final requestId = data['requestId']?.toString();
+            if (requestId != null && requestId != lastProcessedRequestId) {
+              lastProcessedRequestId = requestId;
+              if (!controller.isClosed) {
+                controller.add(Map<String, dynamic>.from(data));
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('DatabaseService listenCloudHandshakeRequests error: $e');
+      }
+    }
+
+    controller = StreamController<Map<String, dynamic>?>.broadcast(
+      onListen: () {
+        fetchRequest();
+        timer = Timer.periodic(const Duration(seconds: 2), (_) => fetchRequest());
+      },
+      onCancel: () {
+        timer?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
+  /// Sends a handshake response from Windows to Android via Firebase RTDB channel.
+  Future<void> sendCloudHandshakeResponse({
+    required User user,
+    required String requestId,
+    required bool success,
+    required String message,
+    required String windowsHost,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_response.json$authQuery');
+
+      await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'requestId': requestId,
+          'success': success,
+          'message': message,
+          'windowsHost': windowsHost,
+          'timestamp': DateTime.now().toIso8601String(),
+        }),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService sendCloudHandshakeResponse error: $e');
+    }
+  }
+
+  /// Waits on Android for the Windows server response for a given [requestId].
+  Future<Map<String, dynamic>> waitForCloudHandshakeResponse({
+    required User user,
+    required String requestId,
+    Duration timeout = const Duration(seconds: 8),
+  }) async {
+    final startTime = DateTime.now();
+    while (DateTime.now().difference(startTime) < timeout) {
+      try {
+        final token = await user.getIdToken();
+        final authQuery = token != null ? '?auth=$token' : '';
+        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_response.json$authQuery');
+        final response = await _client.get(uri);
+
+        if (response.statusCode == 200 &&
+            response.body.isNotEmpty &&
+            response.body != 'null') {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map && data['requestId'] == requestId) {
+            return Map<String, dynamic>.from(data);
+          }
+        }
+      } catch (_) {}
+      await Future.delayed(const Duration(milliseconds: 600));
+    }
+
+    return {
+      'success': false,
+      'error': 'Connection timed out. Ensure the Windows PC is running PCLink.',
+    };
+  }
 }
+
 
 

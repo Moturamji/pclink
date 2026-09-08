@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/server_constants.dart';
 import '../models/server_info.dart';
+import 'database_service.dart';
 
-/// Manages the local lightweight HTTP server on Windows and client-side handshake on Android.
+/// Manages the lightweight server on Windows and client-side handshake on Android across local and public networks.
 class ServerService {
   HttpServer? _server;
   String? _authorizedAndroidDeviceId;
@@ -16,6 +18,7 @@ class ServerService {
     ipAddress: '127.0.0.1',
     port: ServerConstants.defaultPort,
     url: 'http://127.0.0.1:${ServerConstants.defaultPort}',
+    connectionMode: 'cloud_relay',
   );
 
   final StreamController<ServerInfo> _stateController =
@@ -33,6 +36,7 @@ class ServerService {
   /// Starts the lightweight HTTP server on Windows.
   Future<ServerInfo?> startServer({
     required String hostIp,
+    String? publicIp,
     int port = ServerConstants.defaultPort,
     String? authorizedAndroidDeviceId,
   }) async {
@@ -55,11 +59,16 @@ class ServerService {
       );
 
       final serverUrl = 'http://$hostIp:$port';
+      final publicUrl = publicIp != null ? 'http://$publicIp:$port' : null;
+
       _currentInfo = ServerInfo(
         isLive: true,
         ipAddress: hostIp,
         port: port,
         url: serverUrl,
+        publicIp: publicIp,
+        publicUrl: publicUrl,
+        connectionMode: 'cloud_relay',
         startedAt: DateTime.now(),
         lastHeartbeat: DateTime.now(),
         connectedClientId: _connectedClientId,
@@ -68,7 +77,7 @@ class ServerService {
       _stateController.add(_currentInfo);
       _listenToRequests();
 
-      debugPrint('ServerService: Windows server listening on $serverUrl');
+      debugPrint('ServerService: Windows server listening on $serverUrl (Public WAN: $publicIp)');
       return _currentInfo;
     } catch (e) {
       debugPrint('ServerService: Failed to start server: $e');
@@ -77,6 +86,7 @@ class ServerService {
         ipAddress: hostIp,
         port: port,
         url: 'http://$hostIp:$port',
+        publicIp: publicIp,
       );
       _stateController.add(_currentInfo);
       return null;
@@ -134,6 +144,7 @@ class ServerService {
       'message': ServerConstants.msgServerRunning,
       'serverPlatform': 'Windows',
       'hostName': Platform.localHostname,
+      'publicIp': _currentInfo.publicIp,
       'timestamp': DateTime.now().toIso8601String(),
     }));
     request.response.close();
@@ -172,6 +183,9 @@ class ServerService {
         ipAddress: _currentInfo.ipAddress,
         port: _currentInfo.port,
         url: _currentInfo.url,
+        publicIp: _currentInfo.publicIp,
+        publicUrl: _currentInfo.publicUrl,
+        connectionMode: 'wan_direct',
         startedAt: _currentInfo.startedAt,
         lastHeartbeat: DateTime.now(),
         connectedClientId: _connectedClientId,
@@ -184,6 +198,7 @@ class ServerService {
         'message': ServerConstants.msgAuthSuccess,
         'windowsHost': Platform.localHostname,
         'serverUrl': _currentInfo.url,
+        'connectionMode': 'wan_direct',
       }));
     } else {
       request.response.statusCode = HttpStatus.unauthorized;
@@ -194,6 +209,53 @@ class ServerService {
     }
 
     await request.response.close();
+  }
+
+  /// Processes an incoming remote cloud handshake from Firebase RTDB.
+  Future<void> handleCloudHandshakeRequest(
+    Map<String, dynamic> request, {
+    required User user,
+    required DatabaseService databaseService,
+  }) async {
+    final requestId = request['requestId']?.toString() ?? '';
+    final deviceId = request['deviceId']?.toString();
+
+    if (requestId.isEmpty) return;
+
+    final isAuthorized = _verifyDeviceId(deviceId);
+
+    if (isAuthorized) {
+      _connectedClientId = deviceId;
+      _currentInfo = ServerInfo(
+        isLive: true,
+        ipAddress: _currentInfo.ipAddress,
+        port: _currentInfo.port,
+        url: _currentInfo.url,
+        publicIp: _currentInfo.publicIp,
+        publicUrl: _currentInfo.publicUrl,
+        connectionMode: 'cloud_relay',
+        startedAt: _currentInfo.startedAt,
+        lastHeartbeat: DateTime.now(),
+        connectedClientId: _connectedClientId,
+      );
+      _stateController.add(_currentInfo);
+
+      await databaseService.sendCloudHandshakeResponse(
+        user: user,
+        requestId: requestId,
+        success: true,
+        message: 'Connected securely over public cloud channel!',
+        windowsHost: Platform.localHostname,
+      );
+    } else {
+      await databaseService.sendCloudHandshakeResponse(
+        user: user,
+        requestId: requestId,
+        success: false,
+        message: 'Authentication failed: Android Device ID rejected.',
+        windowsHost: Platform.localHostname,
+      );
+    }
   }
 
   void _handlePing(HttpRequest request) {
@@ -249,6 +311,9 @@ class ServerService {
       ipAddress: _currentInfo.ipAddress,
       port: _currentInfo.port,
       url: _currentInfo.url,
+      publicIp: _currentInfo.publicIp,
+      publicUrl: _currentInfo.publicUrl,
+      connectionMode: 'cloud_relay',
       startedAt: null,
       lastHeartbeat: null,
       connectedClientId: null,
@@ -257,62 +322,103 @@ class ServerService {
   }
 
   // -------------------------------------------------------------
-  // Android Client Connection Methods
+  // Android Client Connection Methods (Public WAN & Cloud Relay)
   // -------------------------------------------------------------
 
-  /// Performs the password-protected handshake from Android to the Windows server.
+  /// Performs the password-protected handshake from Android to the Windows server across any public network.
   static Future<Map<String, dynamic>> authenticateClientWithServer({
     required String serverUrl,
+    String? publicUrl,
     required String androidDeviceId,
-    Duration timeout = const Duration(seconds: 5),
+    User? user,
+    DatabaseService? databaseService,
+    Duration timeout = const Duration(seconds: 4),
   }) async {
-    try {
-      final sanitizedUrl = serverUrl.endsWith('/')
-          ? serverUrl.substring(0, serverUrl.length - 1)
-          : serverUrl;
-      final uri = Uri.parse('$sanitizedUrl${ServerConstants.authEndpoint}');
+    // 1. Try Direct Public WAN URL or LAN URL first
+    final candidateUrls = [
+      if (publicUrl != null && publicUrl.isNotEmpty) publicUrl,
+      serverUrl,
+    ];
 
-      final response = await http
-          .post(
-            uri,
-            headers: {
-              'Content-Type': 'application/json',
-              ServerConstants.authHeader: androidDeviceId,
-            },
-            body: jsonEncode({
-              'deviceId': androidDeviceId,
-              'clientPlatform': 'Android',
-              'timestamp': DateTime.now().toIso8601String(),
-            }),
-          )
-          .timeout(timeout);
+    for (final targetUrl in candidateUrls) {
+      try {
+        final sanitizedUrl = targetUrl.endsWith('/')
+            ? targetUrl.substring(0, targetUrl.length - 1)
+            : targetUrl;
+        final uri = Uri.parse('$sanitizedUrl${ServerConstants.authEndpoint}');
 
-      if (response.statusCode == 200) {
-        final dynamic data = jsonDecode(response.body);
-        return {
-          'success': true,
-          'message': data is Map && data['message'] != null
-              ? data['message']
-              : ServerConstants.msgAuthSuccess,
-          'windowsHost': data is Map ? data['windowsHost'] : 'Windows PC',
-        };
-      } else if (response.statusCode == 401) {
-        return {
-          'success': false,
-          'error': 'Authentication failed: Android Device ID was rejected by the PC.',
-        };
-      } else {
-        return {
-          'success': false,
-          'error': 'Server responded with status ${response.statusCode}',
-        };
+        final response = await http
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                ServerConstants.authHeader: androidDeviceId,
+              },
+              body: jsonEncode({
+                'deviceId': androidDeviceId,
+                'clientPlatform': 'Android',
+                'timestamp': DateTime.now().toIso8601String(),
+              }),
+            )
+            .timeout(timeout);
+
+        if (response.statusCode == 200) {
+          final dynamic data = jsonDecode(response.body);
+          return {
+            'success': true,
+            'connectionMode': 'Public WAN Direct',
+            'message': data is Map && data['message'] != null
+                ? data['message']
+                : ServerConstants.msgAuthSuccess,
+            'windowsHost': data is Map ? data['windowsHost'] : 'Windows PC',
+          };
+        } else if (response.statusCode == 401) {
+          return {
+            'success': false,
+            'error': 'Authentication failed: Android Device ID was rejected by the PC.',
+          };
+        }
+      } catch (_) {
+        // Continue to next URL or Cloud Relay fallback
       }
-    } catch (e) {
-      return {
-        'success': false,
-        'error': 'Failed to reach PC server. Make sure PC and phone are on the same Wi-Fi network ($e)',
-      };
     }
+
+    // 2. If direct HTTP is blocked by router NAT or mobile carrier firewall, use the Cloud Relay Channel
+    if (user != null && databaseService != null) {
+      final requestId = 'req_${DateTime.now().millisecondsSinceEpoch}';
+      final requestSent = await databaseService.sendCloudHandshakeRequest(
+        user: user,
+        androidDeviceId: androidDeviceId,
+        requestId: requestId,
+      );
+
+      if (requestSent) {
+        final response = await databaseService.waitForCloudHandshakeResponse(
+          user: user,
+          requestId: requestId,
+          timeout: const Duration(seconds: 7),
+        );
+
+        if (response['success'] == true) {
+          return {
+            'success': true,
+            'connectionMode': 'Public Cloud Relay',
+            'message': response['message'] ?? 'Connected over Public Network',
+            'windowsHost': response['windowsHost'] ?? 'Windows PC',
+          };
+        } else if (response['error'] != null) {
+          return {
+            'success': false,
+            'error': response['error'],
+          };
+        }
+      }
+    }
+
+    return {
+      'success': false,
+      'error': 'Failed to reach Windows PC. Make sure PCLink is running on your PC.',
+    };
   }
 
   void dispose() {
@@ -320,3 +426,4 @@ class ServerService {
     _stateController.close();
   }
 }
+
