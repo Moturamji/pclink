@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
-import '../../../core/utils/clipboard_helper.dart';
 import '../../../data/models/device_details.dart';
 import '../../../data/models/server_info.dart';
 import '../../../data/services/auth_service.dart';
@@ -12,10 +11,9 @@ import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
 import '../../../data/services/server_service.dart';
 import '../auth/auth_screen.dart';
-import 'widgets/interfaces_card.dart';
 import 'widgets/linked_devices_card.dart';
-import 'widgets/metric_card.dart';
 import 'widgets/platform_header.dart';
+import 'widgets/security_status_card.dart';
 import 'widgets/server_control_card.dart';
 import 'widgets/specs_card.dart';
 import 'widgets/user_session_card.dart';
@@ -403,36 +401,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 14),
                       ],
 
-                      MetricCard(
-                        title: AppStrings.deviceIdTitle,
-                        value: details.deviceId,
-                        icon: Icons.fingerprint,
-                        accentColor: AppColors.primaryLight,
-                        badgeText: details.isWindows
-                            ? 'Machine GUID'
-                            : 'Android ID',
-                        onCopy: () => ClipboardHelper.copy(
-                            context, details.deviceId, 'Device ID'),
+                      // Security, Encryption, and Data Privacy Health Card
+                      SecurityStatusCard(
+                        isConnected: details.isConnected,
+                        isWindows: details.isWindows,
                       ),
-                      const SizedBox(height: 14),
-
-                      MetricCard(
-                        title: AppStrings.primaryIpTitle,
-                        value: details.primaryIp,
-                        icon: Icons.wifi,
-                        accentColor: AppColors.secondary,
-                        badgeText:
-                            details.isConnected ? 'Connected' : 'Offline',
-                        badgeColor: details.isConnected
-                            ? AppColors.success
-                            : AppColors.error,
-                        onCopy: () => ClipboardHelper.copy(
-                            context, details.primaryIp, 'IP Address'),
-                      ),
-                      const SizedBox(height: 14),
-
-                      if (details.interfaces.isNotEmpty)
-                        InterfacesCard(interfaces: details.interfaces),
                       const SizedBox(height: 14),
 
                       SpecsCard(details: details),

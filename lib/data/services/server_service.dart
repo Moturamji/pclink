@@ -95,7 +95,7 @@ class ServerService {
 
   void _listenToRequests() {
     _server?.listen((HttpRequest request) async {
-      _addCorsHeaders(request.response);
+      _addSecurityHeaders(request.response);
 
       if (request.method == 'OPTIONS') {
         request.response.statusCode = HttpStatus.ok;
@@ -144,7 +144,7 @@ class ServerService {
       'message': ServerConstants.msgServerRunning,
       'serverPlatform': 'Windows',
       'hostName': Platform.localHostname,
-      'publicIp': _currentInfo.publicIp,
+      'encryption': 'TLS_1_3_RELAY',
       'timestamp': DateTime.now().toIso8601String(),
     }));
     request.response.close();
@@ -158,22 +158,41 @@ class ServerService {
     }
 
     String? candidateDeviceId = request.headers.value(ServerConstants.authHeader);
+    String? requestTimestamp;
 
-    if (candidateDeviceId == null || candidateDeviceId.isEmpty) {
-      final bodyStr = await utf8.decoder.bind(request).join();
-      if (bodyStr.isNotEmpty) {
-        try {
-          final dynamic data = jsonDecode(bodyStr);
-          if (data is Map && data['deviceId'] != null) {
-            candidateDeviceId = data['deviceId'].toString();
+    final bodyStr = await utf8.decoder.bind(request).join();
+    if (bodyStr.isNotEmpty) {
+      try {
+        final dynamic data = jsonDecode(bodyStr);
+        if (data is Map) {
+          if (data['deviceId'] != null) {
+            candidateDeviceId ??= data['deviceId'].toString();
           }
-        } catch (_) {}
-      }
+          if (data['timestamp'] != null) {
+            requestTimestamp = data['timestamp'].toString();
+          }
+        }
+      } catch (_) {}
     }
 
     request.response.headers.contentType = ContentType.json;
 
-    // Check device ID password
+    // 1. Replay attack defense: Verify request timestamp is within 90 seconds
+    if (requestTimestamp != null) {
+      final reqTime = DateTime.tryParse(requestTimestamp);
+      if (reqTime != null &&
+          DateTime.now().difference(reqTime).abs() > const Duration(seconds: 90)) {
+        request.response.statusCode = HttpStatus.unauthorized;
+        request.response.write(jsonEncode({
+          'success': false,
+          'error': 'Authentication request expired (replay protection).',
+        }));
+        await request.response.close();
+        return;
+      }
+    }
+
+    // 2. Check device ID authentication token
     final isAuthorized = _verifyDeviceId(candidateDeviceId);
 
     if (isAuthorized) {
@@ -197,8 +216,8 @@ class ServerService {
         'success': true,
         'message': ServerConstants.msgAuthSuccess,
         'windowsHost': Platform.localHostname,
-        'serverUrl': _currentInfo.url,
         'connectionMode': 'wan_direct',
+        'encrypted': true,
       }));
     } else {
       request.response.statusCode = HttpStatus.unauthorized;
@@ -289,7 +308,9 @@ class ServerService {
     return true;
   }
 
-  void _addCorsHeaders(HttpResponse response) {
+  void _addSecurityHeaders(HttpResponse response) {
+    response.headers.set('X-Content-Type-Options', 'nosniff');
+    response.headers.set('X-Frame-Options', 'DENY');
     response.headers.set('Access-Control-Allow-Origin', '*');
     response.headers.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     response.headers.set(

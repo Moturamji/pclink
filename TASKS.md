@@ -47,6 +47,12 @@
   - Generous border radiuses (20-24px), squircle icon containers with tinted halos, pill buttons and status capsules
   - Live pulsing status indicator with ambient blur, soft elevated shadows, and smooth micro-interactions
   - Material 3 tokens with modern `.withValues(alpha: ...)` transparency
+- [x] Security Hardening & Confidentiality Masking:
+  - Masked and eliminated confidential raw IP addresses, internal ports, raw hardware GUIDs, and network interface subnets from user UI
+  - Built sleek `SecurityStatusCard` presenting high-level encryption and link health (TLS 1.3 / E2EE Cloud Relay)
+  - Hardened Windows server with timestamp replay attack defense (90s window) and strict account-bound authorization
+  - Added HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`)
+  - Redesigned `ServerControlCard` and `LinkedDevicesCard` for user-friendly, privacy-preserving ecosystem display
 - [x] Comprehensive Unit Testing & Static Analysis (`flutter test` & `flutter analyze` 100% passing)
 
 

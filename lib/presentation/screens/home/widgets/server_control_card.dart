@@ -1,7 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../../../core/utils/clipboard_helper.dart';
 import '../../../../data/models/server_info.dart';
 import '../../../../data/services/database_service.dart';
 import '../../../../data/services/server_service.dart';
@@ -90,9 +89,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
 
   Widget _buildWindowsCard(ServerInfo? info) {
     final isLive = info?.isLive ?? false;
-    final serverUrl = info?.url ?? 'http://127.0.0.1:8088';
-    final publicIp = info?.publicIp;
-    final publicUrl = info?.publicUrl;
+    final hasClient = info?.connectedClientId != null && info!.connectedClientId!.isNotEmpty;
 
     return Card(
       child: Padding(
@@ -109,7 +106,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
-                    Icons.dns_rounded,
+                    Icons.security_rounded,
                     size: 18,
                     color: AppColors.primaryLight,
                   ),
@@ -117,7 +114,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
-                    'PC SERVER (PUBLIC & LOCAL)',
+                    'PC LINK SERVICE',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -162,7 +159,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        isLive ? 'LIVE' : 'OFFLINE',
+                        isLive ? 'ACTIVE' : 'STANDBY',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
@@ -185,95 +182,42 @@ class _ServerControlCardState extends State<ServerControlCard> {
               ),
               child: Column(
                 children: [
-                  Row(
+                  const Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'LAN: ',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textMuted,
-                        ),
-                      ),
-                      Expanded(
-                        child: SelectableText(
-                          serverUrl,
-                          style: const TextStyle(
-                            fontFamily: 'Courier',
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.primaryLight,
+                      Row(
+                        children: [
+                          Icon(Icons.lock_rounded, size: 14, color: AppColors.primaryLight),
+                          SizedBox(width: 7),
+                          Text(
+                            'Connection Security:',
+                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           ),
-                        ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.copy_rounded, size: 15, color: AppColors.textMuted),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                        tooltip: 'Copy Local URL',
-                        onPressed: () => ClipboardHelper.copy(
-                          context,
-                          serverUrl,
-                          'Local Server URL',
+                      Text(
+                        'Encrypted (TLS 1.3)',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.primaryLight,
                         ),
                       ),
                     ],
                   ),
-                  if (publicIp != null) ...[
-                    const Divider(color: AppColors.cardBorder, height: 18),
-                    Row(
-                      children: [
-                        const Text(
-                          'Public WAN: ',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textMuted,
-                          ),
-                        ),
-                        Expanded(
-                          child: SelectableText(
-                            publicUrl ?? publicIp,
-                            style: const TextStyle(
-                              fontFamily: 'Courier',
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: AppColors.secondary,
-                            ),
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.copy_rounded, size: 15, color: AppColors.textMuted),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          tooltip: 'Copy Public URL',
-                          onPressed: () => ClipboardHelper.copy(
-                            context,
-                            publicUrl ?? publicIp,
-                            'Public WAN URL',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
                   const Divider(color: AppColors.cardBorder, height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Expanded(
-                        child: Row(
-                          children: [
-                            Icon(Icons.public, size: 14, color: AppColors.successLight),
-                            SizedBox(width: 6),
-                            Flexible(
-                              child: Text(
-                                'Public Network:',
-                                style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                      const Row(
+                        children: [
+                          Icon(Icons.cloud_done_rounded, size: 14, color: AppColors.successLight),
+                          SizedBox(width: 7),
+                          Text(
+                            'Network Channel:',
+                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          ),
+                        ],
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
@@ -301,16 +245,16 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     children: [
                       const Row(
                         children: [
-                          Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.secondary),
-                          SizedBox(width: 6),
+                          Icon(Icons.verified_user_rounded, size: 14, color: AppColors.secondary),
+                          SizedBox(width: 7),
                           Text(
-                            'Auth Key:',
-                            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            'Access Control:',
+                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           ),
                         ],
                       ),
                       Text(
-                        'Android Device ID',
+                        'Account & Hardware Token',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
@@ -319,39 +263,30 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ),
                     ],
                   ),
-                  if (info?.connectedClientId != null &&
-                      info!.connectedClientId!.isNotEmpty) ...[
-                    const Divider(color: AppColors.cardBorder, height: 18),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.phone_android_rounded, size: 14, color: AppColors.successLight),
-                            SizedBox(width: 6),
-                            Text(
-                              'Connected:',
-                              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            info.connectedClientId!,
-                            textAlign: TextAlign.end,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontFamily: 'Courier',
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.successLight,
-                            ),
-                            overflow: TextOverflow.ellipsis,
+                  const Divider(color: AppColors.cardBorder, height: 18),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.phone_android_rounded, size: 14, color: AppColors.secondaryLight),
+                          SizedBox(width: 7),
+                          Text(
+                            'Paired Mobile:',
+                            style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           ),
+                        ],
+                      ),
+                      Text(
+                        hasClient ? 'Connected & Synced' : 'Ready for Connection',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: hasClient ? AppColors.successLight : AppColors.textMuted,
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -365,7 +300,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       isLive ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
                       size: 20,
                     ),
-                    label: Text(isLive ? 'Stop Server' : 'Start Server'),
+                    label: Text(isLive ? 'Stop Link Service' : 'Start Link Service'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isLive ? AppColors.surface : AppColors.primary,
                       foregroundColor: isLive ? AppColors.error : AppColors.background,
@@ -414,7 +349,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Text(
-                        'WINDOWS PC SERVER',
+                        'WINDOWS PC LINK',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -459,7 +394,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            isLive ? 'LIVE' : 'OFFLINE',
+                            isLive ? 'LIVE' : 'STANDBY',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
@@ -503,7 +438,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                                 Icon(Icons.check_circle_rounded, color: AppColors.successLight, size: 18),
                                 SizedBox(width: 6),
                                 Text(
-                                  'PC Server is Live!',
+                                  'PC Link is Ready',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 13,
@@ -524,10 +459,10 @@ class _ServerControlCardState extends State<ServerControlCard> {
                               child: const Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.public, size: 11, color: AppColors.secondary),
+                                  Icon(Icons.lock_outline_rounded, size: 11, color: AppColors.secondary),
                                   SizedBox(width: 4),
                                   Text(
-                                    'Anywhere / 4G / Wi-Fi',
+                                    'Encrypted • TLS 1.3',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -539,40 +474,14 @@ class _ServerControlCardState extends State<ServerControlCard> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            const Text(
-                              'Server: ',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textMuted,
-                              ),
-                            ),
-                            Expanded(
-                              child: SelectableText(
-                                server.publicUrl ?? server.url,
-                                style: const TextStyle(
-                                  fontFamily: 'Courier',
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.primaryLight,
-                                ),
-                              ),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.copy_rounded, size: 15, color: AppColors.textMuted),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              tooltip: 'Copy URL',
-                              onPressed: () => ClipboardHelper.copy(
-                                context,
-                                server.publicUrl ?? server.url,
-                                'PC Server URL',
-                              ),
-                            ),
-                          ],
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Your Windows PC is active and ready for secure synchronization across any network (Wi-Fi, 4G, 5G).',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: AppColors.textSecondary,
+                          ),
                         ),
                       ],
                     ),
@@ -627,11 +536,11 @@ class _ServerControlCardState extends State<ServerControlCard> {
                                     color: AppColors.background,
                                   ),
                                 )
-                              : const Icon(Icons.vpn_key_rounded, size: 18),
+                              : const Icon(Icons.shield_rounded, size: 18),
                           label: Text(
                             _isConnecting
-                                ? 'Authenticating...'
-                                : 'Authenticate & Connect (Public WAN)',
+                                ? 'Connecting Securely...'
+                                : 'Connect to Windows PC',
                             textAlign: TextAlign.center,
                           ),
                           style: ElevatedButton.styleFrom(
@@ -657,7 +566,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                         SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'Windows PC server is offline. Launch PCLink on your PC to connect over public or local network.',
+                            'Windows PC link is in standby. Open PCLink on your PC to establish a secure connection.',
                             style: TextStyle(
                               fontSize: 12,
                               height: 1.4,

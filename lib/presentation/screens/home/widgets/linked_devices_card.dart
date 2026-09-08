@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
-import '../../../../core/utils/clipboard_helper.dart';
 import '../../../../data/models/linked_device.dart';
 
 /// Card showing cloud-synchronized devices (Android & Windows) linked to the user account.
@@ -29,7 +28,7 @@ class LinkedDevicesCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Icon(
-                    Icons.cloud_sync_rounded,
+                    Icons.devices_rounded,
                     size: 18,
                     color: AppColors.secondary,
                   ),
@@ -37,7 +36,7 @@ class LinkedDevicesCard extends StatelessWidget {
                 const SizedBox(width: 10),
                 const Expanded(
                   child: Text(
-                    'LINKED DEVICES (CLOUD)',
+                    'LINKED ECOSYSTEM',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -64,7 +63,7 @@ class LinkedDevicesCard extends StatelessWidget {
                       Icon(Icons.sync_rounded, size: 12, color: AppColors.secondary),
                       SizedBox(width: 4),
                       Text(
-                        'Realtime DB',
+                        'Cloud Sync',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
@@ -146,7 +145,7 @@ class LinkedDevicesCard extends StatelessWidget {
     final avatarColor = isWindows ? AppColors.primaryLight : AppColors.secondary;
 
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
           padding: const EdgeInsets.all(10),
@@ -165,6 +164,7 @@ class LinkedDevicesCard extends StatelessWidget {
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 children: [
@@ -221,85 +221,34 @@ class LinkedDevicesCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                device.osVersion,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.textMuted,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 6),
-              // Device ID row
+              const SizedBox(height: 3),
               Row(
                 children: [
-                  const Text(
-                    'ID: ',
-                    style: TextStyle(
+                  Text(
+                    device.osVersion,
+                    style: const TextStyle(
                       fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.w500,
                       color: AppColors.textMuted,
                     ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  Expanded(
-                    child: SelectableText(
-                      device.deviceId,
-                      style: const TextStyle(
-                        fontFamily: 'Courier',
-                        fontSize: 11,
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                    decoration: BoxDecoration(
+                      color: AppColors.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppColors.cardBorder),
+                    ),
+                    child: const Text(
+                      '🔒 Encrypted Link',
+                      style: TextStyle(
+                        fontSize: 9,
                         fontWeight: FontWeight.w600,
-                        color: AppColors.primaryLight,
+                        color: AppColors.textSecondary,
                       ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.copy_rounded, size: 14, color: AppColors.textMuted),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Copy Device ID',
-                    onPressed: () => ClipboardHelper.copy(
-                      context,
-                      device.deviceId,
-                      '${device.deviceName} Device ID',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              // IP Address row
-              Row(
-                children: [
-                  const Text(
-                    'IP: ',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textMuted,
-                    ),
-                  ),
-                  Expanded(
-                    child: SelectableText(
-                      device.ipAddress,
-                      style: const TextStyle(
-                        fontFamily: 'Courier',
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.secondary,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.copy_rounded, size: 14, color: AppColors.textMuted),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                    tooltip: 'Copy IP',
-                    onPressed: () => ClipboardHelper.copy(
-                      context,
-                      device.ipAddress,
-                      '${device.deviceName} IP Address',
                     ),
                   ),
                 ],
