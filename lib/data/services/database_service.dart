@@ -472,8 +472,67 @@ class DatabaseService {
         }),
       );
       debugPrint('DatabaseService: Queued server live notification alert');
+
+      // Attempt direct FCM push dispatch to the mobile device
+      await sendDirectFcmPush(
+        user: user,
+        title: 'Windows PC is Live',
+        body: '$pcHostName is running PCLink and ready for secure connection.',
+        hostName: pcHostName,
+      );
     } catch (e) {
       debugPrint('DatabaseService queueServerLiveNotification error: $e');
+    }
+  }
+
+  /// Dispatches an immediate FCM Push Notification directly from Windows to the Android device.
+  Future<bool> sendDirectFcmPush({
+    required User user,
+    required String title,
+    required String body,
+    required String hostName,
+  }) async {
+    try {
+      final fcmToken = await getAndroidFcmToken(user: user);
+      if (fcmToken == null || fcmToken.isEmpty) {
+        debugPrint('DatabaseService: No registered Android FCM token found for user ${user.uid}');
+        return false;
+      }
+
+      final payload = {
+        'to': fcmToken,
+        'priority': 'high',
+        'notification': {
+          'title': title,
+          'body': body,
+          'sound': 'default',
+          'android_channel_id': 'pclink_server_channel',
+        },
+        'data': {
+          'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+          'title': title,
+          'body': body,
+          'hostName': hostName,
+          'type': 'server_live',
+          'timestamp': DateTime.now().toIso8601String(),
+        },
+      };
+
+      final fcmUri = Uri.parse('https://fcm.googleapis.com/fcm/send');
+      final fcmResponse = await _client.post(
+        fcmUri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'key=AIzaSyB_REDACTED_OR_LEGACY_KEY',
+        },
+        body: jsonEncode(payload),
+      );
+
+      debugPrint('DatabaseService sendDirectFcmPush response code: ${fcmResponse.statusCode}');
+      return fcmResponse.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService sendDirectFcmPush error: $e');
+      return false;
     }
   }
 }
