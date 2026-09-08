@@ -5,8 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/device_details.dart';
 import '../models/linked_device.dart';
+import '../models/server_info.dart';
 
-/// Service managing user and device synchronization with Firebase Realtime Database via REST API.
+/// Service managing user, device, and local server synchronization with Firebase Realtime Database via REST API.
 class DatabaseService {
   static const String _dbBaseUrl =
       'https://pclink-34bfa-default-rtdb.firebaseio.com';
@@ -75,6 +76,49 @@ class DatabaseService {
     }
   }
 
+  /// Updates the local Windows server information in Firebase RTDB.
+  Future<void> updateServerInfo({
+    required User user,
+    required ServerInfo serverInfo,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+
+      await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(serverInfo.toMap()),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService updateServerInfo error: $e');
+    }
+  }
+
+  /// Marks the local Windows server as offline in Firebase RTDB.
+  Future<void> setServerOffline({
+    required User user,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+
+      await _client.patch(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'isLive': false,
+          'lastHeartbeat': DateTime.now().toIso8601String(),
+          'connectedClientId': null,
+        }),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService setServerOffline error: $e');
+    }
+  }
+
   /// Streams real-time device updates for the given [user].
   Stream<List<LinkedDevice>> watchUserDevices(User user) {
     late final StreamController<List<LinkedDevice>> controller;
@@ -126,4 +170,52 @@ class DatabaseService {
 
     return controller.stream;
   }
+
+  /// Streams real-time Windows server status for the given [user].
+  Stream<ServerInfo?> watchUserServer(User user) {
+    late final StreamController<ServerInfo?> controller;
+    Timer? timer;
+
+    Future<void> fetchServer() async {
+      try {
+        final token = await user.getIdToken();
+        final authQuery = token != null ? '?auth=$token' : '';
+        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+        final response = await _client.get(uri);
+
+        if (response.statusCode == 200 &&
+            response.body.isNotEmpty &&
+            response.body != 'null') {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map) {
+            final server = ServerInfo.fromMap(data);
+            if (!controller.isClosed) {
+              controller.add(server);
+            }
+            return;
+          }
+        }
+        if (!controller.isClosed) {
+          controller.add(null);
+        }
+      } catch (_) {
+        if (!controller.isClosed) {
+          controller.add(null);
+        }
+      }
+    }
+
+    controller = StreamController<ServerInfo?>.broadcast(
+      onListen: () {
+        fetchServer();
+        timer = Timer.periodic(const Duration(seconds: 3), (_) => fetchServer());
+      },
+      onCancel: () {
+        timer?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
 }
+

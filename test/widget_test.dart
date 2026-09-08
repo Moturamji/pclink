@@ -1,7 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pclink/core/constants/server_constants.dart';
 import 'package:pclink/core/utils/validators.dart';
 import 'package:pclink/data/models/device_details.dart';
 import 'package:pclink/data/models/linked_device.dart';
+import 'package:pclink/data/models/server_info.dart';
 import 'package:pclink/data/services/auth_service.dart';
 
 void main() {
@@ -69,6 +71,51 @@ void main() {
     });
   });
 
+  group('ServerInfo Model Tests', () {
+    test('ServerInfo serializes and deserializes correctly', () {
+      final now = DateTime.now();
+      final map = {
+        'isLive': true,
+        'ipAddress': '192.168.1.50',
+        'port': ServerConstants.defaultPort,
+        'url': 'http://192.168.1.50:8088',
+        'startedAt': now.toIso8601String(),
+        'lastHeartbeat': now.toIso8601String(),
+        'connectedClientId': 'android-client-123',
+      };
+
+      final serverInfo = ServerInfo.fromMap(map);
+      expect(serverInfo.isLive, isTrue);
+      expect(serverInfo.ipAddress, '192.168.1.50');
+      expect(serverInfo.port, 8088);
+      expect(serverInfo.url, 'http://192.168.1.50:8088');
+      expect(serverInfo.connectedClientId, 'android-client-123');
+
+      final serialized = serverInfo.toMap();
+      expect(serialized['isLive'], isTrue);
+      expect(serialized['ipAddress'], '192.168.1.50');
+      expect(serialized['port'], 8088);
+      expect(serialized['connectedClientId'], 'android-client-123');
+    });
+
+    test('ServerInfo equality works properly', () {
+      const s1 = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.10',
+        port: 8088,
+        url: 'http://192.168.1.10:8088',
+      );
+      const s2 = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.10',
+        port: 8088,
+        url: 'http://192.168.1.10:8088',
+      );
+      expect(s1, equals(s2));
+      expect(s1.hashCode, equals(s2.hashCode));
+    });
+  });
+
   group('AuthService Tests', () {
     test('getErrorMessage returns proper message for exceptions', () {
       expect(
@@ -78,3 +125,4 @@ void main() {
     });
   });
 }
+

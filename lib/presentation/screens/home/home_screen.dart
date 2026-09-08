@@ -1,30 +1,38 @@
+import 'dart:async';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/clipboard_helper.dart';
 import '../../../data/models/device_details.dart';
+import '../../../data/models/server_info.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
+import '../../../data/services/server_service.dart';
 import '../auth/auth_screen.dart';
 import 'widgets/interfaces_card.dart';
 import 'widgets/linked_devices_card.dart';
 import 'widgets/metric_card.dart';
 import 'widgets/platform_header.dart';
+import 'widgets/server_control_card.dart';
 import 'widgets/specs_card.dart';
 import 'widgets/user_session_card.dart';
 
-/// Main dashboard displaying device identity, active network interfaces, and system parameters.
+/// Main dashboard displaying device identity, active network interfaces, local server, and system parameters.
 class HomeScreen extends StatefulWidget {
   final DeviceService? deviceService;
   final AuthService? authService;
   final DatabaseService? databaseService;
+  final ServerService? serverService;
 
   const HomeScreen({
     super.key,
     this.deviceService,
     this.authService,
     this.databaseService,
+    this.serverService,
   });
 
   @override
@@ -35,8 +43,11 @@ class _HomeScreenState extends State<HomeScreen> {
   late final DeviceService _deviceService;
   late final AuthService _authService;
   late final DatabaseService _databaseService;
+  late final ServerService _serverService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
+  ServerInfo? _currentServerInfo;
+  StreamSubscription<ServerInfo>? _serverSub;
   bool _isRefreshing = false;
 
   @override
@@ -45,19 +56,45 @@ class _HomeScreenState extends State<HomeScreen> {
     _deviceService = widget.deviceService ?? DeviceService();
     _authService = widget.authService ?? AuthService();
     _databaseService = widget.databaseService ?? DatabaseService();
+    _serverService = widget.serverService ?? ServerService();
+
+    if (!kIsWeb && Platform.isWindows) {
+      _currentServerInfo = _serverService.currentServerInfo;
+      _serverSub = _serverService.serverStateStream.listen((info) {
+        if (mounted) {
+          setState(() {
+            _currentServerInfo = info;
+          });
+        }
+      });
+    }
+
     _loadDeviceDetails();
+  }
+
+  @override
+  void dispose() {
+    _serverSub?.cancel();
+    if (!kIsWeb && Platform.isWindows) {
+      final user = _authService.currentUser;
+      if (user != null) {
+        _databaseService.setServerOffline(user: user);
+      }
+      _serverService.dispose();
+    }
+    super.dispose();
   }
 
   void _loadDeviceDetails() {
     setState(() {
       _deviceDetailsFuture = _deviceService.getDeviceDetails().then((details) {
-        _syncWithCloud(details);
+        _syncWithCloudAndStartServer(details);
         return details;
       });
     });
   }
 
-  Future<void> _syncWithCloud(DeviceDetails details) async {
+  Future<void> _syncWithCloudAndStartServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (user != null) {
       try {
@@ -65,8 +102,41 @@ class _HomeScreenState extends State<HomeScreen> {
           user: user,
           details: details,
         );
+
+        // Windows only: Automatically launch lightweight local server and announce to RTDB
+        if (!kIsWeb && details.isWindows) {
+          final serverInfo = await _serverService.startServer(
+            hostIp: details.primaryIp,
+          );
+          if (serverInfo != null) {
+            await _databaseService.updateServerInfo(
+              user: user,
+              serverInfo: serverInfo,
+            );
+          }
+        }
       } catch (_) {
         // Handled silently for offline scenarios
+      }
+    }
+  }
+
+  Future<void> _toggleServer(DeviceDetails details) async {
+    final user = _authService.currentUser;
+    if (_serverService.isRunning) {
+      await _serverService.stopServer();
+      if (user != null) {
+        await _databaseService.setServerOffline(user: user);
+      }
+    } else {
+      final serverInfo = await _serverService.startServer(
+        hostIp: details.primaryIp,
+      );
+      if (user != null && serverInfo != null) {
+        await _databaseService.updateServerInfo(
+          user: user,
+          serverInfo: serverInfo,
+        );
       }
     }
   }
@@ -115,6 +185,13 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
+              if (!kIsWeb && Platform.isWindows) {
+                final user = _authService.currentUser;
+                if (user != null) {
+                  await _databaseService.setServerOffline(user: user);
+                }
+                await _serverService.stopServer();
+              }
               await _authService.signOut();
               if (mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
@@ -238,6 +315,19 @@ class _HomeScreenState extends State<HomeScreen> {
                       PlatformHeader(details: details),
                       const SizedBox(height: 20),
 
+                      // Local Windows Server or Android Server Listener Card
+                      ServerControlCard(
+                        isWindows: details.isWindows,
+                        currentServerInfo: _currentServerInfo ??
+                            _serverService.currentServerInfo,
+                        serverStream: user != null
+                            ? _databaseService.watchUserServer(user)
+                            : null,
+                        onToggleServer: () => _toggleServer(details),
+                        localDeviceId: details.deviceId,
+                      ),
+                      const SizedBox(height: 20),
+
                       // Realtime Database Cloud-Linked Devices
                       if (user != null) ...[
                         LinkedDevicesCard(
@@ -292,3 +382,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
