@@ -176,16 +176,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
               stream: widget.clipboardService.clipboardHistoryStream,
               initialData: widget.clipboardService.currentHistory,
               builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(20.0),
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  );
-                }
-
-                final allClips = snapshot.data ?? [];
+                final allClips = snapshot.data ?? widget.clipboardService.currentHistory;
                 final displayClips = _filter == 'peer'
                     ? allClips.where((c) => c.sourcePlatform != currentPlatform).toList()
                     : allClips;

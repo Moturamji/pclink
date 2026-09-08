@@ -51,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   late Future<DeviceDetails> _deviceDetailsFuture;
   ServerInfo? _currentServerInfo;
-  StreamSubscription<ServerInfo>? _serverSub;
+  StreamSubscription<dynamic>? _serverSub;
   StreamSubscription<Map<String, dynamic>?>? _cloudHandshakeSub;
   bool _isRefreshing = false;
 
@@ -101,7 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     } else if (user != null) {
       // Android: Listen for Windows server host info
-      _databaseService.watchUserServer(user).listen((info) {
+      _serverSub = _databaseService.watchUserServer(user).listen((info) {
         if (mounted && info != null) {
           setState(() {
             _currentServerInfo = info;
@@ -146,14 +146,6 @@ class _HomeScreenState extends State<HomeScreen> {
           details: details,
         );
 
-        // Start direct server-routed clipboard sync
-        _clipboardService.startListening(
-          deviceName: details.deviceName,
-          isWindows: details.isWindows,
-          serverService: details.isWindows ? _serverService : null,
-          getTargetServerUrl: () => _currentServerInfo?.url ?? _currentServerInfo?.publicUrl,
-        );
-
         // Windows only: Automatically launch lightweight local server and announce to RTDB
         if (!kIsWeb && details.isWindows) {
           final serverInfo = await _serverService.startServer(
@@ -171,6 +163,14 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
         }
+
+        // Start direct server-routed clipboard sync
+        _clipboardService.startListening(
+          deviceName: details.deviceName,
+          isWindows: details.isWindows,
+          serverService: details.isWindows ? _serverService : null,
+          getTargetServerUrl: () => _currentServerInfo?.url ?? _currentServerInfo?.publicUrl,
+        );
       } catch (_) {
         // Handled silently for offline scenarios
       }
