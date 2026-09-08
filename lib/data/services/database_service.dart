@@ -6,7 +6,6 @@ import 'package:http/http.dart' as http;
 import '../models/device_details.dart';
 import '../models/linked_device.dart';
 import '../models/server_info.dart';
-import '../../features/clipboard/models/clipboard_item.dart';
 
 /// Service managing user, device, and local server synchronization with Firebase Realtime Database via REST API.
 class DatabaseService {
@@ -423,74 +422,6 @@ class DatabaseService {
     }
   }
 
-  /// Broadcasts an ephemeral clipboard event across the real-time cloud channel.
-  Future<void> broadcastClipboardEvent({
-    required User user,
-    required ClipboardItem item,
-  }) async {
-    try {
-      final token = await user.getIdToken();
-      final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/clipboard_event.json$authQuery');
-
-      await _client.put(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(item.toMap()),
-      );
-    } catch (e) {
-      debugPrint('DatabaseService broadcastClipboardEvent error: $e');
-    }
-  }
-
-  /// Listens to the real-time ephemeral clipboard event channel.
-  Stream<ClipboardItem> listenClipboardEvents(User user) {
-    late final StreamController<ClipboardItem> controller;
-    Timer? timer;
-    String? lastProcessedClipId;
-    String? lastProcessedText;
-
-    Future<void> fetchEvent() async {
-      try {
-        final token = await user.getIdToken();
-        final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/clipboard_event.json$authQuery');
-        final response = await _safeGet(uri);
-
-        if (response != null &&
-            response.statusCode == 200 &&
-            response.body.isNotEmpty &&
-            response.body != 'null') {
-          final dynamic data = jsonDecode(response.body);
-          if (data is Map) {
-            final item = ClipboardItem.fromMap(data);
-            if (item.id != lastProcessedClipId || item.text != lastProcessedText) {
-              lastProcessedClipId = item.id;
-              lastProcessedText = item.text;
-              if (!controller.isClosed) {
-                controller.add(item);
-              }
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint('DatabaseService listenClipboardEvents error: $e');
-      }
-    }
-
-    controller = StreamController<ClipboardItem>.broadcast(
-      onListen: () {
-        fetchEvent();
-        timer = Timer.periodic(const Duration(milliseconds: 1000), (_) => fetchEvent());
-      },
-      onCancel: () {
-        timer?.cancel();
-      },
-    );
-
-    return controller.stream;
-  }
-
   /// Updates the FCM device push token for the user's Android device.
   Future<void> updateFcmToken({
     required User user,
@@ -618,98 +549,6 @@ class DatabaseService {
     } catch (e) {
       debugPrint('DatabaseService sendDirectFcmPush error: $e');
       return false;
-    }
-  }
-
-  // -------------------------------------------------------------
-  // Real-Time Clipboard Synchronization Methods
-  // -------------------------------------------------------------
-
-  /// Pushes a new copied clip to the shared user clipboard node in Firebase RTDB.
-  Future<void> pushClipboardItem({
-    required User user,
-    required ClipboardItem item,
-  }) async {
-    try {
-      final token = await user.getIdToken();
-      final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/clipboard/${item.id}.json$authQuery');
-
-      await _client.put(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(item.toMap()),
-      );
-    } catch (e) {
-      debugPrint('DatabaseService pushClipboardItem error: $e');
-    }
-  }
-
-  /// Streams real-time clipboard items for the given [user].
-  Stream<List<ClipboardItem>> watchClipboardItems(User user) {
-    late final StreamController<List<ClipboardItem>> controller;
-    Timer? timer;
-
-    Future<void> fetchClips() async {
-      try {
-        final token = await user.getIdToken();
-        final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/clipboard.json$authQuery');
-        final response = await _safeGet(uri);
-
-        if (response != null &&
-            response.statusCode == 200 &&
-            response.body.isNotEmpty &&
-            response.body != 'null') {
-          final dynamic data = jsonDecode(response.body);
-          if (data is Map) {
-            final List<ClipboardItem> list = [];
-            data.forEach((_, value) {
-              if (value is Map) {
-                list.add(ClipboardItem.fromMap(value));
-              }
-            });
-            // Sort newest first
-            list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-            if (!controller.isClosed) {
-              controller.add(list);
-            }
-            return;
-          }
-        }
-        if (!controller.isClosed) {
-          controller.add(<ClipboardItem>[]);
-        }
-      } catch (e) {
-        debugPrint('DatabaseService watchClipboardItems error: $e');
-        if (!controller.isClosed) {
-          controller.add(<ClipboardItem>[]);
-        }
-      }
-    }
-
-    controller = StreamController<List<ClipboardItem>>.broadcast(
-      onListen: () {
-        fetchClips();
-        timer = Timer.periodic(const Duration(seconds: 2), (_) => fetchClips());
-      },
-      onCancel: () {
-        timer?.cancel();
-      },
-    );
-
-    return controller.stream;
-  }
-
-  /// Clears the shared clipboard history in Firebase RTDB.
-  Future<void> clearClipboardHistory(User user) async {
-    try {
-      final token = await user.getIdToken();
-      final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/clipboard.json$authQuery');
-      await _client.delete(uri);
-    } catch (e) {
-      debugPrint('DatabaseService clearClipboardHistory error: $e');
     }
   }
 }

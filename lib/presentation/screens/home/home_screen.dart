@@ -168,8 +168,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _clipboardService.startListening(
           deviceName: details.deviceName,
           isWindows: details.isWindows,
-          user: user,
-          databaseService: _databaseService,
           serverService: details.isWindows ? _serverService : null,
           getTargetServerUrl: () => _currentServerInfo?.url ?? _currentServerInfo?.publicUrl,
         );
