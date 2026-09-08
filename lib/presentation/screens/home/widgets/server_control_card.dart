@@ -32,8 +32,10 @@ class ServerControlCard extends StatefulWidget {
 
 class _ServerControlCardState extends State<ServerControlCard> {
   bool _isConnecting = false;
+  bool _isDisconnecting = false;
   String? _authMessage;
   bool _authSuccess = false;
+  String? _connectedHostName;
 
   Future<void> _handleAndroidConnect(ServerInfo server) async {
     if (widget.localDeviceId == null || widget.localDeviceId!.isEmpty) {
@@ -61,19 +63,56 @@ class _ServerControlCardState extends State<ServerControlCard> {
 
     if (!mounted) return;
 
+    final isSuccess = result['success'] == true;
+    if (isSuccess && widget.user != null && widget.databaseService != null) {
+      await widget.databaseService!.setConnectedClientId(
+        user: widget.user!,
+        clientId: widget.localDeviceId,
+      );
+    }
+
+    if (!mounted) return;
+
     setState(() {
       _isConnecting = false;
-      _authSuccess = result['success'] == true;
-      _authMessage = (result['success'] == true)
-          ? 'Connected to ${result['windowsHost'] ?? 'PC'} (${result['connectionMode'] ?? 'Public Network'}) successfully!'
+      _authSuccess = isSuccess;
+      if (result['windowsHost'] != null) {
+        _connectedHostName = result['windowsHost'].toString();
+      }
+      _authMessage = isSuccess
+          ? 'Connected to ${result['windowsHost'] ?? 'Windows PC'} successfully!'
           : (result['error'] ?? 'Authentication failed');
     });
-
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(_authMessage!),
         backgroundColor: _authSuccess ? AppColors.success : AppColors.error,
+      ),
+    );
+  }
+
+  Future<void> _handleAndroidDisconnect() async {
+    setState(() {
+      _isDisconnecting = true;
+    });
+
+    if (widget.user != null && widget.databaseService != null) {
+      await widget.databaseService!.disconnectClient(user: widget.user!);
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _isDisconnecting = false;
+      _authSuccess = false;
+      _authMessage = null;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Disconnected from Windows PC.'),
+        backgroundColor: AppColors.surface,
       ),
     );
   }
@@ -325,6 +364,11 @@ class _ServerControlCardState extends State<ServerControlCard> {
       builder: (context, snapshot) {
         final server = snapshot.data;
         final isLive = server != null && server.isLive;
+        final isClientMatch = server?.connectedClientId != null &&
+            server!.connectedClientId!.isNotEmpty &&
+            widget.localDeviceId != null &&
+            server.connectedClientId == widget.localDeviceId;
+        final isConnected = isLive && (_authSuccess || isClientMatch);
 
         return Card(
           child: Padding(
@@ -337,13 +381,19 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryLight.withValues(alpha: 0.12),
+                        color: isConnected
+                            ? AppColors.success.withValues(alpha: 0.14)
+                            : AppColors.primaryLight.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(
-                        Icons.laptop_windows_rounded,
+                      child: Icon(
+                        isConnected
+                            ? Icons.link_rounded
+                            : Icons.laptop_windows_rounded,
                         size: 18,
-                        color: AppColors.primaryLight,
+                        color: isConnected
+                            ? AppColors.successLight
+                            : AppColors.primaryLight,
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -364,11 +414,11 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: (isLive ? AppColors.success : AppColors.textMuted)
+                        color: (isConnected || isLive ? AppColors.success : AppColors.textMuted)
                             .withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: (isLive ? AppColors.success : AppColors.textMuted)
+                          color: (isConnected || isLive ? AppColors.success : AppColors.textMuted)
                               .withValues(alpha: 0.35),
                         ),
                       ),
@@ -380,8 +430,8 @@ class _ServerControlCardState extends State<ServerControlCard> {
                             height: 7,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: isLive ? AppColors.successLight : AppColors.textMuted,
-                              boxShadow: isLive
+                              color: isConnected || isLive ? AppColors.successLight : AppColors.textMuted,
+                              boxShadow: (isConnected || isLive)
                                   ? [
                                       BoxShadow(
                                         color: AppColors.successLight.withValues(alpha: 0.5),
@@ -394,12 +444,14 @@ class _ServerControlCardState extends State<ServerControlCard> {
                           ),
                           const SizedBox(width: 5),
                           Text(
-                            isLive ? 'LIVE' : 'STANDBY',
+                            isConnected
+                                ? 'CONNECTED'
+                                : (isLive ? 'LIVE' : 'STANDBY'),
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
                               letterSpacing: 0.5,
-                              color: isLive ? AppColors.successLight : AppColors.textMuted,
+                              color: isConnected || isLive ? AppColors.successLight : AppColors.textMuted,
                             ),
                           ),
                         ],
@@ -408,7 +460,136 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   ],
                 ),
                 const SizedBox(height: 14),
-                if (isLive) ...[
+                if (isConnected) ...[
+                  // 1. ACTIVE CONNECTED STATE (Never show "Connect to Windows PC" button again while connected)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          AppColors.success.withValues(alpha: 0.18),
+                          AppColors.primary.withValues(alpha: 0.08),
+                        ],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.success.withValues(alpha: 0.4)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.check_circle_rounded, color: AppColors.successLight, size: 18),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _connectedHostName != null
+                                      ? 'Connected to $_connectedHostName'
+                                      : 'Connected to Windows PC',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
+                              decoration: BoxDecoration(
+                                color: AppColors.success.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: AppColors.success.withValues(alpha: 0.4),
+                                ),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.lock_rounded, size: 11, color: AppColors.successLight),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Encrypted • TLS 1.3',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.successLight,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Your Android device is linked and securely synchronizing with your Windows PC in real time.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            height: 1.35,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                        const Divider(color: AppColors.cardBorder, height: 20),
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Link Status:',
+                              style: TextStyle(fontSize: 11, color: AppColors.textMuted),
+                            ),
+                            Text(
+                              'Active & Synced',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.successLight,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _isDisconnecting ? null : _handleAndroidDisconnect,
+                          icon: _isDisconnecting
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppColors.error,
+                                  ),
+                                )
+                              : const Icon(Icons.link_off_rounded, size: 18),
+                          label: Text(_isDisconnecting ? 'Disconnecting...' : 'Disconnect from Windows PC'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.error,
+                            side: BorderSide(color: AppColors.error.withValues(alpha: 0.4)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ] else if (isLive) ...[
+                  // 2. LIVE STANDBY STATE - Ready to connect (Show Connect button only when disconnected)
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -492,29 +673,27 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
-                        color: (_authSuccess ? AppColors.success : AppColors.error)
-                            .withValues(alpha: 0.12),
+                        color: AppColors.error.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: (_authSuccess ? AppColors.success : AppColors.error)
-                              .withValues(alpha: 0.3),
+                          color: AppColors.error.withValues(alpha: 0.3),
                         ),
                       ),
                       child: Row(
                         children: [
-                          Icon(
-                            _authSuccess ? Icons.check_circle_rounded : Icons.error_outline_rounded,
+                          const Icon(
+                            Icons.error_outline_rounded,
                             size: 16,
-                            color: _authSuccess ? AppColors.successLight : AppColors.error,
+                            color: AppColors.error,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _authMessage!,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
-                                color: _authSuccess ? AppColors.successLight : AppColors.error,
+                                color: AppColors.error,
                               ),
                             ),
                           ),
@@ -553,6 +732,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     ],
                   ),
                 ] else ...[
+                  // 3. PC SERVER STANDBY (Windows app closed or offline)
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(

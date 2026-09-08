@@ -365,6 +365,46 @@ class DatabaseService {
       'error': 'Connection timed out. Ensure the Windows PC is running PCLink.',
     };
   }
+
+  /// Sets the connected client ID in Firebase RTDB.
+  Future<void> setConnectedClientId({
+    required User user,
+    required String? clientId,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server/connectedClientId.json$authQuery');
+
+      await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(clientId),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService setConnectedClientId error: $e');
+    }
+  }
+
+  /// Clears the connected client ID when Android disconnects.
+  Future<void> disconnectClient({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server/connectedClientId.json$authQuery');
+
+      await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(null),
+      );
+      // Clean up channel request & response
+      final chanUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel.json$authQuery');
+      await _client.delete(chanUri);
+    } catch (e) {
+      debugPrint('DatabaseService disconnectClient error: $e');
+    }
+  }
 }
 
 

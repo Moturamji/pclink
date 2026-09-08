@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pclink/core/constants/server_constants.dart';
 import 'package:pclink/core/utils/validators.dart';
@@ -5,6 +6,7 @@ import 'package:pclink/data/models/device_details.dart';
 import 'package:pclink/data/models/linked_device.dart';
 import 'package:pclink/data/models/server_info.dart';
 import 'package:pclink/data/services/auth_service.dart';
+import 'package:pclink/presentation/screens/home/widgets/server_control_card.dart';
 
 void main() {
   group('Validators Unit Tests', () {
@@ -135,6 +137,67 @@ void main() {
         AuthService.getErrorMessage(Exception('Generic error')),
         contains('Generic error'),
       );
+    });
+  });
+
+  group('ServerControlCard Widget Tests', () {
+    testWidgets('Shows Connect button when disconnected and server is live', (tester) async {
+      final server = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.10',
+        port: 8088,
+        url: 'http://192.168.1.10:8088',
+        connectedClientId: null,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ServerControlCard(
+              isWindows: false,
+              localDeviceId: 'my-android-id',
+              serverStream: Stream.value(server),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connect to Windows PC'), findsOneWidget);
+      expect(find.text('Connected to Windows PC'), findsNothing);
+      expect(find.text('Disconnect from Windows PC'), findsNothing);
+    });
+
+    testWidgets('Does not show Connect button when connected, shows Connected and Disconnect button', (tester) async {
+      final server = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.10',
+        port: 8088,
+        url: 'http://192.168.1.10:8088',
+        connectedClientId: 'my-android-id',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ServerControlCard(
+              isWindows: false,
+              localDeviceId: 'my-android-id',
+              serverStream: Stream.value(server),
+            ),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // "Connect to Windows PC" must NOT be shown when connected
+      expect(find.text('Connect to Windows PC'), findsNothing);
+      // Connected state UI elements MUST be shown
+      expect(find.text('Connected to Windows PC'), findsOneWidget);
+      expect(find.text('Disconnect from Windows PC'), findsOneWidget);
+      expect(find.text('CONNECTED'), findsOneWidget);
     });
   });
 }

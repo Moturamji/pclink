@@ -72,12 +72,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (user != null) {
         _cloudHandshakeSub = _databaseService
             .listenCloudHandshakeRequests(user)
-            .listen((request) {
+            .listen((request) async {
           if (request != null) {
-            _serverService.handleCloudHandshakeRequest(
+            await _serverService.handleCloudHandshakeRequest(
               request,
               user: user,
               databaseService: _databaseService,
+            );
+            await _databaseService.updateServerInfo(
+              user: user,
+              serverInfo: _serverService.currentServerInfo,
             );
           }
         });
