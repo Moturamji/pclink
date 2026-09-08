@@ -10,7 +10,7 @@ import '../models/server_info.dart';
 /// Service managing user, device, and local server synchronization with Firebase Realtime Database via REST API.
 class DatabaseService {
   static const String _dbBaseUrl =
-      'https://pclink-34bfa-default-rtdb.firebaseio.com';
+      'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app';
 
   final http.Client _client;
 
@@ -33,7 +33,7 @@ class DatabaseService {
       if (userResponse.statusCode == 200 &&
           (userResponse.body == 'null' || userResponse.body.isEmpty)) {
         // Create user profile
-        await _client.put(
+        final putResp = await _client.put(
           userUri,
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
@@ -43,7 +43,8 @@ class DatabaseService {
             'lastActive': nowIso,
           }),
         );
-      } else {
+        debugPrint('DatabaseService: Created user profile with status ${putResp.statusCode}');
+      } else if (userResponse.statusCode == 200) {
         // Update lastActive
         final lastActiveUri =
             Uri.parse('$_dbBaseUrl/users/${user.uid}/lastActive.json$authQuery');
@@ -52,6 +53,9 @@ class DatabaseService {
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode(nowIso),
         );
+      } else {
+        debugPrint(
+            'DatabaseService sync warning: user get returned [${userResponse.statusCode}] ${userResponse.body}');
       }
 
       // 2. Store or update platform device node
@@ -59,7 +63,7 @@ class DatabaseService {
       final deviceUri = Uri.parse(
           '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
 
-      await _client.put(
+      final devResp = await _client.put(
         deviceUri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -71,8 +75,10 @@ class DatabaseService {
           'isOnline': true,
         }),
       );
+      debugPrint(
+          'DatabaseService: Synced $platformKey device node with status ${devResp.statusCode}');
     } catch (e) {
-      debugPrint('DatabaseService sync warning: $e');
+      debugPrint('DatabaseService sync exception: $e');
     }
   }
 
@@ -86,11 +92,12 @@ class DatabaseService {
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
 
-      await _client.put(
+      final resp = await _client.put(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(serverInfo.toMap()),
       );
+      debugPrint('DatabaseService: Updated server info with status ${resp.statusCode}');
     } catch (e) {
       debugPrint('DatabaseService updateServerInfo error: $e');
     }
@@ -105,7 +112,7 @@ class DatabaseService {
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
 
-      await _client.patch(
+      final resp = await _client.patch(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -114,6 +121,7 @@ class DatabaseService {
           'connectedClientId': null,
         }),
       );
+      debugPrint('DatabaseService: Marked server offline with status ${resp.statusCode}');
     } catch (e) {
       debugPrint('DatabaseService setServerOffline error: $e');
     }
@@ -151,7 +159,8 @@ class DatabaseService {
         if (!controller.isClosed) {
           controller.add(<LinkedDevice>[]);
         }
-      } catch (_) {
+      } catch (e) {
+        debugPrint('DatabaseService watchUserDevices error: $e');
         if (!controller.isClosed) {
           controller.add(<LinkedDevice>[]);
         }
@@ -198,7 +207,8 @@ class DatabaseService {
         if (!controller.isClosed) {
           controller.add(null);
         }
-      } catch (_) {
+      } catch (e) {
+        debugPrint('DatabaseService watchUserServer error: $e');
         if (!controller.isClosed) {
           controller.add(null);
         }
@@ -218,4 +228,5 @@ class DatabaseService {
     return controller.stream;
   }
 }
+
 
