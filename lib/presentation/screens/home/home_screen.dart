@@ -242,7 +242,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       if (user != null) ...[
                         LinkedDevicesCard(
                           devicesStream:
-                              _databaseService.watchUserDevices(user.uid),
+                              _databaseService.watchUserDevices(user),
                         ),
                         const SizedBox(height: 20),
                       ],

@@ -27,7 +27,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000),
+      duration: const Duration(milliseconds: 900),
     );
 
     _fadeAnimation = CurvedAnimation(
@@ -35,7 +35,7 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeIn,
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.85, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.88, end: 1.0).animate(
       CurvedAnimation(
         parent: _animController,
         curve: Curves.easeOutBack,
@@ -47,7 +47,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkAuthAndNavigate() async {
-    await Future.delayed(const Duration(milliseconds: 1400));
+    await Future.delayed(const Duration(milliseconds: 1200));
     if (!mounted) return;
 
     final user = _authService.currentUser;
@@ -99,13 +99,6 @@ class _SplashScreenState extends State<SplashScreen>
                       color: AppColors.primaryLight.withValues(alpha: 0.4),
                       width: 1.5,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppColors.primary.withValues(alpha: 0.3),
-                        blurRadius: 30,
-                        spreadRadius: 2,
-                      ),
-                    ],
                   ),
                   child: const Icon(
                     Icons.hub_outlined,

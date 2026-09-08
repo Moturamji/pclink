@@ -25,7 +25,8 @@ class _AuthScreenState extends State<AuthScreen> {
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
 
   bool _isSignUp = false;
   bool _isLoading = false;
@@ -96,7 +97,8 @@ class _AuthScreenState extends State<AuthScreen> {
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 480),
               child: Card(
@@ -113,27 +115,21 @@ class _AuthScreenState extends State<AuthScreen> {
                           isSignUp: _isSignUp,
                         ),
                         const SizedBox(height: 24),
-
                         if (_errorMessage != null) ...[
                           _buildErrorBanner(_errorMessage!),
                           const SizedBox(height: 20),
                         ],
-
                         if (!_isWindows) ...[
                           _buildAuthModeToggle(),
                           const SizedBox(height: 24),
                         ],
-
                         _buildEmailField(),
                         const SizedBox(height: 16),
-
                         _buildPasswordField(),
-
                         if (_isSignUp && !_isWindows) ...[
                           const SizedBox(height: 16),
                           _buildConfirmPasswordField(),
                         ],
-
                         if (!_isSignUp) ...[
                           Align(
                             alignment: Alignment.centerRight,
@@ -155,11 +151,8 @@ class _AuthScreenState extends State<AuthScreen> {
                         ] else ...[
                           const SizedBox(height: 16),
                         ],
-
                         const SizedBox(height: 8),
-
                         _buildSubmitButton(),
-
                         if (_isWindows) ...[
                           const SizedBox(height: 24),
                           _buildWindowsNoticeCard(),
@@ -235,9 +228,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
-                    color: !_isSignUp
-                        ? Colors.white
-                        : AppColors.textSecondary,
+                    color: !_isSignUp ? Colors.white : AppColors.textSecondary,
                   ),
                 ),
               ),
@@ -265,9 +256,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
-                    color: _isSignUp
-                        ? Colors.white
-                        : AppColors.textSecondary,
+                    color: _isSignUp ? Colors.white : AppColors.textSecondary,
                   ),
                 ),
               ),
@@ -285,8 +274,8 @@ class _AuthScreenState extends State<AuthScreen> {
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: const InputDecoration(
         labelText: AppStrings.emailLabel,
-        prefixIcon: Icon(Icons.email_outlined,
-            color: AppColors.primaryLight, size: 20),
+        prefixIcon:
+            Icon(Icons.email_outlined, color: AppColors.primaryLight, size: 20),
       ),
       validator: Validators.validateEmail,
     );
@@ -299,8 +288,8 @@ class _AuthScreenState extends State<AuthScreen> {
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: AppStrings.passwordLabel,
-        prefixIcon: const Icon(Icons.lock_outline,
-            color: AppColors.primaryLight, size: 20),
+        prefixIcon:
+            const Icon(Icons.lock_outline, color: AppColors.primaryLight, size: 20),
         suffixIcon: IconButton(
           icon: Icon(
             _obscurePassword ? Icons.visibility_off : Icons.visibility,
@@ -326,9 +315,7 @@ class _AuthScreenState extends State<AuthScreen> {
             color: AppColors.primaryLight, size: 20),
         suffixIcon: IconButton(
           icon: Icon(
-            _obscureConfirmPassword
-                ? Icons.visibility_off
-                : Icons.visibility,
+            _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
             color: AppColors.textMuted,
             size: 20,
           ),

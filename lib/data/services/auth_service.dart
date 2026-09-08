@@ -4,15 +4,29 @@ import 'package:flutter/foundation.dart';
 
 /// Service responsible for managing user authentication state via FirebaseAuth.
 class AuthService {
-  final FirebaseAuth _auth;
+  final FirebaseAuth? _customAuth;
 
-  AuthService({FirebaseAuth? auth}) : _auth = auth ?? FirebaseAuth.instance;
+  AuthService({FirebaseAuth? auth}) : _customAuth = auth;
+
+  FirebaseAuth get _auth => _customAuth ?? FirebaseAuth.instance;
 
   /// Stream emitting auth state changes (logged in / logged out).
-  Stream<User?> get authStateChanges => _auth.authStateChanges();
+  Stream<User?> get authStateChanges {
+    try {
+      return _auth.authStateChanges();
+    } catch (_) {
+      return Stream.value(null);
+    }
+  }
 
   /// Gets the currently authenticated user, if any.
-  User? get currentUser => _auth.currentUser;
+  User? get currentUser {
+    try {
+      return _auth.currentUser;
+    } catch (_) {
+      return null;
+    }
+  }
 
   /// Signs in a user with [email] and [password].
   Future<UserCredential> signInWithEmailAndPassword({
@@ -47,7 +61,9 @@ class AuthService {
 
   /// Signs out the current user session.
   Future<void> signOut() async {
-    await _auth.signOut();
+    try {
+      await _auth.signOut();
+    } catch (_) {}
   }
 
   /// Sends a password reset link to the given [email].
