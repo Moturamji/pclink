@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'services/auth_service.dart';
 import 'services/device_info_service.dart';
+import 'screens/splash_screen.dart';
+import 'screens/auth_screen.dart';
 
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const PCLinkApp());
 }
 
@@ -37,7 +45,7 @@ class PCLinkApp extends StatelessWidget {
         ),
         fontFamily: 'Segoe UI',
       ),
-      home: const HomeScreen(),
+      home: const SplashScreen(),
     );
   }
 }
@@ -51,6 +59,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final DeviceInfoService _deviceInfoService = DeviceInfoService();
+  final AuthService _authService = AuthService();
   late Future<DeviceDetails> _deviceDetailsFuture;
   bool _isRefreshing = false;
 
@@ -98,8 +107,54 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _confirmSignOut() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.logout, color: Colors.redAccent),
+            SizedBox(width: 8),
+            Text('Sign Out', style: TextStyle(color: Colors.white, fontSize: 18)),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to sign out of PCLink?',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () async {
+              Navigator.of(ctx).pop();
+              await _authService.signOut();
+              if (mounted) {
+                Navigator.of(context).pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const AuthScreen()),
+                  (route) => false,
+                );
+              }
+            },
+            child: const Text('Sign Out'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final user = _authService.currentUser;
+
     return Scaffold(
       appBar: AppBar(
         title: const Row(
@@ -128,6 +183,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 : const Icon(Icons.refresh),
             tooltip: 'Refresh details',
             onPressed: _isRefreshing ? null : _refresh,
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout, color: Colors.redAccent),
+            tooltip: 'Sign Out',
+            onPressed: _confirmSignOut,
           ),
           const SizedBox(width: 8),
         ],
@@ -192,6 +252,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      // User Profile Bar (if logged in)
+                      if (user != null && user.email != null)
+                        _buildUserSessionCard(user.email!),
+                      const SizedBox(height: 16),
+
                       // Platform Header Banner
                       _buildPlatformHeader(details, isWindows, isAndroid),
                       const SizedBox(height: 20),
@@ -236,6 +301,71 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildUserSessionCard(String email) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E293B),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF334155)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF6366F1).withValues(alpha: 0.2),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.account_circle, size: 20, color: Color(0xFF818CF8)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'SIGNED IN AS',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.1,
+                    color: Colors.white54,
+                  ),
+                ),
+                Text(
+                  email,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: const Color(0xFF22C55E).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.3)),
+            ),
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.circle, size: 8, color: Color(0xFF22C55E)),
+                SizedBox(width: 5),
+                Text('Active Session', style: TextStyle(fontSize: 11, color: Color(0xFF4ADE80))),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

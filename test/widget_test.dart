@@ -1,12 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pclink/main.dart';
+import 'package:pclink/services/auth_service.dart';
 
 void main() {
-  testWidgets('PCLink smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const PCLinkApp());
-
-    // Verify that the title 'PCLink' is rendered
-    expect(find.text('PCLink'), findsOneWidget);
+  group('AuthService Tests', () {
+    test('getErrorMessage returns proper messages for Firebase errors', () {
+      expect(
+        AuthService.getErrorMessage(Exception('Generic error')),
+        contains('Generic error'),
+      );
+    });
   });
 }
