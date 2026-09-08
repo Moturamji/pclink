@@ -11,6 +11,8 @@ import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
 import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
+import '../../../features/clipboard/services/clipboard_service.dart';
+import '../../../features/clipboard/widgets/clipboard_sync_card.dart';
 import '../auth/auth_screen.dart';
 import 'widgets/linked_devices_card.dart';
 import 'widgets/platform_header.dart';
@@ -25,6 +27,7 @@ class HomeScreen extends StatefulWidget {
   final AuthService? authService;
   final DatabaseService? databaseService;
   final ServerService? serverService;
+  final ClipboardService? clipboardService;
 
   const HomeScreen({
     super.key,
@@ -32,6 +35,7 @@ class HomeScreen extends StatefulWidget {
     this.authService,
     this.databaseService,
     this.serverService,
+    this.clipboardService,
   });
 
   @override
@@ -43,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final AuthService _authService;
   late final DatabaseService _databaseService;
   late final ServerService _serverService;
+  late final ClipboardService _clipboardService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
   ServerInfo? _currentServerInfo;
@@ -57,6 +62,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _authService = widget.authService ?? AuthService();
     _databaseService = widget.databaseService ?? DatabaseService();
     _serverService = widget.serverService ?? ServerService();
+    _clipboardService = widget.clipboardService ?? ClipboardService();
 
     final user = _authService.currentUser;
 
@@ -102,6 +108,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _serverSub?.cancel();
     _cloudHandshakeSub?.cancel();
+    _clipboardService.dispose();
     if (!kIsWeb && Platform.isWindows) {
       final user = _authService.currentUser;
       if (user != null) {
@@ -128,6 +135,14 @@ class _HomeScreenState extends State<HomeScreen> {
         await _databaseService.syncUserAndDevice(
           user: user,
           details: details,
+        );
+
+        // Start real-time background clipboard listener on both Windows and Android
+        _clipboardService.startListening(
+          user: user,
+          deviceName: details.deviceName,
+          isWindows: details.isWindows,
+          databaseService: _databaseService,
         );
 
         // Windows only: Automatically launch lightweight local server and announce to RTDB
@@ -410,6 +425,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         databaseService: _databaseService,
                       ),
                       const SizedBox(height: 14),
+
+                      // Real-Time Cross-Platform Clipboard Sync
+                      if (user != null) ...[
+                        ClipboardSyncCard(
+                          isWindows: details.isWindows,
+                          user: user,
+                          databaseService: _databaseService,
+                          clipboardService: _clipboardService,
+                        ),
+                        const SizedBox(height: 14),
+                      ],
 
                       // Realtime Database Cloud-Linked Devices
                       if (user != null) ...[

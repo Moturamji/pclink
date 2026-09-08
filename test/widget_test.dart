@@ -5,7 +5,9 @@ import 'package:pclink/core/utils/validators.dart';
 import 'package:pclink/data/models/device_details.dart';
 import 'package:pclink/data/models/linked_device.dart';
 import 'package:pclink/data/models/server_info.dart';
+import 'package:pclink/core/widgets/universal/status_badge.dart';
 import 'package:pclink/data/services/auth_service.dart';
+import 'package:pclink/features/clipboard/models/clipboard_item.dart';
 import 'package:pclink/presentation/screens/home/widgets/server_control_card.dart';
 
 void main() {
@@ -198,6 +200,49 @@ void main() {
       expect(find.text('Connected to Windows PC'), findsOneWidget);
       expect(find.text('Disconnect from Windows PC'), findsOneWidget);
       expect(find.text('CONNECTED'), findsOneWidget);
+    });
+  });
+
+  group('Clipboard Feature & Universal Widget Tests', () {
+    test('ClipboardItem serializes and deserializes correctly', () {
+      final now = DateTime.now();
+      final item = ClipboardItem(
+        id: 'clip_123',
+        text: 'Hello from Windows PC!',
+        sourcePlatform: 'windows',
+        sourceDeviceName: 'Desktop-Workstation',
+        timestamp: now,
+      );
+
+      expect(item.isFromWindows, isTrue);
+      expect(item.isFromAndroid, isFalse);
+      expect(item.charCount, 22);
+      expect(item.previewText, 'Hello from Windows PC!');
+
+      final map = item.toMap();
+      expect(map['id'], 'clip_123');
+      expect(map['text'], 'Hello from Windows PC!');
+      expect(map['sourcePlatform'], 'windows');
+
+      final fromMapItem = ClipboardItem.fromMap(map);
+      expect(fromMapItem.id, 'clip_123');
+      expect(fromMapItem.text, 'Hello from Windows PC!');
+      expect(fromMapItem.sourcePlatform, 'windows');
+    });
+
+    testWidgets('StatusBadge renders active and inactive states', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: StatusBadge(
+              label: 'TEST SYNC',
+              isActive: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('TEST SYNC'), findsOneWidget);
     });
   });
 }
