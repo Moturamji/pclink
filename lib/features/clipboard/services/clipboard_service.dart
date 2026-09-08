@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:http/http.dart' as http;
 import '../../../core/constants/server_constants.dart';
+import '../../../data/services/database_service.dart';
 import '../../../data/services/server_service.dart';
 import '../models/clipboard_item.dart';
 
@@ -36,7 +38,7 @@ class PclinkTaskHandler extends TaskHandler {
   }
 }
 
-/// Manages direct local-server clipboard synchronization without storing clips in Firebase.
+/// Manages real-time, low-overhead bidirectional clipboard exchange across local server routes and cloud channel.
 class ClipboardService with WidgetsBindingObserver {
   final http.Client _client = http.Client();
   final List<ClipboardItem> _history = [];
@@ -45,7 +47,10 @@ class ClipboardService with WidgetsBindingObserver {
 
   Timer? _clipboardPollTimer;
   Timer? _remoteFetchTimer;
+  StreamSubscription<ClipboardItem>? _cloudEventSub;
 
+  User? _currentUser;
+  DatabaseService? _databaseService;
   ServerService? _serverService;
   String? Function()? _getTargetServerUrl;
   String? _currentDeviceName;
@@ -87,16 +92,20 @@ class ClipboardService with WidgetsBindingObserver {
     }
   }
 
-  /// Starts direct local server clipboard synchronization.
+  /// Starts real-time clipboard synchronization across local server and cloud channel.
   void startListening({
     required String deviceName,
     required bool isWindows,
+    User? user,
+    DatabaseService? databaseService,
     ServerService? serverService,
     String? Function()? getTargetServerUrl,
     Function(ClipboardItem)? onNewRemoteClipReceived,
   }) {
     if (_clipboardPollTimer != null) return;
 
+    _currentUser = user;
+    _databaseService = databaseService;
     _currentDeviceName = deviceName;
     _currentPlatformName = isWindows ? 'windows' : 'android';
     _serverService = serverService;
@@ -105,20 +114,20 @@ class ClipboardService with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
 
-    // 1. High-frequency local clipboard poll (500ms)
-    _clipboardPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
+    // 1. High-frequency local clipboard poll (400ms) for instant detection
+    _clipboardPollTimer = Timer.periodic(const Duration(milliseconds: 400), (_) async {
       await _checkLocalClipboard();
     });
 
+    // 2. Direct Local Windows Server Route
     if (isWindows && _serverService != null) {
-      // Windows: Server receives direct clips from Android via HTTP POST /api/clipboard
       _serverService!.onClipboardReceived = (item) {
         _handleRemoteClipReceived(item);
       };
       _history.addAll(_serverService!.clipboardHistory);
       _historyController.add(List.from(_history));
     } else {
-      // Android: Periodic fetch of latest clip directly from Windows server route
+      // Direct Local LAN fetch on Android
       _remoteFetchTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
         await _fetchLatestRemoteClipFromWindowsServer();
       });
@@ -129,11 +138,19 @@ class ClipboardService with WidgetsBindingObserver {
         _startAndroidForegroundService();
       }
 
-      // Initial history fetch
       refreshHistory();
     }
 
-    debugPrint('ClipboardService: Started direct server clipboard sync for $_currentPlatformName ($deviceName)');
+    // 3. Real-time Cloud Event Bus (guarantees cross-network instant exchange)
+    if (user != null && databaseService != null) {
+      _cloudEventSub = databaseService.listenClipboardEvents(user).listen((item) {
+        if (item.sourcePlatform != _currentPlatformName) {
+          _handleRemoteClipReceived(item);
+        }
+      });
+    }
+
+    debugPrint('ClipboardService: Started real-time clipboard sync for $_currentPlatformName ($deviceName)');
   }
 
   void _onForegroundDataReceived(dynamic data) {
@@ -169,7 +186,7 @@ class ClipboardService with WidgetsBindingObserver {
     }
   }
 
-  /// Checks local system clipboard and pushes changes across direct server route.
+  /// Checks local system clipboard and pushes changes across direct server route and cloud bus.
   Future<void> _checkLocalClipboard() async {
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -197,11 +214,20 @@ class ClipboardService with WidgetsBindingObserver {
       if (_currentPlatformName == 'windows') {
         // Windows: Store in server memory history
         _serverService?.addLocalClipboardItem(item);
-        debugPrint('ClipboardService: Windows stored local clip in server route');
       } else {
         // Android: Send directly to Windows server via HTTP POST /api/clipboard
-        await _postClipToWindowsServer(item);
+        _postClipToWindowsServer(item);
       }
+
+      // Broadcast ephemeral event across cloud channel (fast cross-network fallback)
+      if (_currentUser != null && _databaseService != null) {
+        _databaseService!.broadcastClipboardEvent(
+          user: _currentUser!,
+          item: item,
+        );
+      }
+
+      debugPrint('ClipboardService: Transferred local clip (${item.charCount} chars)');
     } catch (e) {
       debugPrint('ClipboardService check error: $e');
     }
@@ -262,6 +288,8 @@ class ClipboardService with WidgetsBindingObserver {
 
   /// Handles incoming remote clip from the peer device.
   Future<void> _handleRemoteClipReceived(ClipboardItem item) async {
+    if (item.text == _lastReceivedRemoteText || item.text == _lastLocalText) return;
+
     _lastReceivedRemoteText = item.text;
     _addClipToLocalHistory(item);
     _onNewRemoteClipReceived?.call(item);
@@ -360,6 +388,8 @@ class ClipboardService with WidgetsBindingObserver {
     _clipboardPollTimer = null;
     _remoteFetchTimer?.cancel();
     _remoteFetchTimer = null;
+    _cloudEventSub?.cancel();
+    _cloudEventSub = null;
   }
 
   void dispose() {

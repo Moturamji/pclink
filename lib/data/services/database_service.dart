@@ -423,6 +423,74 @@ class DatabaseService {
     }
   }
 
+  /// Broadcasts an ephemeral clipboard event across the real-time cloud channel.
+  Future<void> broadcastClipboardEvent({
+    required User user,
+    required ClipboardItem item,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/clipboard_event.json$authQuery');
+
+      await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(item.toMap()),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService broadcastClipboardEvent error: $e');
+    }
+  }
+
+  /// Listens to the real-time ephemeral clipboard event channel.
+  Stream<ClipboardItem> listenClipboardEvents(User user) {
+    late final StreamController<ClipboardItem> controller;
+    Timer? timer;
+    String? lastProcessedClipId;
+    String? lastProcessedText;
+
+    Future<void> fetchEvent() async {
+      try {
+        final token = await user.getIdToken();
+        final authQuery = token != null ? '?auth=$token' : '';
+        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/clipboard_event.json$authQuery');
+        final response = await _safeGet(uri);
+
+        if (response != null &&
+            response.statusCode == 200 &&
+            response.body.isNotEmpty &&
+            response.body != 'null') {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map) {
+            final item = ClipboardItem.fromMap(data);
+            if (item.id != lastProcessedClipId || item.text != lastProcessedText) {
+              lastProcessedClipId = item.id;
+              lastProcessedText = item.text;
+              if (!controller.isClosed) {
+                controller.add(item);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('DatabaseService listenClipboardEvents error: $e');
+      }
+    }
+
+    controller = StreamController<ClipboardItem>.broadcast(
+      onListen: () {
+        fetchEvent();
+        timer = Timer.periodic(const Duration(milliseconds: 1000), (_) => fetchEvent());
+      },
+      onCancel: () {
+        timer?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
   /// Updates the FCM device push token for the user's Android device.
   Future<void> updateFcmToken({
     required User user,
