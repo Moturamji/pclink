@@ -2,13 +2,19 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 
+/// Service responsible for managing user authentication state via FirebaseAuth.
 class AuthService {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseAuth _auth;
 
+  AuthService({FirebaseAuth? auth}) : _auth = auth ?? FirebaseAuth.instance;
+
+  /// Stream emitting auth state changes (logged in / logged out).
   Stream<User?> get authStateChanges => _auth.authStateChanges();
 
+  /// Gets the currently authenticated user, if any.
   User? get currentUser => _auth.currentUser;
 
+  /// Signs in a user with [email] and [password].
   Future<UserCredential> signInWithEmailAndPassword({
     required String email,
     required String password,
@@ -19,6 +25,8 @@ class AuthService {
     );
   }
 
+  /// Registers a new user account.
+  /// Throws an exception if executed on Windows, enforcing mobile-only registration.
   Future<UserCredential> signUpWithEmailAndPassword({
     required String email,
     required String password,
@@ -26,7 +34,8 @@ class AuthService {
     if (!kIsWeb && Platform.isWindows) {
       throw FirebaseAuthException(
         code: 'operation-not-allowed',
-        message: 'Account registration is only permitted on the Android mobile app. Please register on your mobile device first.',
+        message:
+            'Account registration is only permitted on the Android mobile app. Please register on your mobile device first.',
       );
     }
 
@@ -36,14 +45,17 @@ class AuthService {
     );
   }
 
+  /// Signs out the current user session.
   Future<void> signOut() async {
     await _auth.signOut();
   }
 
+  /// Sends a password reset link to the given [email].
   Future<void> sendPasswordResetEmail(String email) async {
     await _auth.sendPasswordResetEmail(email: email.trim());
   }
 
+  /// Translates FirebaseAuthExceptions into friendly user messages.
   static String getErrorMessage(dynamic error) {
     if (error is FirebaseAuthException) {
       switch (error.code) {

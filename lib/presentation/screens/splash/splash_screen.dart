@@ -1,10 +1,13 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import '../services/auth_service.dart';
-import 'auth_screen.dart';
-import '../main.dart';
+import '../../../core/constants/app_colors.dart';
+import '../../../core/constants/app_strings.dart';
+import '../../../data/services/auth_service.dart';
+import '../auth/auth_screen.dart';
+import '../home/home_screen.dart';
 
+/// Animated splash screen showing PCLink branding and verifying session state.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -14,9 +17,9 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
-  late AnimationController _animController;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
+  late final AnimationController _animController;
+  late final Animation<double> _fadeAnimation;
+  late final Animation<double> _scaleAnimation;
   final AuthService _authService = AuthService();
 
   @override
@@ -48,25 +51,16 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final user = _authService.currentUser;
-    if (user != null) {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, anim, secondaryAnim) => const HomeScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-              FadeTransition(opacity: animation, child: child),
-          transitionDuration: const Duration(milliseconds: 400),
-        ),
-      );
-    } else {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (context, anim, secondaryAnim) => const AuthScreen(),
-          transitionsBuilder: (context, animation, secondaryAnimation, child) =>
-              FadeTransition(opacity: animation, child: child),
-          transitionDuration: const Duration(milliseconds: 400),
-        ),
-      );
-    }
+    final targetScreen = user != null ? const HomeScreen() : const AuthScreen();
+
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) => targetScreen,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+            FadeTransition(opacity: animation, child: child),
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+    );
   }
 
   @override
@@ -80,7 +74,7 @@ class _SplashScreenState extends State<SplashScreen>
     final isWindows = !kIsWeb && Platform.isWindows;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF090D16),
+      backgroundColor: AppColors.background,
       body: Center(
         child: FadeTransition(
           opacity: _fadeAnimation,
@@ -89,26 +83,25 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Glowing Logo Container
                 Container(
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        const Color(0xFF6366F1).withValues(alpha: 0.25),
-                        const Color(0xFF38BDF8).withValues(alpha: 0.1),
+                        AppColors.primary.withValues(alpha: 0.25),
+                        AppColors.secondary.withValues(alpha: 0.1),
                       ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: const Color(0xFF818CF8).withValues(alpha: 0.4),
+                      color: AppColors.primaryLight.withValues(alpha: 0.4),
                       width: 1.5,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF6366F1).withValues(alpha: 0.3),
+                        color: AppColors.primary.withValues(alpha: 0.3),
                         blurRadius: 30,
                         spreadRadius: 2,
                       ),
@@ -117,25 +110,27 @@ class _SplashScreenState extends State<SplashScreen>
                   child: const Icon(
                     Icons.hub_outlined,
                     size: 64,
-                    color: Color(0xFF818CF8),
+                    color: AppColors.primaryLight,
                   ),
                 ),
                 const SizedBox(height: 24),
                 const Text(
-                  'PCLink',
+                  AppStrings.appName,
                   style: TextStyle(
                     fontSize: 32,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 2,
-                    color: Colors.white,
+                    color: AppColors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  isWindows ? 'Desktop Hub for Windows' : 'Mobile Hub for Android',
+                  isWindows
+                      ? AppStrings.appTaglineDesktop
+                      : AppStrings.appTaglineMobile,
                   style: const TextStyle(
                     fontSize: 14,
-                    color: Colors.white54,
+                    color: AppColors.textMuted,
                     letterSpacing: 0.8,
                   ),
                 ),
@@ -145,7 +140,8 @@ class _SplashScreenState extends State<SplashScreen>
                   height: 28,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF818CF8)),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(AppColors.primaryLight),
                   ),
                 ),
               ],

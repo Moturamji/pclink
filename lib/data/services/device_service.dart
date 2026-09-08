@@ -1,44 +1,16 @@
 import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter/foundation.dart';
+import '../models/device_details.dart';
 
-class NetworkAddressInfo {
-  final String interfaceName;
-  final String address;
-  final InternetAddressType type;
-  final bool isLoopback;
+/// Service responsible for querying device hardware specifications and network interfaces.
+class DeviceService {
+  final DeviceInfoPlugin _deviceInfoPlugin;
 
-  const NetworkAddressInfo({
-    required this.interfaceName,
-    required this.address,
-    required this.type,
-    required this.isLoopback,
-  });
-}
+  DeviceService({DeviceInfoPlugin? deviceInfoPlugin})
+      : _deviceInfoPlugin = deviceInfoPlugin ?? DeviceInfoPlugin();
 
-class DeviceDetails {
-  final String platform;
-  final String deviceId;
-  final String deviceName;
-  final String osVersion;
-  final String primaryIp;
-  final List<NetworkAddressInfo> interfaces;
-  final Map<String, String> additionalDetails;
-
-  const DeviceDetails({
-    required this.platform,
-    required this.deviceId,
-    required this.deviceName,
-    required this.osVersion,
-    required this.primaryIp,
-    required this.interfaces,
-    required this.additionalDetails,
-  });
-}
-
-class DeviceInfoService {
-  final DeviceInfoPlugin _deviceInfoPlugin = DeviceInfoPlugin();
-
+  /// Queries all platform specs and network addresses asynchronously.
   Future<DeviceDetails> getDeviceDetails() async {
     String platform = 'Unknown';
     String deviceId = 'Unknown ID';
@@ -53,17 +25,16 @@ class DeviceInfoService {
       } else if (Platform.isAndroid) {
         platform = 'Android';
         final AndroidDeviceInfo androidInfo = await _deviceInfoPlugin.androidInfo;
-        
-        // Android ID / hardware ID
+
         deviceId = androidInfo.id.isNotEmpty
             ? androidInfo.id
             : (androidInfo.fingerprint.isNotEmpty
                 ? androidInfo.fingerprint
                 : 'Android-${androidInfo.model}');
-        
+
         deviceName = '${androidInfo.brand.toUpperCase()} ${androidInfo.model}';
         osVersion = 'Android ${androidInfo.version.release} (SDK ${androidInfo.version.sdkInt})';
-        
+
         additionalDetails['Manufacturer'] = androidInfo.manufacturer;
         additionalDetails['Model'] = androidInfo.model;
         additionalDetails['Brand'] = androidInfo.brand;
@@ -74,15 +45,15 @@ class DeviceInfoService {
       } else if (Platform.isWindows) {
         platform = 'Windows';
         final WindowsDeviceInfo windowsInfo = await _deviceInfoPlugin.windowsInfo;
-        
-        // Windows Device ID / Machine ID
+
         deviceId = windowsInfo.deviceId.isNotEmpty
             ? windowsInfo.deviceId
             : windowsInfo.computerName;
-            
+
         deviceName = windowsInfo.computerName;
-        osVersion = '${windowsInfo.productName} (${windowsInfo.displayVersion.isNotEmpty ? windowsInfo.displayVersion : windowsInfo.releaseId})';
-        
+        osVersion =
+            '${windowsInfo.productName} (${windowsInfo.displayVersion.isNotEmpty ? windowsInfo.displayVersion : windowsInfo.releaseId})';
+
         additionalDetails['Computer Name'] = windowsInfo.computerName;
         additionalDetails['Registered Owner'] = windowsInfo.registeredOwner;
         additionalDetails['CPU Cores'] = windowsInfo.numberOfCores.toString();
@@ -99,10 +70,22 @@ class DeviceInfoService {
       deviceId = 'Error: $e';
     }
 
-    // Network IP extraction
-    final List<NetworkAddressInfo> interfaces = [];
-    String primaryIp = 'Not Connected';
+    final List<NetworkAddressInfo> interfaces = await _getNetworkInterfaces();
+    final String primaryIp = _determinePrimaryIp(interfaces);
 
+    return DeviceDetails(
+      platform: platform,
+      deviceId: deviceId,
+      deviceName: deviceName,
+      osVersion: osVersion,
+      primaryIp: primaryIp,
+      interfaces: interfaces,
+      additionalDetails: additionalDetails,
+    );
+  }
+
+  Future<List<NetworkAddressInfo>> _getNetworkInterfaces() async {
+    final List<NetworkAddressInfo> interfaces = [];
     try {
       final List<NetworkInterface> rawInterfaces = await NetworkInterface.list(
         includeLoopback: false,
@@ -122,7 +105,6 @@ class DeviceInfoService {
         }
       }
 
-      // If no non-loopback found, check with loopbacks
       if (interfaces.isEmpty) {
         final List<NetworkInterface> allInterfaces = await NetworkInterface.list(
           includeLoopback: true,
@@ -141,33 +123,20 @@ class DeviceInfoService {
           }
         }
       }
-
-      // Determine primary IP: first non-loopback IPv4
-      final nonLoopbackIpv4 = interfaces.firstWhere(
-        (info) => !info.isLoopback && info.type == InternetAddressType.IPv4,
-        orElse: () => interfaces.isNotEmpty
-            ? interfaces.first
-            : const NetworkAddressInfo(
-                interfaceName: 'None',
-                address: '127.0.0.1',
-                type: InternetAddressType.IPv4,
-                isLoopback: true,
-              ),
-      );
-
-      primaryIp = nonLoopbackIpv4.address;
-    } catch (e) {
-      primaryIp = 'Error: $e';
+    } catch (_) {
+      // Fallback handled gracefully
     }
+    return interfaces;
+  }
 
-    return DeviceDetails(
-      platform: platform,
-      deviceId: deviceId,
-      deviceName: deviceName,
-      osVersion: osVersion,
-      primaryIp: primaryIp,
-      interfaces: interfaces,
-      additionalDetails: additionalDetails,
+  String _determinePrimaryIp(List<NetworkAddressInfo> interfaces) {
+    if (interfaces.isEmpty) return 'Not Connected';
+
+    final nonLoopbackIpv4 = interfaces.firstWhere(
+      (info) => !info.isLoopback && info.type == InternetAddressType.IPv4,
+      orElse: () => interfaces.first,
     );
+
+    return nonLoopbackIpv4.address;
   }
 }
