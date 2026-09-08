@@ -96,41 +96,41 @@ class _ServerControlCardState extends State<ServerControlCard> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(22.0),
+        padding: const EdgeInsets.all(18.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.primaryLight.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.dns_rounded,
-                        size: 18,
-                        color: AppColors.primaryLight,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'PC SERVER (PUBLIC & LOCAL)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.1,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.dns_rounded,
+                    size: 18,
+                    color: AppColors.primaryLight,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'PC SERVER (PUBLIC & LOCAL)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.0,
+                      color: AppColors.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: (isLive ? AppColors.success : AppColors.textMuted)
                         .withValues(alpha: 0.14),
@@ -160,7 +160,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                               : null,
                         ),
                       ),
-                      const SizedBox(width: 6),
+                      const SizedBox(width: 5),
                       Text(
                         isLive ? 'LIVE' : 'OFFLINE',
                         style: TextStyle(
@@ -175,12 +175,12 @@ class _ServerControlCardState extends State<ServerControlCard> {
                 ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: AppColors.cardBorder),
               ),
               child: Column(
@@ -220,7 +220,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     ],
                   ),
                   if (publicIp != null) ...[
-                    const Divider(color: AppColors.cardBorder, height: 20),
+                    const Divider(color: AppColors.cardBorder, height: 18),
                     Row(
                       children: [
                         const Text(
@@ -256,22 +256,27 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ],
                     ),
                   ],
-                  const Divider(color: AppColors.cardBorder, height: 20),
+                  const Divider(color: AppColors.cardBorder, height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.public, size: 14, color: AppColors.successLight),
-                          SizedBox(width: 7),
-                          Text(
-                            'Public Network Mode:',
-                            style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                          ),
-                        ],
+                      const Expanded(
+                        child: Row(
+                          children: [
+                            Icon(Icons.public, size: 14, color: AppColors.successLight),
+                            SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                'Public Network:',
+                                style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                         decoration: BoxDecoration(
                           color: AppColors.success.withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(20),
@@ -280,7 +285,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                           ),
                         ),
                         child: const Text(
-                          'Global Cloud Relay Active',
+                          'Cloud Relay Active',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -290,16 +295,16 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ),
                     ],
                   ),
-                  const Divider(color: AppColors.cardBorder, height: 20),
+                  const Divider(color: AppColors.cardBorder, height: 18),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Row(
                         children: [
                           Icon(Icons.lock_outline_rounded, size: 14, color: AppColors.secondary),
-                          SizedBox(width: 7),
+                          SizedBox(width: 6),
                           Text(
-                            'Auth Key (Password):',
+                            'Auth Key:',
                             style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
                           ),
                         ],
@@ -316,20 +321,21 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   ),
                   if (info?.connectedClientId != null &&
                       info!.connectedClientId!.isNotEmpty) ...[
-                    const Divider(color: AppColors.cardBorder, height: 20),
+                    const Divider(color: AppColors.cardBorder, height: 18),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Row(
                           children: [
                             Icon(Icons.phone_android_rounded, size: 14, color: AppColors.successLight),
-                            SizedBox(width: 7),
+                            SizedBox(width: 6),
                             Text(
-                              'Connected Client:',
+                              'Connected:',
                               style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
                             ),
                           ],
                         ),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             info.connectedClientId!,
@@ -349,7 +355,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                 ],
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
             Row(
               children: [
                 Expanded(
@@ -387,41 +393,41 @@ class _ServerControlCardState extends State<ServerControlCard> {
 
         return Card(
           child: Padding(
-            padding: const EdgeInsets.all(22.0),
+            padding: const EdgeInsets.all(18.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: AppColors.primaryLight.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.laptop_windows_rounded,
-                            size: 18,
-                            color: AppColors.primaryLight,
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'WINDOWS PC SERVER',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 1.1,
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryLight.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.laptop_windows_rounded,
+                        size: 18,
+                        color: AppColors.primaryLight,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'WINDOWS PC SERVER',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.0,
+                          color: AppColors.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: (isLive ? AppColors.success : AppColors.textMuted)
                             .withValues(alpha: 0.14),
@@ -451,7 +457,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                                   : null,
                             ),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 5),
                           Text(
                             isLive ? 'LIVE' : 'OFFLINE',
                             style: TextStyle(
@@ -466,10 +472,10 @@ class _ServerControlCardState extends State<ServerControlCard> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 18),
+                const SizedBox(height: 14),
                 if (isLive) ...[
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -479,31 +485,35 @@ class _ServerControlCardState extends State<ServerControlCard> {
                         begin: Alignment.topLeft,
                         end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: AppColors.success.withValues(alpha: 0.35)),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 6,
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
                             const Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.check_circle_rounded, color: AppColors.successLight, size: 20),
-                                SizedBox(width: 8),
+                                Icon(Icons.check_circle_rounded, color: AppColors.successLight, size: 18),
+                                SizedBox(width: 6),
                                 Text(
                                   'PC Server is Live!',
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
-                                    fontSize: 14,
+                                    fontSize: 13,
                                     color: AppColors.textPrimary,
                                   ),
                                 ),
                               ],
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2.5),
                               decoration: BoxDecoration(
                                 color: AppColors.secondary.withValues(alpha: 0.15),
                                 borderRadius: BorderRadius.circular(20),
@@ -529,7 +539,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         Row(
                           children: [
                             const Text(
@@ -567,15 +577,15 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
                   if (_authMessage != null) ...[
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      margin: const EdgeInsets.only(bottom: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      margin: const EdgeInsets.only(bottom: 12),
                       decoration: BoxDecoration(
                         color: (_authSuccess ? AppColors.success : AppColors.error)
                             .withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(10),
                         border: Border.all(
                           color: (_authSuccess ? AppColors.success : AppColors.error)
                               .withValues(alpha: 0.3),
@@ -585,10 +595,10 @@ class _ServerControlCardState extends State<ServerControlCard> {
                         children: [
                           Icon(
                             _authSuccess ? Icons.check_circle_rounded : Icons.error_outline_rounded,
-                            size: 18,
+                            size: 16,
                             color: _authSuccess ? AppColors.successLight : AppColors.error,
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               _authMessage!,
@@ -618,9 +628,12 @@ class _ServerControlCardState extends State<ServerControlCard> {
                                   ),
                                 )
                               : const Icon(Icons.vpn_key_rounded, size: 18),
-                          label: Text(_isConnecting
-                              ? 'Authenticating...'
-                              : 'Authenticate & Connect (Public WAN)'),
+                          label: Text(
+                            _isConnecting
+                                ? 'Authenticating...'
+                                : 'Authenticate & Connect (Public WAN)',
+                            textAlign: TextAlign.center,
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
                             foregroundColor: AppColors.background,
@@ -632,16 +645,16 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   ),
                 ] else ...[
                   Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: AppColors.cardBorder),
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.info_outline_rounded, color: AppColors.textMuted, size: 20),
-                        SizedBox(width: 12),
+                        Icon(Icons.info_outline_rounded, color: AppColors.textMuted, size: 18),
+                        SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             'Windows PC server is offline. Launch PCLink on your PC to connect over public or local network.',

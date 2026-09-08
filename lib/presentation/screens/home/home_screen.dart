@@ -365,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(
-                  horizontal: 20.0, vertical: 24.0),
+                  horizontal: 16.0, vertical: 16.0),
               child: Center(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxWidth: 800),
@@ -374,10 +374,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       if (user?.email != null)
                         UserSessionCard(email: user!.email!),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 14),
 
                       PlatformHeader(details: details),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
 
                       // Local/Public Windows Server or Android Server Listener Card
                       ServerControlCard(
@@ -392,7 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         user: user,
                         databaseService: _databaseService,
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
 
                       // Realtime Database Cloud-Linked Devices
                       if (user != null) ...[
@@ -400,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           devicesStream:
                               _databaseService.watchUserDevices(user),
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 14),
                       ],
 
                       MetricCard(
@@ -410,11 +410,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         accentColor: AppColors.primaryLight,
                         badgeText: details.isWindows
                             ? 'Machine GUID'
-                            : 'Android Hardware ID',
+                            : 'Android ID',
                         onCopy: () => ClipboardHelper.copy(
                             context, details.deviceId, 'Device ID'),
                       ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 14),
 
                       MetricCard(
                         title: AppStrings.primaryIpTitle,
@@ -429,14 +429,14 @@ class _HomeScreenState extends State<HomeScreen> {
                         onCopy: () => ClipboardHelper.copy(
                             context, details.primaryIp, 'IP Address'),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
 
                       if (details.interfaces.isNotEmpty)
                         InterfacesCard(interfaces: details.interfaces),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 14),
 
                       SpecsCard(details: details),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                     ],
                   ),
                 ),

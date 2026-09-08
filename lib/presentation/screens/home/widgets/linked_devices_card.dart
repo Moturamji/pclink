@@ -16,41 +16,41 @@ class LinkedDevicesCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(22.0),
+        padding: const EdgeInsets.all(18.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: AppColors.secondary.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.cloud_sync_rounded,
-                        size: 18,
-                        color: AppColors.secondary,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    const Text(
-                      'LINKED DEVICES (CLOUD SYNC)',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.1,
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.secondary.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.cloud_sync_rounded,
+                    size: 18,
+                    color: AppColors.secondary,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Expanded(
+                  child: Text(
+                    'LINKED DEVICES (CLOUD)',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.0,
+                      color: AppColors.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
                     color: AppColors.secondary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
@@ -62,7 +62,7 @@ class LinkedDevicesCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(Icons.sync_rounded, size: 12, color: AppColors.secondary),
-                      SizedBox(width: 5),
+                      SizedBox(width: 4),
                       Text(
                         'Realtime DB',
                         style: TextStyle(
@@ -76,7 +76,7 @@ class LinkedDevicesCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             StreamBuilder<List<LinkedDevice>>(
               stream: devicesStream,
               builder: (context, snapshot) {
@@ -97,16 +97,16 @@ class LinkedDevicesCard extends StatelessWidget {
 
                 if (devices.isEmpty) {
                   return Container(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
                       color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(14),
                       border: Border.all(color: AppColors.cardBorder),
                     ),
                     child: const Row(
                       children: [
-                        Icon(Icons.devices_other_rounded, color: AppColors.textMuted, size: 22),
-                        SizedBox(width: 12),
+                        Icon(Icons.devices_other_rounded, color: AppColors.textMuted, size: 20),
+                        SizedBox(width: 10),
                         Expanded(
                           child: Text(
                             'No other devices connected yet. Open PCLink on your Windows PC or Android phone to link them.',
@@ -127,7 +127,7 @@ class LinkedDevicesCard extends StatelessWidget {
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: devices.length,
                   separatorBuilder: (context, index) =>
-                      const Divider(color: AppColors.cardBorder, height: 22),
+                      const Divider(color: AppColors.cardBorder, height: 18),
                   itemBuilder: (context, index) {
                     final device = devices[index];
                     return _buildDeviceRow(context, device);
@@ -152,33 +152,37 @@ class LinkedDevicesCard extends StatelessWidget {
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: avatarColor.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: avatarColor.withValues(alpha: 0.25)),
           ),
           child: Icon(
             isWindows ? Icons.laptop_windows_rounded : Icons.phone_android_rounded,
-            size: 22,
+            size: 20,
             color: avatarColor,
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  Text(
-                    device.deviceName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
-                      color: AppColors.textPrimary,
+                  Expanded(
+                    child: Text(
+                      device.deviceName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: AppColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
                       color: (device.isOnline ? AppColors.success : AppColors.textMuted)
                           .withValues(alpha: 0.14),
@@ -217,7 +221,7 @@ class LinkedDevicesCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 3),
+              const SizedBox(height: 2),
               Text(
                 device.osVersion,
                 style: const TextStyle(
@@ -225,8 +229,10 @@ class LinkedDevicesCard extends StatelessWidget {
                   fontWeight: FontWeight.w500,
                   color: AppColors.textMuted,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               // Device ID row
               Row(
                 children: [

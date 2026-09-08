@@ -61,18 +61,18 @@ class SpecsCard extends StatelessWidget {
 
   Widget _buildSpecRow(String key, String value) {
     return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4.0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      margin: const EdgeInsets.symmetric(vertical: 3.0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.surface.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.5)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 130,
+          Expanded(
+            flex: 4,
             child: Text(
               key,
               style: const TextStyle(
@@ -82,7 +82,9 @@ class SpecsCard extends StatelessWidget {
               ),
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(
+            flex: 6,
             child: SelectableText(
               value,
               style: const TextStyle(
