@@ -8,6 +8,8 @@ abstract final class ServerConstants {
   static const String authEndpoint = '/auth';
   static const String statusEndpoint = '/status';
   static const String pingEndpoint = '/ping';
+  static const String clipboardEndpoint = '/api/clipboard';
+  static const String clipboardLatestEndpoint = '/api/clipboard/latest';
 
   // Handshake Messages
   static const String msgServerRunning = 'PCLink Windows Server is live and ready.';

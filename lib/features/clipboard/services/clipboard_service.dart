@@ -1,11 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import '../../../data/services/database_service.dart';
+import 'package:http/http.dart' as http;
+import '../../../core/constants/server_constants.dart';
+import '../../../data/services/server_service.dart';
 import '../models/clipboard_item.dart';
 
 @pragma('vm:entry-point')
@@ -34,21 +36,29 @@ class PclinkTaskHandler extends TaskHandler {
   }
 }
 
-/// Manages continuous background system clipboard monitoring and bidirectional synchronization.
+/// Manages direct local-server clipboard synchronization without storing clips in Firebase.
 class ClipboardService with WidgetsBindingObserver {
-  Timer? _clipboardPollTimer;
-  StreamSubscription<List<ClipboardItem>>? _remoteSub;
+  final http.Client _client = http.Client();
+  final List<ClipboardItem> _history = [];
+  final StreamController<List<ClipboardItem>> _historyController =
+      StreamController<List<ClipboardItem>>.broadcast();
 
-  User? _currentUser;
+  Timer? _clipboardPollTimer;
+  Timer? _remoteFetchTimer;
+
+  ServerService? _serverService;
+  String? Function()? _getTargetServerUrl;
   String? _currentDeviceName;
   String? _currentPlatformName;
-  DatabaseService? _currentDatabaseService;
+  Function(ClipboardItem)? _onNewRemoteClipReceived;
 
   String? _lastLocalText;
   String? _lastReceivedRemoteText;
   bool isAutoSyncEnabled = true;
 
   bool get isListening => _clipboardPollTimer != null;
+  Stream<List<ClipboardItem>> get clipboardHistoryStream => _historyController.stream;
+  List<ClipboardItem> get currentHistory => List.unmodifiable(_history);
 
   /// Initializes Android Foreground Task configurations.
   static Future<void> initForegroundTask() async {
@@ -59,7 +69,7 @@ class ClipboardService with WidgetsBindingObserver {
         androidNotificationOptions: AndroidNotificationOptions(
           channelId: 'pclink_foreground_sync',
           channelName: 'PCLink Background Sync',
-          channelDescription: 'Maintains live background connection and real-time clipboard sync with PC',
+          channelDescription: 'Maintains live background connection and direct clipboard route with PC',
           channelImportance: NotificationChannelImportance.LOW,
           priority: NotificationPriority.LOW,
         ),
@@ -77,20 +87,21 @@ class ClipboardService with WidgetsBindingObserver {
     }
   }
 
-  /// Starts background clipboard polling, remote stream listening, and foreground service.
+  /// Starts direct local server clipboard synchronization.
   void startListening({
-    required User user,
     required String deviceName,
     required bool isWindows,
-    required DatabaseService databaseService,
+    ServerService? serverService,
+    String? Function()? getTargetServerUrl,
     Function(ClipboardItem)? onNewRemoteClipReceived,
   }) {
     if (_clipboardPollTimer != null) return;
 
-    _currentUser = user;
     _currentDeviceName = deviceName;
     _currentPlatformName = isWindows ? 'windows' : 'android';
-    _currentDatabaseService = databaseService;
+    _serverService = serverService;
+    _getTargetServerUrl = getTargetServerUrl;
+    _onNewRemoteClipReceived = onNewRemoteClipReceived;
 
     WidgetsBinding.instance.addObserver(this);
 
@@ -99,34 +110,30 @@ class ClipboardService with WidgetsBindingObserver {
       await _checkLocalClipboard();
     });
 
-    // 2. Start Android Foreground Service with action buttons
-    if (!kIsWeb && Platform.isAndroid) {
-      FlutterForegroundTask.addTaskDataCallback(_onForegroundDataReceived);
-      _startAndroidForegroundService();
+    if (isWindows && _serverService != null) {
+      // Windows: Server receives direct clips from Android via HTTP POST /api/clipboard
+      _serverService!.onClipboardReceived = (item) {
+        _handleRemoteClipReceived(item);
+      };
+      _history.addAll(_serverService!.clipboardHistory);
+      _historyController.add(List.from(_history));
+    } else {
+      // Android: Periodic fetch of latest clip directly from Windows server route
+      _remoteFetchTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) async {
+        await _fetchLatestRemoteClipFromWindowsServer();
+      });
+
+      // Start Android Foreground Service with 1-tap notification action
+      if (!kIsWeb && Platform.isAndroid) {
+        FlutterForegroundTask.addTaskDataCallback(_onForegroundDataReceived);
+        _startAndroidForegroundService();
+      }
+
+      // Initial history fetch
+      refreshHistory();
     }
 
-    // 3. Listen to incoming remote clips
-    _remoteSub = databaseService.watchClipboardItems(user).listen((items) async {
-      if (items.isEmpty) return;
-      final latest = items.first;
-
-      // Only process clips from the other platform
-      if (latest.sourcePlatform != _currentPlatformName && latest.text != _lastReceivedRemoteText) {
-        _lastReceivedRemoteText = latest.text;
-        onNewRemoteClipReceived?.call(latest);
-
-        if (isAutoSyncEnabled && latest.text.isNotEmpty) {
-          try {
-            await Clipboard.setData(ClipboardData(text: latest.text));
-            debugPrint('ClipboardService: Auto-synced remote text to system clipboard');
-          } catch (e) {
-            debugPrint('ClipboardService auto-sync error: $e');
-          }
-        }
-      }
-    });
-
-    debugPrint('ClipboardService: Started clipboard listener for $_currentPlatformName ($deviceName)');
+    debugPrint('ClipboardService: Started direct server clipboard sync for $_currentPlatformName ($deviceName)');
   }
 
   void _onForegroundDataReceived(dynamic data) {
@@ -155,13 +162,15 @@ class ClipboardService with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Whenever app is paused, hidden, or resumed, check clipboard immediately
+    // Whenever app focus changes or resumes, check clipboard immediately
     _checkLocalClipboard();
+    if (_currentPlatformName == 'android') {
+      _fetchLatestRemoteClipFromWindowsServer();
+    }
   }
 
+  /// Checks local system clipboard and pushes changes across direct server route.
   Future<void> _checkLocalClipboard() async {
-    if (_currentUser == null || _currentDatabaseService == null) return;
-
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
       final currentText = data?.text;
@@ -183,14 +192,155 @@ class ClipboardService with WidgetsBindingObserver {
         timestamp: DateTime.now(),
       );
 
-      await _currentDatabaseService!.pushClipboardItem(
-        user: _currentUser!,
-        item: item,
-      );
+      _addClipToLocalHistory(item);
 
-      debugPrint('ClipboardService: Uploaded new local clip to RTDB (${item.charCount} chars)');
+      if (_currentPlatformName == 'windows') {
+        // Windows: Store in server memory history
+        _serverService?.addLocalClipboardItem(item);
+        debugPrint('ClipboardService: Windows stored local clip in server route');
+      } else {
+        // Android: Send directly to Windows server via HTTP POST /api/clipboard
+        await _postClipToWindowsServer(item);
+      }
     } catch (e) {
       debugPrint('ClipboardService check error: $e');
+    }
+  }
+
+  /// Android -> Windows: Directly sends copied text to Windows server.
+  Future<void> _postClipToWindowsServer(ClipboardItem item) async {
+    final serverUrl = _getTargetServerUrl?.call();
+    if (serverUrl == null || serverUrl.isEmpty) return;
+
+    try {
+      final sanitizedUrl = serverUrl.endsWith('/')
+          ? serverUrl.substring(0, serverUrl.length - 1)
+          : serverUrl;
+      final uri = Uri.parse('$sanitizedUrl${ServerConstants.clipboardEndpoint}');
+
+      final response = await _client
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(item.toMap()),
+          )
+          .timeout(const Duration(seconds: 3));
+
+      if (response.statusCode == 200) {
+        debugPrint('ClipboardService: Direct clip sent to Windows server (${item.charCount} chars)');
+      }
+    } catch (e) {
+      debugPrint('ClipboardService _postClipToWindowsServer error: $e');
+    }
+  }
+
+  /// Android <- Windows: Fetches latest copied clip directly from Windows server.
+  Future<void> _fetchLatestRemoteClipFromWindowsServer() async {
+    final serverUrl = _getTargetServerUrl?.call();
+    if (serverUrl == null || serverUrl.isEmpty) return;
+
+    try {
+      final sanitizedUrl = serverUrl.endsWith('/')
+          ? serverUrl.substring(0, serverUrl.length - 1)
+          : serverUrl;
+      final uri = Uri.parse('$sanitizedUrl${ServerConstants.clipboardLatestEndpoint}');
+
+      final response = await _client.get(uri).timeout(const Duration(seconds: 3));
+      if (response.statusCode == 200 && response.body.isNotEmpty && response.body != 'null') {
+        final dynamic data = jsonDecode(response.body);
+        if (data is Map) {
+          final item = ClipboardItem.fromMap(data);
+          if (item.sourcePlatform != _currentPlatformName && item.text != _lastReceivedRemoteText) {
+            _handleRemoteClipReceived(item);
+          }
+        }
+      }
+    } catch (_) {
+      // Server might be temporarily unreachable; handled gracefully
+    }
+  }
+
+  /// Handles incoming remote clip from the peer device.
+  Future<void> _handleRemoteClipReceived(ClipboardItem item) async {
+    _lastReceivedRemoteText = item.text;
+    _addClipToLocalHistory(item);
+    _onNewRemoteClipReceived?.call(item);
+
+    if (isAutoSyncEnabled && item.text.isNotEmpty) {
+      try {
+        await Clipboard.setData(ClipboardData(text: item.text));
+        debugPrint('ClipboardService: Auto-synced remote text to system clipboard');
+      } catch (e) {
+        debugPrint('ClipboardService auto-sync error: $e');
+      }
+    }
+  }
+
+  void _addClipToLocalHistory(ClipboardItem item) {
+    _history.removeWhere((c) => c.id == item.id || c.text == item.text);
+    _history.insert(0, item);
+    if (_history.length > 50) {
+      _history.removeLast();
+    }
+    _historyController.add(List.from(_history));
+  }
+
+  /// Refreshes full clipboard history from the Windows server route.
+  Future<void> refreshHistory() async {
+    if (_currentPlatformName == 'windows') {
+      if (_serverService != null) {
+        _history.clear();
+        _history.addAll(_serverService!.clipboardHistory);
+        _historyController.add(List.from(_history));
+      }
+      return;
+    }
+
+    final serverUrl = _getTargetServerUrl?.call();
+    if (serverUrl == null || serverUrl.isEmpty) return;
+
+    try {
+      final sanitizedUrl = serverUrl.endsWith('/')
+          ? serverUrl.substring(0, serverUrl.length - 1)
+          : serverUrl;
+      final uri = Uri.parse('$sanitizedUrl${ServerConstants.clipboardEndpoint}');
+
+      final response = await _client.get(uri).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200 && response.body.isNotEmpty && response.body != 'null') {
+        final dynamic listData = jsonDecode(response.body);
+        if (listData is List) {
+          _history.clear();
+          for (final raw in listData) {
+            if (raw is Map) {
+              _history.add(ClipboardItem.fromMap(raw));
+            }
+          }
+          _historyController.add(List.from(_history));
+        }
+      }
+    } catch (e) {
+      debugPrint('ClipboardService refreshHistory error: $e');
+    }
+  }
+
+  /// Clears clipboard history directly across the local server route.
+  Future<void> clearHistory() async {
+    _history.clear();
+    _historyController.add([]);
+
+    if (_currentPlatformName == 'windows') {
+      _serverService?.clearClipboardHistory();
+    } else {
+      final serverUrl = _getTargetServerUrl?.call();
+      if (serverUrl != null && serverUrl.isNotEmpty) {
+        try {
+          final sanitizedUrl = serverUrl.endsWith('/')
+              ? serverUrl.substring(0, serverUrl.length - 1)
+              : serverUrl;
+          final uri = Uri.parse('$sanitizedUrl${ServerConstants.clipboardEndpoint}');
+          await _client.delete(uri).timeout(const Duration(seconds: 3));
+        } catch (_) {}
+      }
     }
   }
 
@@ -199,7 +349,7 @@ class ClipboardService with WidgetsBindingObserver {
     await _checkLocalClipboard();
   }
 
-  /// Stops clipboard listener.
+  /// Stops clipboard listener and background tasks.
   void stopListening() {
     WidgetsBinding.instance.removeObserver(this);
     if (!kIsWeb && Platform.isAndroid) {
@@ -208,11 +358,12 @@ class ClipboardService with WidgetsBindingObserver {
     }
     _clipboardPollTimer?.cancel();
     _clipboardPollTimer = null;
-    _remoteSub?.cancel();
-    _remoteSub = null;
+    _remoteFetchTimer?.cancel();
+    _remoteFetchTimer = null;
   }
 
   void dispose() {
     stopListening();
+    _historyController.close();
   }
 }

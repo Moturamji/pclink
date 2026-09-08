@@ -99,6 +99,15 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         });
       }
+    } else if (user != null) {
+      // Android: Listen for Windows server host info
+      _databaseService.watchUserServer(user).listen((info) {
+        if (mounted && info != null) {
+          setState(() {
+            _currentServerInfo = info;
+          });
+        }
+      });
     }
 
     _loadDeviceDetails();
@@ -137,12 +146,12 @@ class _HomeScreenState extends State<HomeScreen> {
           details: details,
         );
 
-        // Start real-time background clipboard listener on both Windows and Android
+        // Start direct server-routed clipboard sync
         _clipboardService.startListening(
-          user: user,
           deviceName: details.deviceName,
           isWindows: details.isWindows,
-          databaseService: _databaseService,
+          serverService: details.isWindows ? _serverService : null,
+          getTargetServerUrl: () => _currentServerInfo?.url ?? _currentServerInfo?.publicUrl,
         );
 
         // Windows only: Automatically launch lightweight local server and announce to RTDB

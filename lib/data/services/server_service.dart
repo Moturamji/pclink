@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/server_constants.dart';
+import '../../features/clipboard/models/clipboard_item.dart';
 import '../models/server_info.dart';
 import 'database_service.dart';
 
@@ -13,6 +14,9 @@ class ServerService {
   HttpServer? _server;
   String? _authorizedAndroidDeviceId;
   String? _connectedClientId;
+  final List<ClipboardItem> _clipboardHistory = [];
+  Function(ClipboardItem item)? onClipboardReceived;
+
   ServerInfo _currentInfo = const ServerInfo(
     isLive: false,
     ipAddress: '127.0.0.1',
@@ -27,6 +31,21 @@ class ServerService {
   Stream<ServerInfo> get serverStateStream => _stateController.stream;
   ServerInfo get currentServerInfo => _currentInfo;
   bool get isRunning => _server != null;
+  List<ClipboardItem> get clipboardHistory => List.unmodifiable(_clipboardHistory);
+
+  /// Stores a locally copied clip in the server history.
+  void addLocalClipboardItem(ClipboardItem item) {
+    _clipboardHistory.removeWhere((c) => c.id == item.id || c.text == item.text);
+    _clipboardHistory.insert(0, item);
+    if (_clipboardHistory.length > 50) {
+      _clipboardHistory.removeLast();
+    }
+  }
+
+  /// Clears in-memory clipboard history.
+  void clearClipboardHistory() {
+    _clipboardHistory.clear();
+  }
 
   /// Sets the authorized Android Device ID allowed to connect.
   void setAuthorizedAndroidDeviceId(String? deviceId) {
@@ -123,6 +142,14 @@ class ServerService {
             _handleStatus(request);
             break;
 
+          case ServerConstants.clipboardEndpoint:
+            await _handleClipboard(request);
+            break;
+
+          case ServerConstants.clipboardLatestEndpoint:
+            _handleClipboardLatest(request);
+            break;
+
           default:
             request.response.statusCode = HttpStatus.notFound;
             request.response.write(jsonEncode({'error': 'Endpoint not found'}));
@@ -134,6 +161,56 @@ class ServerService {
         await request.response.close();
       }
     });
+  }
+
+  Future<void> _handleClipboard(HttpRequest request) async {
+    request.response.headers.contentType = ContentType.json;
+
+    if (request.method == 'POST') {
+      final bodyStr = await utf8.decoder.bind(request).join();
+      if (bodyStr.isNotEmpty) {
+        try {
+          final dynamic data = jsonDecode(bodyStr);
+          if (data is Map) {
+            final item = ClipboardItem.fromMap(data);
+            addLocalClipboardItem(item);
+            onClipboardReceived?.call(item);
+            request.response.statusCode = HttpStatus.ok;
+            request.response.write(jsonEncode({'success': true, 'id': item.id}));
+            await request.response.close();
+            return;
+          }
+        } catch (e) {
+          debugPrint('ServerService _handleClipboard parse error: $e');
+        }
+      }
+      request.response.statusCode = HttpStatus.badRequest;
+      request.response.write(jsonEncode({'error': 'Invalid clipboard payload'}));
+      await request.response.close();
+    } else if (request.method == 'GET') {
+      request.response.statusCode = HttpStatus.ok;
+      request.response.write(jsonEncode(_clipboardHistory.map((c) => c.toMap()).toList()));
+      await request.response.close();
+    } else if (request.method == 'DELETE') {
+      clearClipboardHistory();
+      request.response.statusCode = HttpStatus.ok;
+      request.response.write(jsonEncode({'success': true}));
+      await request.response.close();
+    } else {
+      request.response.statusCode = HttpStatus.methodNotAllowed;
+      await request.response.close();
+    }
+  }
+
+  void _handleClipboardLatest(HttpRequest request) {
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType.json;
+    if (_clipboardHistory.isNotEmpty) {
+      request.response.write(jsonEncode(_clipboardHistory.first.toMap()));
+    } else {
+      request.response.write('null');
+    }
+    request.response.close();
   }
 
   void _handleHealth(HttpRequest request) {

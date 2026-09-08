@@ -79,7 +79,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
     );
 
     if (confirmed == true) {
-      await widget.databaseService.clearClipboardHistory(widget.user);
+      await widget.clipboardService.clearHistory();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Clipboard history cleared.')),
@@ -171,9 +171,10 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
             ),
             const SizedBox(height: 10),
 
-            // Stream of clips from Firebase RTDB
+            // Stream of clips from direct local server route
             StreamBuilder<List<ClipboardItem>>(
-              stream: widget.databaseService.watchClipboardItems(widget.user),
+              stream: widget.clipboardService.clipboardHistoryStream,
+              initialData: widget.clipboardService.currentHistory,
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(

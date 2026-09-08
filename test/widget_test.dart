@@ -7,6 +7,7 @@ import 'package:pclink/data/models/linked_device.dart';
 import 'package:pclink/data/models/server_info.dart';
 import 'package:pclink/core/widgets/universal/status_badge.dart';
 import 'package:pclink/data/services/auth_service.dart';
+import 'package:pclink/data/services/server_service.dart';
 import 'package:pclink/features/clipboard/models/clipboard_item.dart';
 import 'package:pclink/presentation/screens/home/widgets/server_control_card.dart';
 
@@ -243,6 +244,26 @@ void main() {
       );
 
       expect(find.text('TEST SYNC'), findsOneWidget);
+    });
+
+    test('ServerService stores and clears local clipboard items in memory', () {
+      final serverService = ServerService();
+      expect(serverService.clipboardHistory, isEmpty);
+
+      final item = ClipboardItem(
+        id: 'c1',
+        text: 'Direct local clip',
+        sourcePlatform: 'windows',
+        sourceDeviceName: 'PC',
+        timestamp: DateTime.now(),
+      );
+
+      serverService.addLocalClipboardItem(item);
+      expect(serverService.clipboardHistory.length, 1);
+      expect(serverService.clipboardHistory.first.text, 'Direct local clip');
+
+      serverService.clearClipboardHistory();
+      expect(serverService.clipboardHistory, isEmpty);
     });
   });
 }
