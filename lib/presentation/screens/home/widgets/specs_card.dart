@@ -16,26 +16,37 @@ class SpecsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(20.0),
+        padding: const EdgeInsets.all(22.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.info_outline, size: 18, color: AppColors.warning),
-                SizedBox(width: 8),
-                Text(
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primaryLight.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(
+                    Icons.tune_rounded,
+                    size: 18,
+                    color: AppColors.primaryLight,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Text(
                   AppStrings.systemSpecsTitle,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 1.2,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.1,
                     color: AppColors.textSecondary,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 18),
             _buildSpecRow('Platform Target', details.platform),
             _buildSpecRow('Operating System', details.osVersion),
             _buildSpecRow('Host / Model', details.deviceName),
@@ -49,18 +60,25 @@ class SpecsCard extends StatelessWidget {
   }
 
   Widget _buildSpecRow(String key, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4.0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppColors.surface.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.5)),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 140,
+            width: 130,
             child: Text(
               key,
               style: const TextStyle(
                 color: AppColors.textMuted,
-                fontSize: 13,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),
@@ -69,8 +87,8 @@ class SpecsCard extends StatelessWidget {
               value,
               style: const TextStyle(
                 color: AppColors.textPrimary,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ),

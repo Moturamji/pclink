@@ -17,95 +17,108 @@ class PlatformHeader extends StatelessWidget {
     final isWindows = details.isWindows;
     final isAndroid = details.isAndroid;
 
-    final primaryGlow = isWindows
-        ? const Color(0xFF1E3A8A).withValues(alpha: 0.8)
-        : const Color(0xFF065F46).withValues(alpha: 0.8);
-    final borderColor = isWindows
-        ? const Color(0xFF3B82F6).withValues(alpha: 0.3)
-        : const Color(0xFF10B981).withValues(alpha: 0.3);
-    final iconBg = isWindows
-        ? Colors.blue.withValues(alpha: 0.15)
-        : Colors.green.withValues(alpha: 0.15);
+    final badgeColor = isWindows ? AppColors.primary : AppColors.secondary;
+    final iconColor = isWindows ? AppColors.primaryLight : AppColors.secondaryLight;
 
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [primaryGlow, AppColors.surface],
+          colors: [
+            badgeColor.withValues(alpha: 0.12),
+            AppColors.cardSurface,
+          ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: borderColor),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: badgeColor.withValues(alpha: 0.25), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: badgeColor.withValues(alpha: 0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: iconBg,
-              shape: BoxShape.circle,
+              color: badgeColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
             ),
             child: Icon(
               isWindows
-                  ? Icons.laptop_windows
-                  : (isAndroid ? Icons.phone_android : Icons.device_unknown),
-              size: 36,
-              color: isWindows
-                  ? const Color(0xFF60A5FA)
-                  : const Color(0xFF34D399),
+                  ? Icons.laptop_windows_rounded
+                  : (isAndroid ? Icons.phone_android_rounded : Icons.device_unknown_rounded),
+              size: 34,
+              color: iconColor,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 18),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
-                    Text(
-                      details.platform.toUpperCase(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.5,
-                        color: isWindows
-                            ? const Color(0xFF93C5FD)
-                            : const Color(0xFF6EE7B7),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: badgeColor.withValues(alpha: 0.18),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
+                      ),
+                      child: Text(
+                        details.platform.toUpperCase(),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.2,
+                          color: iconColor,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: Colors.white10,
-                        borderRadius: BorderRadius.circular(6),
+                        color: AppColors.surface,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: AppColors.cardBorder),
                       ),
                       child: const Text(
                         AppStrings.targetPlatform,
                         style: TextStyle(
-                            fontSize: 10, color: AppColors.textSecondary),
+                          fontSize: 10,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textSecondary,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 Text(
                   details.deviceName,
                   style: const TextStyle(
                     fontSize: 20,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
                     color: AppColors.textPrimary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   details.osVersion,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
                     color: AppColors.textSecondary,
                   ),
                   maxLines: 1,
@@ -119,3 +132,4 @@ class PlatformHeader extends StatelessWidget {
     );
   }
 }
+

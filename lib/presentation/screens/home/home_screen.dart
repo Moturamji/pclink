@@ -175,33 +175,54 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: AppColors.cardSurface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        title: Row(
           children: [
-            Icon(Icons.logout, color: AppColors.error),
-            SizedBox(width: 8),
-            Text(
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: AppColors.error.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.logout_rounded,
+                color: AppColors.error,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
               AppStrings.signOut,
-              style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
+              style: TextStyle(
+                color: AppColors.textPrimary,
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
         ),
         content: const Text(
           'Are you sure you want to sign out of PCLink?',
-          style: TextStyle(color: AppColors.textSecondary),
+          style: TextStyle(
+            color: AppColors.textSecondary,
+            fontSize: 13,
+            height: 1.4,
+          ),
         ),
+        actionsPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text(
               AppStrings.cancel,
-              style: TextStyle(color: AppColors.textMuted),
+              style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w600),
             ),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.error,
               foregroundColor: Colors.white,
+              elevation: 2,
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
@@ -233,20 +254,43 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.hub_outlined, color: AppColors.primaryLight),
-            SizedBox(width: 10),
-            Text(
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [AppColors.primaryLight, AppColors.primaryDark],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppColors.primaryLight.withValues(alpha: 0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.hub_rounded,
+                color: AppColors.background,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
               AppStrings.appName,
               style: TextStyle(
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w800,
                 letterSpacing: 0.5,
+                fontSize: 18,
               ),
             ),
           ],
         ),
-        backgroundColor: AppColors.surface,
+        backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
           IconButton(
@@ -256,16 +300,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     height: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.refresh),
+                : const Icon(Icons.refresh_rounded),
             tooltip: 'Refresh details',
             onPressed: _isRefreshing ? null : _refresh,
           ),
           IconButton(
-            icon: const Icon(Icons.logout, color: AppColors.error),
+            icon: const Icon(Icons.logout_rounded, color: AppColors.error),
             tooltip: AppStrings.signOut,
             onPressed: _confirmSignOut,
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
         ],
       ),
       body: FutureBuilder<DeviceDetails>(

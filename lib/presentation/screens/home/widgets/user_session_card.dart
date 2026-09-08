@@ -14,24 +14,35 @@ class UserSessionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
         color: AppColors.cardSurface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: AppColors.cardBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.2),
-              shape: BoxShape.circle,
+              color: AppColors.primaryLight.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.25)),
             ),
-            child: const Icon(Icons.account_circle,
-                size: 20, color: AppColors.primaryLight),
+            child: const Icon(
+              Icons.account_circle_rounded,
+              size: 22,
+              color: AppColors.primaryLight,
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -40,16 +51,17 @@ class UserSessionCard extends StatelessWidget {
                   AppStrings.signedInAs,
                   style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     letterSpacing: 1.1,
                     color: AppColors.textMuted,
                   ),
                 ),
+                const SizedBox(height: 2),
                 Text(
                   email,
                   style: const TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -58,22 +70,33 @@ class UserSessionCard extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
+              color: AppColors.success.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                  color: AppColors.success.withValues(alpha: 0.3)),
+                color: AppColors.success.withValues(alpha: 0.3),
+              ),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.circle, size: 8, color: AppColors.success),
-                SizedBox(width: 5),
-                Text(
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: const BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: AppColors.successLight,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                const Text(
                   AppStrings.activeSession,
-                  style:
-                      TextStyle(fontSize: 11, color: AppColors.successLight),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.successLight,
+                  ),
                 ),
               ],
             ),

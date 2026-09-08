@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 
-/// Branding header for the authentication card.
+/// Cute & Premium Branding header for the authentication card.
 class AuthHeader extends StatelessWidget {
   final bool isWindows;
   final bool isSignUp;
@@ -19,27 +19,39 @@ class AuthHeader extends StatelessWidget {
       children: [
         Center(
           child: Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.15),
-              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  AppColors.primary.withValues(alpha: 0.2),
+                  AppColors.secondary.withValues(alpha: 0.1),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: AppColors.primary.withValues(alpha: 0.3),
+                width: 1.5,
+              ),
             ),
             child: const Icon(
-              Icons.hub_outlined,
-              size: 40,
+              Icons.hub_rounded,
+              size: 38,
               color: AppColors.primaryLight,
             ),
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 18),
         Text(
           isWindows
               ? AppStrings.windowsSignIn
               : (isSignUp ? AppStrings.createAccount : AppStrings.welcomeBack),
           textAlign: TextAlign.center,
           style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
+            fontSize: 24,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.2,
             color: AppColors.textPrimary,
           ),
         ),
@@ -57,3 +69,4 @@ class AuthHeader extends StatelessWidget {
     );
   }
 }
+

@@ -7,7 +7,7 @@ import '../../../data/services/auth_service.dart';
 import '../auth/auth_screen.dart';
 import '../home/home_screen.dart';
 
-/// Animated splash screen showing PCLink branding and verifying session state.
+/// Animated splash screen with cute, premium, modern styling.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -27,7 +27,7 @@ class _SplashScreenState extends State<SplashScreen>
     super.initState();
     _animController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 900),
+      duration: const Duration(milliseconds: 1000),
     );
 
     _fadeAnimation = CurvedAnimation(
@@ -35,7 +35,7 @@ class _SplashScreenState extends State<SplashScreen>
       curve: Curves.easeIn,
     );
 
-    _scaleAnimation = Tween<double>(begin: 0.88, end: 1.0).animate(
+    _scaleAnimation = Tween<double>(begin: 0.86, end: 1.0).animate(
       CurvedAnimation(
         parent: _animController,
         curve: Curves.easeOutBack,
@@ -47,7 +47,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 
   Future<void> _checkAuthAndNavigate() async {
-    await Future.delayed(const Duration(milliseconds: 1200));
+    await Future.delayed(const Duration(milliseconds: 1300));
     if (!mounted) return;
 
     final user = _authService.currentUser;
@@ -83,58 +83,74 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Cute Glowing Orb
                 Container(
-                  padding: const EdgeInsets.all(24),
+                  padding: const EdgeInsets.all(28),
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [
-                        AppColors.primary.withValues(alpha: 0.25),
-                        AppColors.secondary.withValues(alpha: 0.1),
+                        AppColors.primary.withValues(alpha: 0.22),
+                        AppColors.secondary.withValues(alpha: 0.12),
                       ],
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
                     ),
                     shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppColors.primary.withValues(alpha: 0.2),
+                        blurRadius: 36,
+                        spreadRadius: 4,
+                      ),
+                    ],
                     border: Border.all(
-                      color: AppColors.primaryLight.withValues(alpha: 0.4),
-                      width: 1.5,
+                      color: AppColors.primaryLight.withValues(alpha: 0.35),
+                      width: 2,
                     ),
                   ),
                   child: const Icon(
-                    Icons.hub_outlined,
+                    Icons.hub_rounded,
                     size: 64,
                     color: AppColors.primaryLight,
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 28),
                 const Text(
                   AppStrings.appName,
                   style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
+                    fontSize: 34,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.5,
                     color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  isWindows
-                      ? AppStrings.appTaglineDesktop
-                      : AppStrings.appTaglineMobile,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppColors.textMuted,
-                    letterSpacing: 0.8,
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: AppColors.cardBorder),
+                  ),
+                  child: Text(
+                    isWindows
+                        ? AppStrings.appTaglineDesktop
+                        : AppStrings.appTaglineMobile,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 48),
                 const SizedBox(
-                  width: 28,
-                  height: 28,
+                  width: 26,
+                  height: 26,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
                     valueColor:
-                        AlwaysStoppedAnimation<Color>(AppColors.primaryLight),
+                        AlwaysStoppedAnimation<Color>(AppColors.primary),
                   ),
                 ),
               ],
@@ -145,3 +161,4 @@ class _SplashScreenState extends State<SplashScreen>
     );
   }
 }
+

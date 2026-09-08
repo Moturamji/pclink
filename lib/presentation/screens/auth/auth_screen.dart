@@ -201,9 +201,10 @@ class _AuthScreenState extends State<AuthScreen> {
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.cardBorder),
       ),
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(5),
       child: Row(
         children: [
           Expanded(
@@ -216,19 +217,32 @@ class _AuthScreenState extends State<AuthScreen> {
                   });
                 }
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
                   color: !_isSignUp ? AppColors.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: !_isSignUp
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.25),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   AppStrings.signIn,
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     fontSize: 14,
-                    color: !_isSignUp ? Colors.white : AppColors.textSecondary,
+                    color: !_isSignUp
+                        ? const Color(0xFF1B1808)
+                        : AppColors.textSecondary,
                   ),
                 ),
               ),
@@ -244,19 +258,32 @@ class _AuthScreenState extends State<AuthScreen> {
                   });
                 }
               },
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                curve: Curves.easeInOut,
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
                   color: _isSignUp ? AppColors.primary : Colors.transparent,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: _isSignUp
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primary.withValues(alpha: 0.25),
+                            blurRadius: 10,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
                 ),
                 alignment: Alignment.center,
                 child: Text(
                   AppStrings.signUp,
                   style: TextStyle(
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.w700,
                     fontSize: 14,
-                    color: _isSignUp ? Colors.white : AppColors.textSecondary,
+                    color: _isSignUp
+                        ? const Color(0xFF1B1808)
+                        : AppColors.textSecondary,
                   ),
                 ),
               ),
@@ -274,8 +301,7 @@ class _AuthScreenState extends State<AuthScreen> {
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: const InputDecoration(
         labelText: AppStrings.emailLabel,
-        prefixIcon:
-            Icon(Icons.email_outlined, color: AppColors.primaryLight, size: 20),
+        prefixIcon: Icon(Icons.mail_rounded, size: 20),
       ),
       validator: Validators.validateEmail,
     );
@@ -288,12 +314,10 @@ class _AuthScreenState extends State<AuthScreen> {
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: AppStrings.passwordLabel,
-        prefixIcon:
-            const Icon(Icons.lock_outline, color: AppColors.primaryLight, size: 20),
+        prefixIcon: const Icon(Icons.lock_rounded, size: 20),
         suffixIcon: IconButton(
           icon: Icon(
-            _obscurePassword ? Icons.visibility_off : Icons.visibility,
-            color: AppColors.textMuted,
+            _obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
             size: 20,
           ),
           onPressed: () =>
@@ -311,12 +335,10 @@ class _AuthScreenState extends State<AuthScreen> {
       style: const TextStyle(color: AppColors.textPrimary),
       decoration: InputDecoration(
         labelText: AppStrings.confirmPasswordLabel,
-        prefixIcon: const Icon(Icons.lock_clock_outlined,
-            color: AppColors.primaryLight, size: 20),
+        prefixIcon: const Icon(Icons.verified_user_rounded, size: 20),
         suffixIcon: IconButton(
           icon: Icon(
-            _obscureConfirmPassword ? Icons.visibility_off : Icons.visibility,
-            color: AppColors.textMuted,
+            _obscureConfirmPassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
             size: 20,
           ),
           onPressed: () => setState(
@@ -329,42 +351,54 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Widget _buildSubmitButton() {
-    return ElevatedButton(
-      onPressed: _isLoading ? null : _submit,
-      child: _isLoading
-          ? const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(
-                strokeWidth: 2.5,
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primary.withValues(alpha: 0.3),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton(
+        onPressed: _isLoading ? null : _submit,
+        child: _isLoading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1B1808)),
+                ),
+              )
+            : Text(
+                _isSignUp ? AppStrings.signUp : AppStrings.signIn,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.4,
+                ),
               ),
-            )
-          : Text(
-              _isSignUp ? AppStrings.signUp : AppStrings.signIn,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-              ),
-            ),
+      ),
     );
   }
 
   Widget _buildWindowsNoticeCard() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: AppColors.secondary.withValues(alpha: 0.3),
+          color: AppColors.secondary.withValues(alpha: 0.25),
         ),
       ),
       child: const Row(
         children: [
-          Icon(Icons.info_outline, color: AppColors.secondary, size: 20),
-          SizedBox(width: 10),
+          Icon(Icons.tips_and_updates_rounded, color: AppColors.secondary, size: 20),
+          SizedBox(width: 12),
           Expanded(
             child: Text(
               AppStrings.windowsRegistrationNotice,
@@ -380,3 +414,4 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 }
+

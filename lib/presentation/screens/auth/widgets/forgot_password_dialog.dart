@@ -91,14 +91,29 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.cardSurface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: const Row(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: Row(
         children: [
-          Icon(Icons.lock_reset, color: AppColors.primaryLight),
-          SizedBox(width: 8),
-          Text(
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primaryLight.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.lock_reset_rounded,
+              color: AppColors.primaryLight,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Text(
             AppStrings.resetPasswordTitle,
-            style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ],
       ),
@@ -108,38 +123,51 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
         children: [
           const Text(
             'Enter your registered email address and we will send you a password reset link.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.4,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           TextField(
             controller: _controller,
             keyboardType: TextInputType.emailAddress,
             style: const TextStyle(color: AppColors.textPrimary),
             decoration: const InputDecoration(
               labelText: AppStrings.emailLabel,
-              prefixIcon: Icon(Icons.email_outlined,
-                  color: AppColors.primaryLight, size: 20),
+              prefixIcon: Icon(
+                Icons.email_outlined,
+                color: AppColors.primaryLight,
+                size: 20,
+              ),
             ),
           ),
         ],
       ),
+      actionsPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       actions: [
         TextButton(
           onPressed: _isSending ? null : () => Navigator.of(context).pop(),
           child: const Text(
             AppStrings.cancel,
-            style: TextStyle(color: AppColors.textMuted),
+            style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w600),
           ),
         ),
         ElevatedButton(
           onPressed: _isSending ? null : _sendResetLink,
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.primary,
+            foregroundColor: AppColors.background,
+            elevation: 3,
+          ),
           child: _isSending
               ? const SizedBox(
                   width: 18,
                   height: 18,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    valueColor: AlwaysStoppedAnimation<Color>(AppColors.background),
                   ),
                 )
               : const Text(AppStrings.sendResetLink),
