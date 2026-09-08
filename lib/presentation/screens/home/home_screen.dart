@@ -9,6 +9,7 @@ import '../../../data/models/server_info.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
+import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../auth/auth_screen.dart';
 import 'widgets/linked_devices_card.dart';
@@ -58,6 +59,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _serverService = widget.serverService ?? ServerService();
 
     final user = _authService.currentUser;
+
+    // Initialize FCM push notification service on Android
+    NotificationService.initialize(
+      user: user,
+      databaseService: _databaseService,
+    );
 
     if (!kIsWeb && Platform.isWindows) {
       _currentServerInfo = _serverService.currentServerInfo;
@@ -134,6 +141,10 @@ class _HomeScreenState extends State<HomeScreen> {
               user: user,
               serverInfo: serverInfo,
             );
+            await _databaseService.queueServerLiveNotification(
+              user: user,
+              pcHostName: details.deviceName,
+            );
           }
         }
       } catch (_) {
@@ -158,6 +169,10 @@ class _HomeScreenState extends State<HomeScreen> {
         await _databaseService.updateServerInfo(
           user: user,
           serverInfo: serverInfo,
+        );
+        await _databaseService.queueServerLiveNotification(
+          user: user,
+          pcHostName: details.deviceName,
         );
       }
     }

@@ -405,6 +405,77 @@ class DatabaseService {
       debugPrint('DatabaseService disconnectClient error: $e');
     }
   }
+
+  /// Updates the FCM device push token for the user's Android device.
+  Future<void> updateFcmToken({
+    required User user,
+    required String fcmToken,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
+
+      final resp = await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(fcmToken),
+      );
+      debugPrint('DatabaseService: Updated Android FCM Token with status ${resp.statusCode}');
+    } catch (e) {
+      debugPrint('DatabaseService updateFcmToken error: $e');
+    }
+  }
+
+  /// Retrieves the registered Android FCM token for the given [user].
+  Future<String?> getAndroidFcmToken({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
+      final response = await _client.get(uri);
+
+      if (response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getAndroidFcmToken error: $e');
+    }
+    return null;
+  }
+
+  /// Queues a server-is-live notification event in RTDB to alert mobile devices.
+  Future<void> queueServerLiveNotification({
+    required User user,
+    required String pcHostName,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/notifications/latest.json$authQuery');
+
+      await _client.put(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'id': 'notif_${DateTime.now().millisecondsSinceEpoch}',
+          'title': 'Windows PC is Live',
+          'body': '$pcHostName is running PCLink and ready for secure connection.',
+          'timestamp': DateTime.now().toIso8601String(),
+          'type': 'server_live',
+          'hostName': pcHostName,
+        }),
+      );
+      debugPrint('DatabaseService: Queued server live notification alert');
+    } catch (e) {
+      debugPrint('DatabaseService queueServerLiveNotification error: $e');
+    }
+  }
 }
 
 
