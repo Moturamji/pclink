@@ -17,6 +17,20 @@ class DatabaseService {
 
   DatabaseService({http.Client? client}) : _client = client ?? http.Client();
 
+  /// Performs a resilient GET request with automatic fallback on connection drops.
+  Future<http.Response?> _safeGet(Uri uri) async {
+    try {
+      return await _client.get(uri);
+    } catch (_) {
+      try {
+        return await http.get(uri);
+      } catch (e) {
+        debugPrint('DatabaseService safeGet failed: $e');
+        return null;
+      }
+    }
+  }
+
   /// Synchronizes the user profile and current platform device identity.
   Future<void> syncUserAndDevice({
     required User user,
@@ -138,9 +152,10 @@ class DatabaseService {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
         final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices.json$authQuery');
-        final response = await _client.get(uri);
+        final response = await _safeGet(uri);
 
-        if (response.statusCode == 200 &&
+        if (response != null &&
+            response.statusCode == 200 &&
             response.body.isNotEmpty &&
             response.body != 'null') {
           final dynamic data = jsonDecode(response.body);
@@ -191,9 +206,10 @@ class DatabaseService {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
         final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
-        final response = await _client.get(uri);
+        final response = await _safeGet(uri);
 
-        if (response.statusCode == 200 &&
+        if (response != null &&
+            response.statusCode == 200 &&
             response.body.isNotEmpty &&
             response.body != 'null') {
           final dynamic data = jsonDecode(response.body);
@@ -571,9 +587,10 @@ class DatabaseService {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
         final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/clipboard.json$authQuery');
-        final response = await _client.get(uri);
+        final response = await _safeGet(uri);
 
-        if (response.statusCode == 200 &&
+        if (response != null &&
+            response.statusCode == 200 &&
             response.body.isNotEmpty &&
             response.body != 'null') {
           final dynamic data = jsonDecode(response.body);

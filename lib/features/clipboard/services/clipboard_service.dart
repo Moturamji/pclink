@@ -8,6 +8,32 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import '../../../data/services/database_service.dart';
 import '../models/clipboard_item.dart';
 
+@pragma('vm:entry-point')
+void startForegroundTaskCallback() {
+  FlutterForegroundTask.setTaskHandler(PclinkTaskHandler());
+}
+
+class PclinkTaskHandler extends TaskHandler {
+  @override
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
+
+  @override
+  void onRepeatEvent(DateTime timestamp) {}
+
+  @override
+  Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {}
+
+  @override
+  void onNotificationButtonPressed(String id) {
+    FlutterForegroundTask.sendDataToMain('sync_clipboard_now');
+  }
+
+  @override
+  void onNotificationPressed() {
+    FlutterForegroundTask.sendDataToMain('sync_clipboard_now');
+  }
+}
+
 /// Manages continuous background system clipboard monitoring and bidirectional synchronization.
 class ClipboardService with WidgetsBindingObserver {
   Timer? _clipboardPollTimer;
@@ -68,13 +94,14 @@ class ClipboardService with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
 
-    // 1. High-frequency local clipboard poll (750ms)
-    _clipboardPollTimer = Timer.periodic(const Duration(milliseconds: 750), (_) async {
+    // 1. High-frequency local clipboard poll (500ms)
+    _clipboardPollTimer = Timer.periodic(const Duration(milliseconds: 500), (_) async {
       await _checkLocalClipboard();
     });
 
-    // 2. Start Android Foreground Service so Android does NOT freeze the app in background
+    // 2. Start Android Foreground Service with action buttons
     if (!kIsWeb && Platform.isAndroid) {
+      FlutterForegroundTask.addTaskDataCallback(_onForegroundDataReceived);
       _startAndroidForegroundService();
     }
 
@@ -102,13 +129,23 @@ class ClipboardService with WidgetsBindingObserver {
     debugPrint('ClipboardService: Started clipboard listener for $_currentPlatformName ($deviceName)');
   }
 
+  void _onForegroundDataReceived(dynamic data) {
+    if (data == 'sync_clipboard_now') {
+      _checkLocalClipboard();
+    }
+  }
+
   Future<void> _startAndroidForegroundService() async {
     try {
       if (!await FlutterForegroundTask.isRunningService) {
         await FlutterForegroundTask.startService(
           serviceId: 256,
-          notificationTitle: 'PCLink Sync Active',
-          notificationText: 'Live background sync with Windows PC',
+          notificationTitle: 'PCLink Live Sync Active',
+          notificationText: 'Tap "Send to PC" to instantly transfer clipboard',
+          notificationButtons: [
+            const NotificationButton(id: 'sync_now', text: '📋 Send to PC'),
+          ],
+          callback: startForegroundTaskCallback,
         );
       }
     } catch (e) {
@@ -157,17 +194,22 @@ class ClipboardService with WidgetsBindingObserver {
     }
   }
 
+  /// Manually triggers a clipboard read and push.
+  Future<void> triggerManualSync() async {
+    await _checkLocalClipboard();
+  }
+
   /// Stops clipboard listener.
   void stopListening() {
     WidgetsBinding.instance.removeObserver(this);
+    if (!kIsWeb && Platform.isAndroid) {
+      FlutterForegroundTask.removeTaskDataCallback(_onForegroundDataReceived);
+      FlutterForegroundTask.stopService();
+    }
     _clipboardPollTimer?.cancel();
     _clipboardPollTimer = null;
     _remoteSub?.cancel();
     _remoteSub = null;
-
-    if (!kIsWeb && Platform.isAndroid) {
-      FlutterForegroundTask.stopService();
-    }
   }
 
   void dispose() {
