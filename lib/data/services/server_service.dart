@@ -59,6 +59,7 @@ class ServerService {
   Future<ServerInfo?> startServer({
     required String hostIp,
     String? publicIp,
+    String? publicUrlOverride,
     int port = ServerConstants.defaultPort,
     String? authorizedAndroidDeviceId,
   }) async {
@@ -81,7 +82,10 @@ class ServerService {
       );
 
       final serverUrl = 'http://$hostIp:$port';
-      final publicUrl = publicIp != null ? 'http://$publicIp:$port' : null;
+      // A tunnel URL (ngrok / cloudflared) is used verbatim when provided;
+      // otherwise fall back to the raw public WAN IP.
+      final publicUrl = publicUrlOverride ??
+          (publicIp != null ? 'http://$publicIp:$port' : null);
 
       _currentInfo = ServerInfo(
         isLive: true,
@@ -101,7 +105,7 @@ class ServerService {
       _ensureFirewallRule(port);
 
       debugPrint(
-        'ServerService: Windows server listening on $serverUrl (Public WAN: $publicIp)',
+        'ServerService: Windows server listening on $serverUrl (Public address: ${publicUrl ?? publicIp ?? 'LAN only'})',
       );
       return _currentInfo;
     } catch (e) {
@@ -112,10 +116,32 @@ class ServerService {
         port: port,
         url: 'http://$hostIp:$port',
         publicIp: publicIp,
+        publicUrl: publicUrlOverride ??
+            (publicIp != null ? 'http://$publicIp:$port' : null),
       );
       _stateController.add(_currentInfo);
       return null;
     }
+  }
+
+  /// Refreshes the published public address without restarting the server.
+  /// Used when a tunnel URL appears or rotates while PCLink is running.
+  void updatePublicUrl(String? publicUrl) {
+    if (!isRunning) return;
+    if (publicUrl == _currentInfo.publicUrl) return;
+    _currentInfo = ServerInfo(
+      isLive: true,
+      ipAddress: _currentInfo.ipAddress,
+      port: _currentInfo.port,
+      url: _currentInfo.url,
+      publicIp: _currentInfo.publicIp,
+      publicUrl: publicUrl,
+      connectionMode: _currentInfo.connectionMode,
+      startedAt: _currentInfo.startedAt,
+      lastHeartbeat: DateTime.now(),
+      connectedClientId: _connectedClientId,
+    );
+    _stateController.add(_currentInfo);
   }
 
   void _listenToRequests() {
@@ -171,6 +197,32 @@ class ServerService {
 
   Future<void> _handleClipboard(HttpRequest request) async {
     request.response.headers.contentType = ContentType.json;
+
+    if (request.method == 'POST' || request.method == 'DELETE') {
+      // Enforce device-ID + server-start-time password on all clipboard mutations.
+      final deviceId = request.headers.value(ServerConstants.authHeader);
+      final startTime = request.headers.value(ServerConstants.startTimeHeader);
+
+      if (!_verifyDeviceId(deviceId)) {
+        request.response.statusCode = HttpStatus.unauthorized;
+        request.response.write(
+          jsonEncode({'success': false, 'error': ServerConstants.msgAuthFailed}),
+        );
+        await request.response.close();
+        return;
+      }
+      if (!_isValidServerStartTime(startTime)) {
+        request.response.statusCode = HttpStatus.unauthorized;
+        request.response.write(
+          jsonEncode({
+            'success': false,
+            'error': ServerConstants.msgStartTimeMismatch,
+          }),
+        );
+        await request.response.close();
+        return;
+      }
+    }
 
     if (request.method == 'POST') {
       final bodyStr = await utf8.decoder.bind(request).join();
@@ -252,6 +304,10 @@ class ServerService {
       ServerConstants.authHeader,
     );
     String? requestTimestamp;
+    String? startTimeFromHeader = request.headers.value(
+      ServerConstants.startTimeHeader,
+    );
+    String? serverStartTime = startTimeFromHeader;
 
     final bodyStr = await utf8.decoder.bind(request).join();
     if (bodyStr.isNotEmpty) {
@@ -264,11 +320,25 @@ class ServerService {
           if (data['timestamp'] != null) {
             requestTimestamp = data['timestamp'].toString();
           }
+          serverStartTime = serverStartTime ?? data['serverStartTime']?.toString();
         }
       } catch (_) {}
     }
 
     request.response.headers.contentType = ContentType.json;
+
+    // 0. Password check: Android must know the exact server start time (from RTDB).
+    if (!_isValidServerStartTime(serverStartTime)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'success': false,
+          'error': ServerConstants.msgStartTimeMismatch,
+        }),
+      );
+      await request.response.close();
+      return;
+    }
 
     // 1. Replay attack defense: Verify request timestamp is within 90 seconds
     if (requestTimestamp != null) {
@@ -335,8 +405,20 @@ class ServerService {
   }) async {
     final requestId = request['requestId']?.toString() ?? '';
     final deviceId = request['deviceId']?.toString();
+    final serverStartTime = request['serverStartTime']?.toString();
 
     if (requestId.isEmpty) return;
+
+    if (!_isValidServerStartTime(serverStartTime)) {
+      await databaseService.sendCloudHandshakeResponse(
+        user: user,
+        requestId: requestId,
+        success: false,
+        message: ServerConstants.msgStartTimeMismatch,
+        windowsHost: Platform.localHostname,
+      );
+      return;
+    }
 
     final isAuthorized = _verifyDeviceId(deviceId);
 
@@ -402,6 +484,17 @@ class ServerService {
     // If not set yet, accept and latch the first Android client ID as pre-shared key
     _authorizedAndroidDeviceId = candidate.trim();
     return true;
+  }
+
+  /// Verifies the server start time password that both devices read from RTDB.
+  bool _isValidServerStartTime(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return false;
+    final parsed = DateTime.tryParse(raw.trim());
+    if (parsed == null) return false;
+    final startedAt = _currentInfo.startedAt;
+    if (startedAt == null) return false;
+    // Tolerate small round-trip/clock skew while still rejecting wrong sessions.
+    return startedAt.difference(parsed).abs() < const Duration(seconds: 5);
   }
 
   /// Best-effort attempt to add a Windows Firewall inbound rule for the server port.
@@ -502,6 +595,7 @@ class ServerService {
     required String serverUrl,
     String? publicUrl,
     required String androidDeviceId,
+    required String serverStartTime,
     User? user,
     DatabaseService? databaseService,
     Duration timeout = const Duration(seconds: 4),
@@ -525,10 +619,12 @@ class ServerService {
               headers: {
                 'Content-Type': 'application/json',
                 ServerConstants.authHeader: androidDeviceId,
+                ServerConstants.startTimeHeader: serverStartTime,
               },
               body: jsonEncode({
                 'deviceId': androidDeviceId,
                 'clientPlatform': 'Android',
+                'serverStartTime': serverStartTime,
                 'timestamp': DateTime.now().toIso8601String(),
               }),
             )
@@ -548,7 +644,7 @@ class ServerService {
           return {
             'success': false,
             'error':
-                'Authentication failed: Android Device ID was rejected by the PC.',
+                'Authentication failed: Device ID or server start time (password) was rejected by the PC.',
           };
         }
       } catch (_) {
@@ -563,6 +659,7 @@ class ServerService {
         user: user,
         androidDeviceId: androidDeviceId,
         requestId: requestId,
+        serverStartTime: serverStartTime,
       );
 
       if (requestSent) {

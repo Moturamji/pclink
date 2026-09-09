@@ -1,0 +1,22 @@
+# PCLink Public Tunnel Configuration
+# ============================================================
+# OPTIONAL. Put the public HTTPS URL of your tunnel in this file and
+# rename it to `tunnel_url.txt` (it must sit next to the PCLink app on
+# the Windows PC, i.e. in the same folder the app is launched from).
+
+# PCLink reads it automatically and publishes it to Firebase as the PC's
+# "public URL", so your Android phone can reach the PC from ANY network
+# (4G/5G, other Wi-Fi, remote locations) even when your home router/ISP
+# blocks inbound connections (CGNAT).
+
+# For ngrok (free):        run:  ngrok http 8088
+#   then copy the https://....ngrok-free.app URL below.
+# For cloudflared (free):  run:  cloudflared tunnel --url http://localhost:8088
+#   then copy the https://....trycloudflare.com URL below.
+
+# NOTE: PCLink also auto-detects ngrok automatically (via its local API at
+# http://127.0.0.1:4040) whenever ngrok is running - this file is only
+# needed if you use a different tunnel tool or want a fixed override.
+#
+# Example (replace with YOUR actual tunnel URL, no trailing slash):
+# https://abc-123.ngrok-free.app

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
@@ -11,6 +12,7 @@ import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
 import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
+import '../../../data/services/tunnel_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
 import '../../../features/clipboard/widgets/clipboard_sync_card.dart';
 import '../auth/auth_screen.dart';
@@ -48,11 +50,14 @@ class _HomeScreenState extends State<HomeScreen> {
   late final DatabaseService _databaseService;
   late final ServerService _serverService;
   late final ClipboardService _clipboardService;
+  late final TunnelService _tunnelService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
   ServerInfo? _currentServerInfo;
   StreamSubscription<dynamic>? _serverSub;
   StreamSubscription<Map<String, dynamic>?>? _cloudHandshakeSub;
+  Timer? _tunnelWatcherTimer;
+  StreamSubscription<String?>? _tunnelUrlSub;
   bool _isRefreshing = false;
 
   @override
@@ -63,6 +68,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _databaseService = widget.databaseService ?? DatabaseService();
     _serverService = widget.serverService ?? ServerService();
     _clipboardService = widget.clipboardService ?? ClipboardService();
+    _tunnelService = TunnelService();
 
     final user = _authService.currentUser;
 
@@ -106,7 +112,9 @@ class _HomeScreenState extends State<HomeScreen> {
           setState(() {
             _currentServerInfo = info;
           });
-          _clipboardService.refreshHistory();
+          // Probe immediately only when the PC address/session actually
+          // changed; otherwise throttled polling continues.
+          _clipboardService.onServerInfoPublished();
         }
       });
     }
@@ -118,6 +126,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _serverSub?.cancel();
     _cloudHandshakeSub?.cancel();
+    _tunnelWatcherTimer?.cancel();
+    _tunnelUrlSub?.cancel();
+    _tunnelService.dispose();
     _clipboardService.dispose();
     if (!kIsWeb && Platform.isWindows) {
       final user = _authService.currentUser;
@@ -149,15 +160,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // Windows only: Automatically launch lightweight local server and announce to RTDB
         if (!kIsWeb && details.isWindows) {
+          // Bind the authorized phone from the DB (device ID) instead of
+          // accepting "first caller wins".
+          _serverService.setAuthorizedAndroidDeviceId(
+            await _databaseService.getAndroidDeviceId(user: user),
+          );
+          // Prefer a public tunnel URL (ngrok/cloudflared) so the phone can
+          // reach the PC even on mobile data / CGNAT networks without ports.
+          final tunnelUrl = await _deviceService.getTunnelUrl();
           final serverInfo = await _serverService.startServer(
             hostIp: details.primaryIp,
             publicIp: details.publicIp,
+            publicUrlOverride: tunnelUrl,
           );
           if (serverInfo != null) {
             await _databaseService.updateServerInfo(
               user: user,
               serverInfo: serverInfo,
             );
+            _startTunnelWatcher(user);
+            _startAutomatedTunnel(user);
             await _databaseService.queueServerLiveNotification(
               user: user,
               pcHostName: details.deviceName,
@@ -165,12 +187,26 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         }
 
-        // Start direct server-routed clipboard sync
+        // Start direct server-routed clipboard sync. Android tries the Public
+        // WAN URL first, then falls back to the LAN URL, caching whichever works.
         _clipboardService.startListening(
           deviceName: details.deviceName,
           isWindows: details.isWindows,
           serverService: details.isWindows ? _serverService : null,
-          getTargetServerUrl: () => _currentServerInfo?.url ?? _currentServerInfo?.publicUrl,
+          deviceId: details.deviceId,
+          getTargetServerUrls: () {
+            final info = _currentServerInfo;
+            if (info == null) return <String>[];
+            return <String>[
+              if (info.publicUrl != null && info.publicUrl!.isNotEmpty)
+                info.publicUrl!,
+              if (info.url.isNotEmpty) info.url,
+            ];
+          },
+          getServerStartTime: () {
+            final info = _currentServerInfo;
+            return info?.startedAt?.toIso8601String();
+          },
         );
       } catch (_) {
         // Handled silently for offline scenarios
@@ -181,26 +217,86 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _toggleServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (_serverService.isRunning) {
+      _tunnelWatcherTimer?.cancel();
+      _tunnelWatcherTimer = null;
+      _tunnelUrlSub?.cancel();
+      _tunnelUrlSub = null;
+      await _tunnelService.stop();
       await _serverService.stopServer();
       if (user != null) {
         await _databaseService.setServerOffline(user: user);
       }
     } else {
+      final tunnelUrl = await _deviceService.getTunnelUrl();
       final serverInfo = await _serverService.startServer(
         hostIp: details.primaryIp,
         publicIp: details.publicIp,
+        publicUrlOverride: tunnelUrl,
       );
       if (user != null && serverInfo != null) {
         await _databaseService.updateServerInfo(
           user: user,
           serverInfo: serverInfo,
         );
+        _startTunnelWatcher(user);
+        _startAutomatedTunnel(user);
         await _databaseService.queueServerLiveNotification(
           user: user,
           pcHostName: details.deviceName,
         );
       }
     }
+  }
+
+  /// Fully-automated public tunnel (cloudflared quick tunnel). No user setup:
+  /// the app downloads the client on first run, starts it, and publishes the
+  /// resulting public HTTPS URL to Firebase so the phone can reach the PC from
+  /// any network. Server keeps running on WAN/LAN meanwhile; when the tunnel
+  /// URL is ready it quietly upgrades the published address.
+  void _startAutomatedTunnel(User user) {
+    if (kIsWeb || !Platform.isWindows) return;
+
+    _tunnelUrlSub?.cancel();
+    _tunnelUrlSub = _tunnelService.urlStream.listen((url) {
+      if (!mounted) return;
+      if (url == null || url.isEmpty) return;
+      _serverService.updatePublicUrl(url);
+      _databaseService.updateServerInfo(
+        user: user,
+        serverInfo: _serverService.currentServerInfo,
+      );
+      debugPrint('HomeScreen: Published automated tunnel URL: $url');
+    });
+
+    // Fire-and-forget so server startup is never blocked by the tunnel setup.
+    _tunnelService.start();
+  }
+
+  /// Periodically re-checks the tunnel URL and re-publishes to Firebase if it
+  /// changed (ngrok/cloudflared rotate addresses). Cheap local HTTP call, so a
+  /// 15s timer is safe.
+  void _startTunnelWatcher(User user) {
+    _tunnelWatcherTimer?.cancel();
+    _tunnelWatcherTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) async {
+        // Prefer the live automated-tunnel URL so a stale override file or
+        // dead ngrok entry can never clobber the working public address.
+        final autoUrl = _tunnelService.currentUrl;
+        final url = (autoUrl != null && autoUrl.isNotEmpty)
+            ? autoUrl
+            : await _deviceService.getTunnelUrl();
+        final current = _serverService.currentServerInfo.publicUrl;
+        if (url != null && url.isNotEmpty && url != current) {
+          _serverService.updatePublicUrl(url);
+          await _databaseService.updateServerInfo(
+            user: user,
+            serverInfo: _serverService.currentServerInfo,
+          );
+          debugPrint('HomeScreen: Published updated tunnel URL: $url');
+        }
+      },
+    );
   }
 
   Future<void> _refresh() async {
@@ -273,6 +369,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (user != null) {
                   await _databaseService.setServerOffline(user: user);
                 }
+                _tunnelWatcherTimer?.cancel();
+                _tunnelWatcherTimer = null;
+                _tunnelUrlSub?.cancel();
+                _tunnelUrlSub = null;
+                await _tunnelService.stop();
                 await _serverService.stopServer();
               }
               await _authService.signOut();

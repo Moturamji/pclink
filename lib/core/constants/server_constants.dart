@@ -1,7 +1,8 @@
-/// Constants for the local Windows server and client handshake protocol.
+/// Constants for the Windows server and client handshake protocol.
 abstract final class ServerConstants {
   static const int defaultPort = 8088;
   static const String authHeader = 'X-Device-Id';
+  static const String startTimeHeader = 'X-Start-Time';
 
   // Endpoints
   static const String healthEndpoint = '/health';
@@ -15,4 +16,6 @@ abstract final class ServerConstants {
   static const String msgServerRunning = 'PCLink Windows Server is live and ready.';
   static const String msgAuthSuccess = 'Authentication successful. Connection established.';
   static const String msgAuthFailed = 'Unauthorized: Invalid Android Device ID.';
+  static const String msgStartTimeMismatch =
+      'Unauthorized: Invalid server start time (password). Restart PCLink on the PC and reconnect.';
 }

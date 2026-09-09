@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
@@ -30,11 +31,30 @@ class ClipboardSyncCard extends StatefulWidget {
 class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
   bool _autoSync = true;
   String _filter = 'all'; // 'all', 'peer', 'local'
+  StreamSubscription<String?>? _errorSub;
+  String? _syncError;
+  bool _serverReachable = true;
 
   @override
   void initState() {
     super.initState();
     _autoSync = widget.clipboardService.isAutoSyncEnabled;
+    _serverReachable = widget.clipboardService.isServerReachable;
+    _syncError = widget.clipboardService.lastError;
+    _errorSub = widget.clipboardService.errorStream.listen((error) {
+      if (mounted) {
+        setState(() {
+          _serverReachable = error == null;
+          _syncError = error;
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _errorSub?.cancel();
+    super.dispose();
   }
 
   void _toggleAutoSync(bool value) {
@@ -109,6 +129,59 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
               ),
             ),
             const SizedBox(height: 14),
+
+            // Live connection status (only meaningful on Android)
+            if (!widget.isWindows) ...[
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: (_serverReachable ? AppColors.success : AppColors.error)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: (_serverReachable
+                            ? AppColors.successLight
+                            : AppColors.error)
+                        .withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      _serverReachable
+                          ? Icons.cloud_done_rounded
+                          : Icons.cloud_off_rounded,
+                      size: 16,
+                      color: _serverReachable
+                          ? AppColors.successLight
+                          : AppColors.error,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        _serverReachable
+                            ? 'Connected to your PC. Copies sync in real time.'
+                            : (_syncError ??
+                                'PC server is not reachable. Make sure PCLink is running on the PC.'),
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          height: 1.35,
+                          fontWeight: _serverReachable
+                              ? FontWeight.w600
+                              : FontWeight.w500,
+                          color: _serverReachable
+                              ? AppColors.successLight
+                              : AppColors.textPrimary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+            ],
 
             // Controls Row (Auto Sync Toggle + Clear History)
             Container(

@@ -57,6 +57,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
       serverUrl: server.url,
       publicUrl: server.publicUrl,
       androidDeviceId: widget.localDeviceId!,
+      serverStartTime: server.startedAt?.toIso8601String() ?? '',
       user: widget.user,
       databaseService: widget.databaseService,
     );

@@ -118,6 +118,67 @@ class DeviceService {
     return null;
   }
 
+  /// Resolves the PC's public address used for the "Public Direct" connection.
+  ///
+  /// Priority:
+  ///  1. `tunnel_url.txt` next to the app -- a stable override that works with
+  ///     ANY tunnel tool (ngrok, cloudflared quick tunnels, localhost.run...).
+  ///  2. ngrok's local control API (`http://127.0.0.1:4040/api/tunnels`) when
+  ///     the ngrok client is running.
+  ///  3. `null` -- caller falls back to the raw public WAN IP.
+  Future<String?> getTunnelUrl() async {
+    // 1. Explicit override file (tool-agnostic).
+    try {
+      final file = File('tunnel_url.txt');
+      if (await file.exists()) {
+        final contents = (await file.readAsString()).trim();
+        if (contents.isNotEmpty) {
+          final url = _normalizeTunnelUrl(contents);
+          debugPrint('DeviceService: Using tunnel URL from tunnel_url.txt: $url');
+          return url;
+        }
+      }
+    } catch (e) {
+      debugPrint('DeviceService read tunnel_url.txt error: $e');
+    }
+
+    // 2. Auto-detect ngrok local control API.
+    try {
+      final response = await _httpClient
+          .get(Uri.parse('http://127.0.0.1:4040/api/tunnels'))
+          .timeout(const Duration(seconds: 2));
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final dynamic data = jsonDecode(response.body);
+        if (data is Map && data['tunnels'] is List) {
+          final tunnels = data['tunnels'] as List;
+          String? httpsUrl;
+          for (final tunnel in tunnels) {
+            if (tunnel is Map && tunnel['public_url'] != null) {
+              final url = tunnel['public_url'].toString().trim();
+              if (url.startsWith('https://')) return _normalizeTunnelUrl(url);
+              httpsUrl ??= _normalizeTunnelUrl(url);
+            }
+          }
+          if (httpsUrl != null) return httpsUrl;
+        }
+      }
+    } catch (_) {
+      // ngrok client is not running.
+    }
+
+    return null;
+  }
+
+  /// Normalizes a tunnel address into a clean base URL.
+  String _normalizeTunnelUrl(String raw) {
+    var url = raw.trim();
+    if (url.endsWith('/')) url = url.substring(0, url.length - 1);
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://$url';
+    }
+    return url;
+  }
+
   Future<List<NetworkAddressInfo>> _getNetworkInterfaces() async {
     final List<NetworkAddressInfo> interfaces = [];
     try {
@@ -166,12 +227,53 @@ class DeviceService {
   String _determinePrimaryIp(List<NetworkAddressInfo> interfaces) {
     if (interfaces.isEmpty) return 'Not Connected';
 
-    final nonLoopbackIpv4 = interfaces.firstWhere(
-      (info) => !info.isLoopback && info.type == InternetAddressType.IPv4,
-      orElse: () => interfaces.first,
-    );
+    final nonLoopbackIpv4 = interfaces
+        .where(
+          (info) => !info.isLoopback && info.type == InternetAddressType.IPv4,
+        )
+        .toList();
 
-    return nonLoopbackIpv4.address;
+    if (nonLoopbackIpv4.isEmpty) {
+      return interfaces.first.address;
+    }
+
+    // Prefer a typical site-local LAN address (192.168.x, 10.x, 172.16-31.x)
+    // and skip virtual-adapter / link-local ranges so we don't advertise a
+    // Docker/Hyper-V/VPN NIC that the phone can never reach.
+    for (final info in nonLoopbackIpv4) {
+      if (_isUsableSiteLocalAddress(info.address)) {
+        return info.address;
+      }
+    }
+
+    return nonLoopbackIpv4.first.address;
+  }
+
+  /// Returns true for private-site addresses the phone can actually route to.
+  bool _isUsableSiteLocalAddress(String ip) {
+    // Skip Automatic Private IP (link-local) and common virtual-adapter ranges.
+    if (ip.startsWith('169.254.')) return false;
+    if (ip.startsWith('192.0.0.') || ip.startsWith('198.18.') ||
+        ip.startsWith('198.51.100.')) {
+      return false;
+    }
+    if (ip.startsWith('10.')) return true;
+    if (ip.startsWith('192.168.')) return true;
+    if (ip.startsWith('172.')) {
+      final parts = ip.split('.');
+      if (parts.length >= 2) {
+        final secondOctet = int.tryParse(parts[1]);
+        if (secondOctet != null &&
+            secondOctet >= 16 &&
+            secondOctet <= 31 &&
+            secondOctet != 17 &&
+            secondOctet != 18) {
+          // Skip Docker's default 172.17/172.18 bridge ranges.
+          return true;
+        }
+      }
+    }
+    return false;
   }
 }
 

@@ -12,6 +12,12 @@ class DatabaseService {
   static const String _dbBaseUrl =
       'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app';
 
+  /// FCM legacy server key for direct PC -> phone push alerts.
+  /// Get it from Firebase Console -> Project settings -> Cloud Messaging ->
+  /// "Server key" (starts with AAAA...). When empty, direct FCM push is
+  /// skipped gracefully and only the RTDB "latest" notification is queued.
+  static String fcmServerKey = '';
+
   final http.Client _client;
 
   DatabaseService({http.Client? client}) : _client = client ?? http.Client();
@@ -253,6 +259,7 @@ class DatabaseService {
     required User user,
     required String androidDeviceId,
     required String requestId,
+    String? serverStartTime,
   }) async {
     try {
       final token = await user.getIdToken();
@@ -265,6 +272,7 @@ class DatabaseService {
         body: jsonEncode({
           'requestId': requestId,
           'deviceId': androidDeviceId,
+          'serverStartTime': serverStartTime ?? '',
           'timestamp': DateTime.now().toIso8601String(),
           'clientPlatform': 'Android',
         }),
@@ -465,6 +473,30 @@ class DatabaseService {
     return null;
   }
 
+  /// Resolves the registered Android device ID for a given user from RTDB.
+  Future<String?> getAndroidDeviceId({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/android/deviceId.json$authQuery');
+      final response = await _safeGet(uri);
+
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getAndroidDeviceId error: $e');
+    }
+    return null;
+  }
+
   /// Queues a server-is-live notification event in RTDB to alert mobile devices.
   Future<void> queueServerLiveNotification({
     required User user,
@@ -508,6 +540,13 @@ class DatabaseService {
     required String body,
     required String hostName,
   }) async {
+    if (fcmServerKey.isEmpty) {
+      debugPrint(
+          'DatabaseService: FCM server key not configured - direct push skipped. Add it to DatabaseService.fcmServerKey (Firebase console -> Project settings -> Cloud Messaging).',
+      );
+      return false;
+    }
+
     try {
       final fcmToken = await getAndroidFcmToken(user: user);
       if (fcmToken == null || fcmToken.isEmpty) {
@@ -539,7 +578,7 @@ class DatabaseService {
         fcmUri,
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': 'key=AIzaSyB_REDACTED_OR_LEGACY_KEY',
+          'Authorization': 'key=$fcmServerKey',
         },
         body: jsonEncode(payload),
       );

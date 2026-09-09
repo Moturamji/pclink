@@ -54,5 +54,19 @@
   - Added HTTP security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`)
   - Redesigned `ServerControlCard` and `LinkedDevicesCard` for user-friendly, privacy-preserving ecosystem display
 - [x] Comprehensive Unit Testing & Static Analysis (`flutter test` & `flutter analyze` 100% passing)
+- [x] Public reachability fix (works from anywhere without port forwarding):
+  - Adaptive URL fallback (public → LAN) with last-known-good caching
+  - Offline probe throttling (serialized probes + progressive 5-30s backoff) to stop request storms
+  - Immediate re-probe when Firebase publishes a changed server address / session
+  - Start-time password enforced on `/auth`, `/api/clipboard` POST+DELETE, and cloud handshake
+  - Device-ID binding from DB on Windows (no first-caller-wins)
+  - Tunnel URL support: `tunnel_url.txt` override (any tool) or automatic ngrok detection
+  - Windows re-publishes rotated tunnel URLs to Firebase every ~15s
+  - Android connection-status banner with actionable failure reasons
+- [x] Fully-automated public tunnel (zero user setup):
+  - New `TunnelService`: first run auto-downloads `cloudflared` (free, token-less) to `%APPDATA%\pclink\`
+  - Automatically spawns `cloudflared tunnel --url http://127.0.0.1:8088`, parses `https://*.trycloudflare.com`
+  - Publishes the tunnel HTTPS URL to Firebase; auto-restarts with backoff on exit; falls back to WAN/LAN silently
+  - No port-forwarding, no accounts, no user interaction
 
 
