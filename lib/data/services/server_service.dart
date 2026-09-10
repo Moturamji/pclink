@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/server_constants.dart';
 import '../../features/clipboard/models/clipboard_item.dart';
+import '../../features/file_share/models/shared_file.dart';
 import '../models/server_info.dart';
 import 'database_service.dart';
 
@@ -16,6 +17,13 @@ class ServerService {
   String? _connectedClientId;
   final List<ClipboardItem> _clipboardHistory = [];
   Function(ClipboardItem item)? onClipboardReceived;
+
+  // File sharing store: file bytes live on disk in the shared folder while the
+  // metadata list stays in RAM (mirrors how the server keeps clipboard history).
+  final List<SharedFile> _sharedFiles = [];
+  final StreamController<List<SharedFile>> _sharedFilesController =
+      StreamController<List<SharedFile>>.broadcast();
+  Directory? _sharedDir;
 
   ServerInfo _currentInfo = const ServerInfo(
     isLive: false,
@@ -34,6 +42,10 @@ class ServerService {
   List<ClipboardItem> get clipboardHistory =>
       List.unmodifiable(_clipboardHistory);
 
+  List<SharedFile> get sharedFiles => List.unmodifiable(_sharedFiles);
+  Stream<List<SharedFile>> get sharedFilesStream =>
+      _sharedFilesController.stream;
+
   /// Stores a locally copied clip in the server history.
   void addLocalClipboardItem(ClipboardItem item) {
     _clipboardHistory.removeWhere(
@@ -48,6 +60,139 @@ class ServerService {
   /// Clears in-memory clipboard history.
   void clearClipboardHistory() {
     _clipboardHistory.clear();
+  }
+
+  // -------------------------------------------------------------------------
+  // File Sharing API (Windows side)
+  // -------------------------------------------------------------------------
+
+  /// Registers a local PC file for sharing. The file is copied into the shared
+  /// folder so it stays available to the phone even if the original moves.
+  /// Returns the created [SharedFile], or null when the source is unavailable.
+  Future<SharedFile?> addLocalSharedFile({
+    required String sourcePath,
+    required String deviceName,
+  }) async {
+    try {
+      final src = File(sourcePath);
+      if (!await src.exists()) {
+        debugPrint(
+          'ServerService: addLocalSharedFile - source missing: $sourcePath',
+        );
+        return null;
+      }
+
+      final dir = await _getSharedDir();
+      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
+      final originalName = _sanitizeFileName(
+        sourcePath.split(RegExp(r'[\\/]')).last,
+      );
+      final dest = File('${dir.path}\\${id}_$originalName');
+      await src.copy(dest.path);
+
+      final item = SharedFile(
+        id: id,
+        name: originalName,
+        size: await dest.length(),
+        sourcePlatform: 'windows',
+        sourceDeviceName: deviceName,
+        timestamp: DateTime.now(),
+        filePath: dest.path,
+      );
+      _sharedFiles.insert(0, item);
+      if (_sharedFiles.length > 100) _sharedFiles.removeLast();
+      _sharedFilesController.add(List.from(_sharedFiles));
+      debugPrint(
+        'ServerService: Registered PC file for sharing: $originalName',
+      );
+      return item;
+    } catch (e) {
+      debugPrint('ServerService: addLocalSharedFile error: $e');
+      return null;
+    }
+  }
+
+  /// Removes a shared file (metadata + on-disk copy) from the sharing store.
+  Future<void> removeSharedFile(String id) async {
+    SharedFile? match;
+    for (final f in _sharedFiles) {
+      if (f.id == id) {
+        match = f;
+        break;
+      }
+    }
+    if (match == null) return;
+
+    _sharedFiles.remove(match);
+    _sharedFilesController.add(List.from(_sharedFiles));
+    try {
+      if (match.filePath != null) {
+        final file = File(match.filePath!);
+        if (await file.exists()) await file.delete();
+      }
+    } catch (e) {
+      debugPrint('ServerService: removeSharedFile delete error: $e');
+    }
+  }
+
+  /// Resolves (and lazily creates) the on-disk shared folder.
+  /// Files here are wiped only when the user removes them - the folder itself
+  /// persists across server restarts so downloads keep working.
+  Future<Directory> _getSharedDir() async {
+    if (_sharedDir != null) return _sharedDir!;
+    final appData = Platform.environment['APPDATA'] ?? '.';
+    final dir = Directory('$appData\\pclink\\shared_files');
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    _sharedDir = dir;
+    return dir;
+  }
+
+  /// Rebuilds the in-memory list from disk so previously shared files stay
+  /// available after the PC app restarts. File names follow `<id>_<name>`.
+  Future<void> _loadPersistedSharedFiles() async {
+    try {
+      final dir = await _getSharedDir();
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+        final fullName = entity.uri.pathSegments.last;
+        final underscore = fullName.indexOf('_');
+        if (underscore <= 0) continue; // Not a PCLink shared file.
+        final id = fullName.substring(0, underscore);
+        final originalName = fullName.substring(underscore + 1);
+        final stat = await entity.stat();
+        _sharedFiles.add(
+          SharedFile(
+            id: id,
+            name: originalName,
+            size: stat.size,
+            sourcePlatform: 'windows',
+            sourceDeviceName: Platform.localHostname,
+            timestamp: stat.modified,
+            filePath: entity.path,
+          ),
+        );
+      }
+      _sharedFiles.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      if (_sharedFiles.isNotEmpty) {
+        _sharedFilesController.add(List.from(_sharedFiles));
+        debugPrint(
+          'ServerService: Restored ${_sharedFiles.length} shared file(s).',
+        );
+      }
+    } catch (e) {
+      debugPrint('ServerService: _loadPersistedSharedFiles error: $e');
+    }
+  }
+
+  /// Strips path separators and Windows-illegal characters from a file name.
+  static String _sanitizeFileName(String raw) {
+    var name = raw.split(RegExp(r'[\\/]')).last.trim();
+    if (name.isEmpty) name = 'uploaded_file.bin';
+    if (name.length > 150) name = name.substring(name.length - 150);
+    name = name.replaceAll(RegExp(r'[<>:"/\\|?*]'), '_');
+    return name;
   }
 
   /// Sets the authorized Android Device ID allowed to connect.
@@ -84,7 +229,8 @@ class ServerService {
       final serverUrl = 'http://$hostIp:$port';
       // A tunnel URL (ngrok / cloudflared) is used verbatim when provided;
       // otherwise fall back to the raw public WAN IP.
-      final publicUrl = publicUrlOverride ??
+      final publicUrl =
+          publicUrlOverride ??
           (publicIp != null ? 'http://$publicIp:$port' : null);
 
       _currentInfo = ServerInfo(
@@ -103,6 +249,7 @@ class ServerService {
       _stateController.add(_currentInfo);
       _listenToRequests();
       _ensureFirewallRule(port);
+      _loadPersistedSharedFiles();
 
       debugPrint(
         'ServerService: Windows server listening on $serverUrl (Public address: ${publicUrl ?? publicIp ?? 'LAN only'})',
@@ -116,7 +263,8 @@ class ServerService {
         port: port,
         url: 'http://$hostIp:$port',
         publicIp: publicIp,
-        publicUrl: publicUrlOverride ??
+        publicUrl:
+            publicUrlOverride ??
             (publicIp != null ? 'http://$publicIp:$port' : null),
       );
       _stateController.add(_currentInfo);
@@ -182,6 +330,18 @@ class ServerService {
             await _handleClipboardLatest(request);
             break;
 
+          case ServerConstants.filesEndpoint:
+            await _handleFilesApi(request);
+            break;
+
+          case ServerConstants.filesUploadEndpoint:
+            await _handleFileUpload(request);
+            break;
+
+          case ServerConstants.filesDownloadEndpoint:
+            await _handleFileDownload(request);
+            break;
+
           default:
             request.response.statusCode = HttpStatus.notFound;
             request.response.write(jsonEncode({'error': 'Endpoint not found'}));
@@ -206,7 +366,10 @@ class ServerService {
       if (!_verifyDeviceId(deviceId)) {
         request.response.statusCode = HttpStatus.unauthorized;
         request.response.write(
-          jsonEncode({'success': false, 'error': ServerConstants.msgAuthFailed}),
+          jsonEncode({
+            'success': false,
+            'error': ServerConstants.msgAuthFailed,
+          }),
         );
         await request.response.close();
         return;
@@ -277,6 +440,170 @@ class ServerService {
     await request.response.close();
   }
 
+  /// GET /api/files (list) and DELETE /api/files?id=... (remove a shared file).
+  Future<void> _handleFilesApi(HttpRequest request) async {
+    if (request.method == 'GET') {
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode(_sharedFiles.map((f) => f.toMap()).toList()),
+      );
+      await request.response.close();
+      return;
+    }
+
+    if (request.method == 'DELETE') {
+      if (!await _verifyAuthorizedMutation(request)) return;
+      final id = request.uri.queryParameters['id'] ?? '';
+      await removeSharedFile(id);
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'success': true}));
+      await request.response.close();
+      return;
+    }
+
+    request.response.statusCode = HttpStatus.methodNotAllowed;
+    await request.response.close();
+  }
+
+  /// `POST /api/files/upload?name=<file>&deviceName=<name>` - receives a file
+  /// pushed from the phone and saves it into the shared folder.
+  Future<void> _handleFileUpload(HttpRequest request) async {
+    final deviceId = request.headers.value(ServerConstants.authHeader);
+    final startTime = request.headers.value(ServerConstants.startTimeHeader);
+    if (!_verifyDeviceId(deviceId)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({'success': false, 'error': ServerConstants.msgAuthFailed}),
+      );
+      await request.response.close();
+      return;
+    }
+    if (!_isValidServerStartTime(startTime)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({
+          'success': false,
+          'error': ServerConstants.msgStartTimeMismatch,
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    final originalName = ServerService._sanitizeFileName(
+      request.uri.queryParameters['name'] ?? '',
+    );
+    final deviceName =
+        request.uri.queryParameters['deviceName'] ?? 'Android Device';
+
+    try {
+      final dir = await _getSharedDir();
+      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
+      final dest = File('${dir.path}\\${id}_$originalName');
+
+      final sink = dest.openWrite();
+      try {
+        await for (final chunk in request) {
+          sink.add(chunk);
+        }
+        await sink.close();
+      } catch (e) {
+        debugPrint('ServerService: upload pipe error: $e');
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({'success': false, 'error': 'Upload failed'}),
+        );
+        await request.response.close();
+        return;
+      }
+
+      final item = SharedFile(
+        id: id,
+        name: originalName,
+        size: await dest.length(),
+        sourcePlatform: 'android',
+        sourceDeviceName: deviceName,
+        timestamp: DateTime.now(),
+        filePath: dest.path,
+      );
+      _sharedFiles.insert(0, item);
+      if (_sharedFiles.length > 100) _sharedFiles.removeLast();
+      _sharedFilesController.add(List.from(_sharedFiles));
+
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'success': true, 'id': item.id}));
+      await request.response.close();
+      debugPrint('ServerService: Received upload from phone: $originalName');
+    } catch (e) {
+      debugPrint('ServerService: _handleFileUpload error: $e');
+      request.response.statusCode = HttpStatus.internalServerError;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({'success': false, 'error': e.toString()}),
+      );
+      await request.response.close();
+    }
+  }
+
+  /// `GET /api/files/download?id=<id>` - streams a shared file to the phone.
+  Future<void> _handleFileDownload(HttpRequest request) async {
+    final id = request.uri.queryParameters['id'] ?? '';
+    SharedFile? match;
+    for (final f in _sharedFiles) {
+      if (f.id == id) {
+        match = f;
+        break;
+      }
+    }
+
+    if (match == null ||
+        match.filePath == null ||
+        !await File(match.filePath!).exists()) {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'error': 'File not found'}));
+      await request.response.close();
+      return;
+    }
+
+    final file = File(match.filePath!);
+    final length = await file.length();
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType.binary;
+    request.response.headers.set(
+      'Content-Disposition',
+      'attachment; filename="${match.name}"',
+    );
+    request.response.contentLength = length;
+    await request.response.addStream(file.openRead());
+    await request.response.close();
+    debugPrint('ServerService: Served file to phone: ${match.name}');
+  }
+
+  /// Shared auth gate used by file mutation endpoints. Writes a 401 JSON body
+  /// and returns false when the caller isn't the authorized phone of this
+  /// server session.
+  Future<bool> _verifyAuthorizedMutation(HttpRequest request) async {
+    final deviceId = request.headers.value(ServerConstants.authHeader);
+    final startTime = request.headers.value(ServerConstants.startTimeHeader);
+    if (!_verifyDeviceId(deviceId) || !_isValidServerStartTime(startTime)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({'success': false, 'error': 'Unauthorized'}),
+      );
+      await request.response.close();
+      return false;
+    }
+    return true;
+  }
+
   Future<void> _handleHealth(HttpRequest request) async {
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
@@ -320,7 +647,8 @@ class ServerService {
           if (data['timestamp'] != null) {
             requestTimestamp = data['timestamp'].toString();
           }
-          serverStartTime = serverStartTime ?? data['serverStartTime']?.toString();
+          serverStartTime =
+              serverStartTime ?? data['serverStartTime']?.toString();
         }
       } catch (_) {}
     }
@@ -559,7 +887,7 @@ class ServerService {
     );
     response.headers.set(
       'Access-Control-Allow-Headers',
-      'Origin, X-Requested-With, Content-Type, Accept, ${ServerConstants.authHeader}',
+      'Origin, X-Requested-With, Content-Type, Accept, ${ServerConstants.authHeader}, ${ServerConstants.startTimeHeader}',
     );
   }
 
@@ -692,5 +1020,8 @@ class ServerService {
   void dispose() {
     stopServer();
     _stateController.close();
+    if (!_sharedFilesController.isClosed) {
+      _sharedFilesController.close();
+    }
   }
 }

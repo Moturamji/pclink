@@ -11,11 +11,17 @@ abstract final class ServerConstants {
   static const String pingEndpoint = '/ping';
   static const String clipboardEndpoint = '/api/clipboard';
   static const String clipboardLatestEndpoint = '/api/clipboard/latest';
+  static const String filesEndpoint = '/api/files';
+  static const String filesUploadEndpoint = '/api/files/upload';
+  static const String filesDownloadEndpoint = '/api/files/download';
 
   // Handshake Messages
-  static const String msgServerRunning = 'PCLink Windows Server is live and ready.';
-  static const String msgAuthSuccess = 'Authentication successful. Connection established.';
-  static const String msgAuthFailed = 'Unauthorized: Invalid Android Device ID.';
+  static const String msgServerRunning =
+      'PCLink Windows Server is live and ready.';
+  static const String msgAuthSuccess =
+      'Authentication successful. Connection established.';
+  static const String msgAuthFailed =
+      'Unauthorized: Invalid Android Device ID.';
   static const String msgStartTimeMismatch =
       'Unauthorized: Invalid server start time (password). Restart PCLink on the PC and reconnect.';
 }

@@ -10,11 +10,13 @@ import '../../../data/models/server_info.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
+import '../../../data/services/file_share_service.dart';
 import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
 import '../../../features/clipboard/widgets/clipboard_sync_card.dart';
+import '../../../features/file_share/widgets/file_share_card.dart';
 import '../auth/auth_screen.dart';
 import 'widgets/linked_devices_card.dart';
 import 'widgets/platform_header.dart';
@@ -50,6 +52,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final DatabaseService _databaseService;
   late final ServerService _serverService;
   late final ClipboardService _clipboardService;
+  late final FileShareService _fileShareService;
   late final TunnelService _tunnelService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
@@ -68,6 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _databaseService = widget.databaseService ?? DatabaseService();
     _serverService = widget.serverService ?? ServerService();
     _clipboardService = widget.clipboardService ?? ClipboardService();
+    _fileShareService = FileShareService();
     _tunnelService = TunnelService();
 
     final user = _authService.currentUser;
@@ -130,6 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _tunnelUrlSub?.cancel();
     _tunnelService.dispose();
     _clipboardService.dispose();
+    _fileShareService.dispose();
     if (!kIsWeb && Platform.isWindows) {
       final user = _authService.currentUser;
       if (user != null) {
@@ -207,6 +212,26 @@ class _HomeScreenState extends State<HomeScreen> {
             final info = _currentServerInfo;
             return info?.startedAt?.toIso8601String();
           },
+        );
+
+        // Configure the file-sharing client with the same adaptive server
+        // discovery + session password used by clipboard sync.
+        _fileShareService.configure(
+          getTargetServerUrls: () {
+            final info = _currentServerInfo;
+            if (info == null) return <String>[];
+            return <String>[
+              if (info.publicUrl != null && info.publicUrl!.isNotEmpty)
+                info.publicUrl!,
+              if (info.url.isNotEmpty) info.url,
+            ];
+          },
+          getServerStartTime: () {
+            final info = _currentServerInfo;
+            return info?.startedAt?.toIso8601String();
+          },
+          deviceId: details.deviceId,
+          deviceName: details.deviceName,
         );
       } catch (_) {
         // Handled silently for offline scenarios
@@ -544,6 +569,18 @@ class _HomeScreenState extends State<HomeScreen> {
                           user: user,
                           databaseService: _databaseService,
                           clipboardService: _clipboardService,
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+
+                      // Direct File Sharing Through the Temporary Server
+                      if (user != null) ...[
+                        FileShareCard(
+                          isWindows: details.isWindows,
+                          serverService:
+                              details.isWindows ? _serverService : null,
+                          fileShareService:
+                              details.isWindows ? null : _fileShareService,
                         ),
                         const SizedBox(height: 14),
                       ],

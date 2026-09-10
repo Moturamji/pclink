@@ -80,6 +80,10 @@ flowchart TB
   - `GET /api/clipboard`: Retrieve full in-memory history.
   - `DELETE /api/clipboard`: Clear in-memory history.
   - `GET /status`: Query server runtime statistics and state.
+  - `GET /api/files`: List files currently shared (metadata only - no paths).
+  - `POST /api/files/upload?name=<file>&deviceName=<name>`: Receive a file pushed from the phone into the shared folder.
+  - `GET /api/files/download?id=<id>`: Stream a shared file to the phone (`Content-Disposition: attachment`).
+  - `DELETE /api/files?id=<id>`: Remove a shared file (requires device + session auth).
 
 ```dart
 // Snippet from lib/data/services/server_service.dart

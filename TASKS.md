@@ -63,10 +63,19 @@
   - Tunnel URL support: `tunnel_url.txt` override (any tool) or automatic ngrok detection
   - Windows re-publishes rotated tunnel URLs to Firebase every ~15s
   - Android connection-status banner with actionable failure reasons
+- [x] Broadband link durability and automatic recovery
 - [x] Fully-automated public tunnel (zero user setup):
   - New `TunnelService`: first run auto-downloads `cloudflared` (free, token-less) to `%APPDATA%\pclink\`
   - Automatically spawns `cloudflared tunnel --url http://127.0.0.1:8088`, parses `https://*.trycloudflare.com`
   - Publishes the tunnel HTTPS URL to Firebase; auto-restarts with backoff on exit; falls back to WAN/LAN silently
   - No port-forwarding, no accounts, no user interaction
+- [x] File Sharing Through the Temporary Server (bidirectional, zero cloud):
+  - New `SharedFile` model (`lib/features/file_share/models/shared_file.dart`)
+  - Windows `ServerService` file store + HTTP endpoints (`GET/POST/DELETE /api/files`, `GET /api/files/download`)
+  - On-disk shared folder `%APPDATA%\pclink\shared_files\` persisted across server restarts
+  - New `FileShareService` (Android client) reusing adaptive URL fallback + `X-Device-Id` / `X-Start-Time` session auth
+  - New `FileShareCard` on the dashboard: Windows = "Add Files to Share" + phone-upload watcher; Android = "Send Files to PC" upload + one-tap download
+  - Files never touch Firebase RTDB / cloud storage - direct transfer over the temp server (LAN or cloudflared tunnel)
+  - Added `file_picker` and `path_provider` dependencies; downloads saved to the phone's Downloads folder
 
 

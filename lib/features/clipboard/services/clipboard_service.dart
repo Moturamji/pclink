@@ -474,7 +474,9 @@ void _onForegroundDataReceived(dynamic data) {
 
   /// Android <- Windows: Fetches the latest copied clip directly from the PC server.
   Future<void> _fetchLatestRemoteClipFromWindowsServer() async {
-    if (_currentPlatformName == null || _currentPlatformName == 'windows') return;
+    if (_currentPlatformName == null || _currentPlatformName == 'windows') {
+      return;
+    }
     final serverUrl = _targetServerUrl;
     if (serverUrl == null || serverUrl.isEmpty) return;
 
@@ -511,7 +513,9 @@ void _onForegroundDataReceived(dynamic data) {
 
   /// Handles incoming remote clip from the peer device.
   Future<void> _handleRemoteClipReceived(ClipboardItem item) async {
-    if (item.text == _lastReceivedRemoteText || item.text == _lastLocalText) return;
+    if (item.text == _lastReceivedRemoteText || item.text == _lastLocalText) {
+      return;
+    }
 
     _lastReceivedRemoteText = item.text;
     _addClipToLocalHistory(item);
