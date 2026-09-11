@@ -21,10 +21,14 @@ class AppCardHeader extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(8),
+          padding: const EdgeInsets.all(9),
           decoration: BoxDecoration(
             color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: iconColor.withValues(alpha: 0.25),
+              width: 1.1,
+            ),
           ),
           child: Icon(
             icon,
@@ -32,15 +36,15 @@ class AppCardHeader extends StatelessWidget {
             color: iconColor,
           ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1.0,
-              color: AppColors.textSecondary,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8,
+              color: context.colors.textPrimary,
             ),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,

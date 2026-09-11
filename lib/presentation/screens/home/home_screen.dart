@@ -5,6 +5,9 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
+import '../../../core/widgets/universal/app_logo.dart';
+import '../../../core/widgets/universal/bounceable.dart';
+import '../../../core/widgets/universal/theme_toggle_button.dart';
 import '../../../data/models/device_details.dart';
 import '../../../data/models/server_info.dart';
 import '../../../data/services/auth_service.dart';
@@ -356,10 +359,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _confirmSignOut() {
+    final colors = context.colors;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.cardSurface,
+        backgroundColor: colors.cardSurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Row(
           children: [
@@ -376,20 +380,20 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            const Text(
+            Text(
               AppStrings.signOut,
               style: TextStyle(
-                color: AppColors.textPrimary,
+                color: colors.textPrimary,
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
               ),
             ),
           ],
         ),
-        content: const Text(
+        content: Text(
           'Are you sure you want to sign out of PCLink?',
           style: TextStyle(
-            color: AppColors.textSecondary,
+            color: colors.textSecondary,
             fontSize: 13,
             height: 1.4,
           ),
@@ -398,9 +402,9 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text(
+            child: Text(
               AppStrings.cancel,
-              style: TextStyle(color: AppColors.textMuted, fontWeight: FontWeight.w600),
+              style: TextStyle(color: colors.textMuted, fontWeight: FontWeight.w600),
             ),
           ),
           ElevatedButton(
@@ -441,41 +445,36 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final user = _authService.currentUser;
+    final colors = context.colors;
 
     return Scaffold(
       appBar: AppBar(
         title: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [AppColors.primaryLight, AppColors.primaryDark],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primaryLight.withValues(alpha: 0.3),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.hub_rounded,
-                color: AppColors.background,
-                size: 18,
-              ),
+            const AppLogo(
+              size: 34,
+              borderRadius: 10,
+              showGlow: true,
+              isAnimated: false,
             ),
             const SizedBox(width: 12),
-            const Text(
-              AppStrings.appName,
-              style: TextStyle(
-                fontWeight: FontWeight.w800,
-                letterSpacing: 0.5,
-                fontSize: 18,
+            ShaderMask(
+              shaderCallback: (bounds) => LinearGradient(
+                colors: [
+                  colors.textPrimary,
+                  colors.primaryLight,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ).createShader(bounds),
+              child: const Text(
+                AppStrings.appName,
+                style: TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 0.8,
+                  fontSize: 19,
+                  color: Colors.white,
+                ),
               ),
             ),
           ],
@@ -483,23 +482,31 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          IconButton(
-            icon: _isRefreshing
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded),
-            tooltip: 'Refresh details',
-            onPressed: _isRefreshing ? null : _refresh,
+          const ThemeToggleButton(),
+          const SizedBox(width: 4),
+          Bounceable(
+            onTap: _isRefreshing ? null : _refresh,
+            child: IconButton(
+              icon: _isRefreshing
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded),
+              tooltip: 'Refresh details',
+              onPressed: null, // handled by Bounceable
+            ),
           ),
-          IconButton(
-            icon: const Icon(Icons.logout_rounded, color: AppColors.error),
-            tooltip: AppStrings.signOut,
-            onPressed: _confirmSignOut,
+          Bounceable(
+            onTap: _confirmSignOut,
+            child: const IconButton(
+              icon: Icon(Icons.logout_rounded, color: AppColors.error),
+              tooltip: AppStrings.signOut,
+              onPressed: null, // handled by Bounceable
+            ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
         ],
       ),
       body: FutureBuilder<DeviceDetails>(

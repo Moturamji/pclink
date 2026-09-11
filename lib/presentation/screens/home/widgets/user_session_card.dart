@@ -13,15 +13,17 @@ class UserSessionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: AppColors.cardSurface,
+        color: colors.cardSurface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.cardBorder),
+        border: Border.all(color: colors.cardBorder),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.15),
+            color: Colors.black.withValues(alpha: context.isDark ? 0.15 : 0.05),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -32,14 +34,14 @@ class UserSessionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: AppColors.primaryLight.withValues(alpha: 0.14),
+              color: colors.primaryLight.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primaryLight.withValues(alpha: 0.25)),
+              border: Border.all(color: colors.primaryLight.withValues(alpha: 0.25)),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.account_circle_rounded,
               size: 20,
-              color: AppColors.primaryLight,
+              color: colors.primaryLight,
             ),
           ),
           const SizedBox(width: 12),
@@ -48,22 +50,22 @@ class UserSessionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   AppStrings.signedInAs,
                   style: TextStyle(
                     fontSize: 9,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1.0,
-                    color: AppColors.textMuted,
+                    color: colors.textMuted,
                   ),
                 ),
                 const SizedBox(height: 1),
                 Text(
                   email,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
+                    color: colors.textPrimary,
                   ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 1,
@@ -75,10 +77,10 @@ class UserSessionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.14),
+              color: colors.success.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: AppColors.success.withValues(alpha: 0.3),
+                color: colors.success.withValues(alpha: 0.3),
               ),
             ),
             child: Row(
@@ -87,18 +89,18 @@ class UserSessionCard extends StatelessWidget {
                 Container(
                   width: 5,
                   height: 5,
-                  decoration: const BoxDecoration(
+                  decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.successLight,
+                    color: colors.success,
                   ),
                 ),
                 const SizedBox(width: 4),
-                const Text(
+                Text(
                   'Active',
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: AppColors.successLight,
+                    color: colors.success,
                   ),
                 ),
               ],

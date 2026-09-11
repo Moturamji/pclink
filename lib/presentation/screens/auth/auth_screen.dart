@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/utils/validators.dart';
+import '../../../core/widgets/universal/bounceable.dart';
+import '../../../core/widgets/universal/theme_toggle_button.dart';
 import '../../../data/services/auth_service.dart';
 import '../home/home_screen.dart';
 import 'widgets/auth_header.dart';
@@ -92,13 +94,23 @@ class _AuthScreenState extends State<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        actions: const [
+          ThemeToggleButton(),
+          SizedBox(width: 16),
+        ],
+      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding:
-                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
+                const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 480),
               child: Card(
@@ -120,15 +132,15 @@ class _AuthScreenState extends State<AuthScreen> {
                           const SizedBox(height: 20),
                         ],
                         if (!_isWindows) ...[
-                          _buildAuthModeToggle(),
+                          _buildAuthModeToggle(colors),
                           const SizedBox(height: 24),
                         ],
-                        _buildEmailField(),
+                        _buildEmailField(colors),
                         const SizedBox(height: 16),
-                        _buildPasswordField(),
+                        _buildPasswordField(colors),
                         if (_isSignUp && !_isWindows) ...[
                           const SizedBox(height: 16),
-                          _buildConfirmPasswordField(),
+                          _buildConfirmPasswordField(colors),
                         ],
                         if (!_isSignUp) ...[
                           Align(
@@ -139,11 +151,12 @@ class _AuthScreenState extends State<AuthScreen> {
                                 initialEmail: _emailController.text,
                                 authService: _authService,
                               ),
-                              child: const Text(
+                              child: Text(
                                 AppStrings.forgotPassword,
                                 style: TextStyle(
-                                  color: AppColors.primaryLight,
+                                  color: colors.primaryLight,
                                   fontSize: 13,
+                                  fontWeight: FontWeight.w600,
                                 ),
                               ),
                             ),
@@ -155,7 +168,7 @@ class _AuthScreenState extends State<AuthScreen> {
                         _buildSubmitButton(),
                         if (_isWindows) ...[
                           const SizedBox(height: 24),
-                          _buildWindowsNoticeCard(),
+                          _buildWindowsNoticeCard(colors),
                         ],
                       ],
                     ),
@@ -197,18 +210,18 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Widget _buildAuthModeToggle() {
+  Widget _buildAuthModeToggle(AppThemeColors colors) {
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppColors.cardBorder),
+        border: Border.all(color: colors.cardBorder, width: 1.2),
       ),
       padding: const EdgeInsets.all(5),
       child: Row(
         children: [
           Expanded(
-            child: GestureDetector(
+            child: Bounceable(
               onTap: () {
                 if (_isSignUp) {
                   setState(() {
@@ -218,18 +231,27 @@ class _AuthScreenState extends State<AuthScreen> {
                 }
               },
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeInOut,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: !_isSignUp ? AppColors.primary : Colors.transparent,
+                  gradient: !_isSignUp
+                      ? const LinearGradient(
+                          colors: [
+                            AppColors.primary,
+                            AppColors.primaryDark,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: !_isSignUp
                       ? [
                           BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.25),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 3),
                           ),
                         ]
                       : null,
@@ -238,18 +260,18 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: Text(
                   AppStrings.signIn,
                   style: TextStyle(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     fontSize: 14,
                     color: !_isSignUp
-                        ? const Color(0xFF1B1808)
-                        : AppColors.textSecondary,
+                        ? Colors.white
+                        : colors.textSecondary,
                   ),
                 ),
               ),
             ),
           ),
           Expanded(
-            child: GestureDetector(
+            child: Bounceable(
               onTap: () {
                 if (!_isSignUp) {
                   setState(() {
@@ -259,18 +281,27 @@ class _AuthScreenState extends State<AuthScreen> {
                 }
               },
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                curve: Curves.easeInOut,
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: _isSignUp ? AppColors.primary : Colors.transparent,
+                  gradient: _isSignUp
+                      ? const LinearGradient(
+                          colors: [
+                            AppColors.primary,
+                            AppColors.primaryDark,
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        )
+                      : null,
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: _isSignUp
                       ? [
                           BoxShadow(
-                            color: AppColors.primary.withValues(alpha: 0.25),
-                            blurRadius: 10,
-                            offset: const Offset(0, 2),
+                            color: AppColors.primary.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            offset: const Offset(0, 3),
                           ),
                         ]
                       : null,
@@ -279,11 +310,11 @@ class _AuthScreenState extends State<AuthScreen> {
                 child: Text(
                   AppStrings.signUp,
                   style: TextStyle(
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                     fontSize: 14,
                     color: _isSignUp
-                        ? const Color(0xFF1B1808)
-                        : AppColors.textSecondary,
+                        ? Colors.white
+                        : colors.textSecondary,
                   ),
                 ),
               ),
@@ -294,30 +325,32 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Widget _buildEmailField() {
+  Widget _buildEmailField(AppThemeColors colors) {
     return TextFormField(
       controller: _emailController,
       keyboardType: TextInputType.emailAddress,
-      style: const TextStyle(color: AppColors.textPrimary),
+      style: TextStyle(color: colors.textPrimary),
       decoration: const InputDecoration(
         labelText: AppStrings.emailLabel,
-        prefixIcon: Icon(Icons.mail_rounded, size: 20),
+        prefixIcon: Icon(Icons.alternate_email_rounded, size: 20),
       ),
       validator: Validators.validateEmail,
     );
   }
 
-  Widget _buildPasswordField() {
+  Widget _buildPasswordField(AppThemeColors colors) {
     return TextFormField(
       controller: _passwordController,
       obscureText: _obscurePassword,
-      style: const TextStyle(color: AppColors.textPrimary),
+      style: TextStyle(color: colors.textPrimary),
       decoration: InputDecoration(
         labelText: AppStrings.passwordLabel,
-        prefixIcon: const Icon(Icons.lock_rounded, size: 20),
+        prefixIcon: const Icon(Icons.lock_outline_rounded, size: 20),
         suffixIcon: IconButton(
           icon: Icon(
-            _obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+            _obscurePassword
+                ? Icons.visibility_off_rounded
+                : Icons.visibility_rounded,
             size: 20,
           ),
           onPressed: () =>
@@ -328,21 +361,24 @@ class _AuthScreenState extends State<AuthScreen> {
     );
   }
 
-  Widget _buildConfirmPasswordField() {
+  Widget _buildConfirmPasswordField(AppThemeColors colors) {
     return TextFormField(
       controller: _confirmPasswordController,
       obscureText: _obscureConfirmPassword,
-      style: const TextStyle(color: AppColors.textPrimary),
+      style: TextStyle(color: colors.textPrimary),
       decoration: InputDecoration(
         labelText: AppStrings.confirmPasswordLabel,
         prefixIcon: const Icon(Icons.verified_user_rounded, size: 20),
         suffixIcon: IconButton(
           icon: Icon(
-            _obscureConfirmPassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+            _obscureConfirmPassword
+                ? Icons.visibility_off_rounded
+                : Icons.visibility_rounded,
             size: 20,
           ),
           onPressed: () => setState(
-              () => _obscureConfirmPassword = !_obscureConfirmPassword),
+            () => _obscureConfirmPassword = !_obscureConfirmPassword,
+          ),
         ),
       ),
       validator: (val) =>
@@ -351,59 +387,79 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Widget _buildSubmitButton() {
-    return Container(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.3),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
+    return Bounceable(
+      onTap: _isLoading ? null : _submit,
+      child: Container(
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [
+              AppColors.primaryLight,
+              AppColors.primaryDark,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: ElevatedButton(
-        onPressed: _isLoading ? null : _submit,
-        child: _isLoading
-            ? const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.5,
-                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1B1808)),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.primary.withValues(alpha: 0.4),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.transparent,
+            shadowColor: Colors.transparent,
+            foregroundColor: Colors.white,
+          ),
+          onPressed: _isLoading ? null : _submit,
+          child: _isLoading
+              ? const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                )
+              : Text(
+                  _isSignUp ? AppStrings.signUp : AppStrings.signIn,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.4,
+                  ),
                 ),
-              )
-            : Text(
-                _isSignUp ? AppStrings.signUp : AppStrings.signIn,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.4,
-                ),
-              ),
+        ),
       ),
     );
   }
 
-  Widget _buildWindowsNoticeCard() {
+  Widget _buildWindowsNoticeCard(AppThemeColors colors) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: AppColors.secondary.withValues(alpha: 0.25),
         ),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.tips_and_updates_rounded, color: AppColors.secondary, size: 20),
-          SizedBox(width: 12),
+          const Icon(
+            Icons.tips_and_updates_rounded,
+            color: AppColors.secondaryLight,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               AppStrings.windowsRegistrationNotice,
               style: TextStyle(
-                color: AppColors.textSecondary,
+                color: colors.textSecondary,
                 fontSize: 12,
                 height: 1.4,
               ),

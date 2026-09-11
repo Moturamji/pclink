@@ -4,6 +4,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'app.dart';
+import 'core/theme/theme_service.dart';
 import 'data/services/notification_service.dart';
 import 'features/clipboard/services/clipboard_service.dart';
 import 'firebase_options.dart';
@@ -32,6 +33,8 @@ void main() async {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       await ClipboardService.initForegroundTask();
     }
+    // Initialize Theme preference
+    await ThemeService().init();
   } catch (e, stack) {
     debugPrint('Firebase initialization warning: $e\n$stack');
   }

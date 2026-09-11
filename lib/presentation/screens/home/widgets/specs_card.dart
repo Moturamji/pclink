@@ -14,6 +14,8 @@ class SpecsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(22.0),
@@ -25,33 +27,33 @@ class SpecsCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryLight.withValues(alpha: 0.12),
+                    color: colors.primary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.tune_rounded,
                     size: 18,
-                    color: AppColors.primaryLight,
+                    color: colors.primary,
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Text(
+                Text(
                   AppStrings.systemSpecsTitle,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1.1,
-                    color: AppColors.textSecondary,
+                    color: colors.textSecondary,
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 18),
-            _buildSpecRow('Platform Target', details.platform),
-            _buildSpecRow('Operating System', details.osVersion),
-            _buildSpecRow('Host / Model', details.deviceName),
+            _buildSpecRow(context, 'Platform Target', details.platform),
+            _buildSpecRow(context, 'Operating System', details.osVersion),
+            _buildSpecRow(context, 'Host / Model', details.deviceName),
             ...details.additionalDetails.entries.map(
-              (entry) => _buildSpecRow(entry.key, entry.value),
+              (entry) => _buildSpecRow(context, entry.key, entry.value),
             ),
           ],
         ),
@@ -59,14 +61,15 @@ class SpecsCard extends StatelessWidget {
     );
   }
 
-  Widget _buildSpecRow(String key, String value) {
+  Widget _buildSpecRow(BuildContext context, String key, String value) {
+    final colors = context.colors;
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 3.0),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.6),
+        color: colors.surface.withValues(alpha: 0.6),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.5)),
+        border: Border.all(color: colors.cardBorder.withValues(alpha: 0.5)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -75,8 +78,8 @@ class SpecsCard extends StatelessWidget {
             flex: 4,
             child: Text(
               key,
-              style: const TextStyle(
-                color: AppColors.textMuted,
+              style: TextStyle(
+                color: colors.textMuted,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),
@@ -87,8 +90,8 @@ class SpecsCard extends StatelessWidget {
             flex: 6,
             child: SelectableText(
               value,
-              style: const TextStyle(
-                color: AppColors.textPrimary,
+              style: TextStyle(
+                color: colors.textPrimary,
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
               ),

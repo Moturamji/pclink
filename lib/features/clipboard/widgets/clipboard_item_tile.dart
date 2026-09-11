@@ -26,8 +26,9 @@ class ClipboardItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final isFromWindows = item.isFromWindows;
-    final platformColor = isFromWindows ? AppColors.primaryLight : AppColors.secondaryLight;
+    final platformColor = isFromWindows ? colors.primaryLight : colors.secondary;
     final platformLabel = isFromWindows ? 'Windows PC' : 'Android Phone';
     final platformIcon = isFromWindows ? Icons.laptop_windows_rounded : Icons.phone_android_rounded;
 
@@ -35,11 +36,11 @@ class ClipboardItemTile extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: isCurrentPlatform
-              ? AppColors.cardBorder
+              ? colors.cardBorder
               : platformColor.withValues(alpha: 0.35),
         ),
       ),
@@ -76,9 +77,9 @@ class ClipboardItemTile extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 _formatTimeAgo(item.timestamp),
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 10,
-                  color: AppColors.textMuted,
+                  color: colors.textMuted,
                   fontWeight: FontWeight.w500,
                 ),
               ),
@@ -96,17 +97,17 @@ class ClipboardItemTile extends StatelessWidget {
             width: double.infinity,
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: AppColors.background.withValues(alpha: 0.6),
+              color: colors.cardSurface.withValues(alpha: context.isDark ? 0.6 : 0.9),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppColors.cardBorder.withValues(alpha: 0.5)),
+              border: Border.all(color: colors.cardBorder.withValues(alpha: 0.5)),
             ),
             child: Text(
               item.previewText,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
                 fontFamily: 'monospace',
                 height: 1.35,
-                color: AppColors.textPrimary,
+                color: colors.textPrimary,
               ),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
@@ -117,13 +118,13 @@ class ClipboardItemTile extends StatelessWidget {
             children: [
               Text(
                 '${item.charCount} chars',
-                style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+                style: TextStyle(fontSize: 10, color: colors.textMuted),
               ),
               if (item.lineCount > 1) ...[
                 const SizedBox(width: 8),
                 Text(
                   '• ${item.lineCount} lines',
-                  style: const TextStyle(fontSize: 10, color: AppColors.textMuted),
+                  style: TextStyle(fontSize: 10, color: colors.textMuted),
                 ),
               ],
             ],

@@ -77,17 +77,24 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
   }
 
   Future<void> _confirmClear() async {
+    final colors = context.colors;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.cardSurface,
+        backgroundColor: colors.cardSurface,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Clear Clipboard History?'),
-        content: const Text('This will clear the synced clipboard history for both devices.'),
+        title: Text(
+          'Clear Clipboard History?',
+          style: TextStyle(color: colors.textPrimary),
+        ),
+        content: Text(
+          'This will clear the synced clipboard history for both devices.',
+          style: TextStyle(color: colors.textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textMuted)),
+            child: Text('Cancel', style: TextStyle(color: colors.textMuted)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
@@ -109,6 +116,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final currentPlatform = widget.isWindows ? 'windows' : 'android';
     final peerPlatformLabel = widget.isWindows ? 'Android Phone' : 'Windows PC';
 
@@ -120,7 +128,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
           children: [
             AppCardHeader(
               icon: Icons.content_paste_rounded,
-              iconColor: AppColors.primaryLight,
+              iconColor: colors.primaryLight,
               title: 'LIVE CLIPBOARD SYNC',
               trailing: StatusBadge(
                 label: (widget.isWindows || widget.clipboardService.isListening)
@@ -128,7 +136,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                     : 'STANDBY',
                 isActive: widget.isWindows ||
                     (widget.clipboardService.isListening && _serverReachable),
-                activeColor: AppColors.successLight,
+                activeColor: colors.success,
               ),
             ),
             const SizedBox(height: 14),
@@ -140,17 +148,17 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: (!widget.clipboardService.isListening
-                          ? AppColors.textMuted
+                          ? colors.textMuted
                           : (_serverReachable
-                              ? AppColors.success
+                              ? colors.success
                               : AppColors.error))
                       .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
                     color: (!widget.clipboardService.isListening
-                            ? AppColors.cardBorder
+                            ? colors.cardBorder
                             : (_serverReachable
-                                ? AppColors.successLight
+                                ? colors.success
                                 : AppColors.error))
                         .withValues(alpha: 0.35),
                   ),
@@ -166,9 +174,9 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                               : Icons.cloud_off_rounded),
                       size: 16,
                       color: !widget.clipboardService.isListening
-                          ? AppColors.textMuted
+                          ? colors.textMuted
                           : (_serverReachable
-                              ? AppColors.successLight
+                              ? colors.success
                               : AppColors.error),
                     ),
                     const SizedBox(width: 8),
@@ -187,10 +195,10 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                               ? FontWeight.w600
                               : FontWeight.w500,
                           color: !widget.clipboardService.isListening
-                              ? AppColors.textMuted
+                              ? colors.textMuted
                               : (_serverReachable
-                                  ? AppColors.successLight
-                                  : AppColors.textPrimary),
+                                  ? colors.success
+                                  : colors.textPrimary),
                         ),
                       ),
                     ),
@@ -204,23 +212,23 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: colors.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.cardBorder),
+                border: Border.all(color: colors.cardBorder),
               ),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Row(
                     children: [
-                      const Icon(Icons.sync_rounded, size: 16, color: AppColors.primaryLight),
+                      Icon(Icons.sync_rounded, size: 16, color: colors.primaryLight),
                       const SizedBox(width: 8),
                       Text(
                         'Auto-Transfer to Clipboard',
                         style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: _autoSync ? AppColors.textPrimary : AppColors.textMuted,
+                          color: _autoSync ? colors.textPrimary : colors.textMuted,
                         ),
                       ),
                     ],
@@ -229,8 +237,8 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                     scale: 0.8,
                     child: Switch(
                       value: _autoSync,
-                      activeThumbColor: AppColors.primaryLight,
-                      activeTrackColor: AppColors.primary.withValues(alpha: 0.4),
+                      activeThumbColor: colors.primaryLight,
+                      activeTrackColor: colors.primary.withValues(alpha: 0.4),
                       onChanged: _toggleAutoSync,
                     ),
                   ),
@@ -269,16 +277,19 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                             child: Row(
                               children: [
                                 _buildFilterPill(
+                                  colors: colors,
                                   label: 'All (${allClips.length})',
                                   keyName: 'all',
                                 ),
                                 const SizedBox(width: 6),
                                 _buildFilterPill(
+                                  colors: colors,
                                   label: 'Peer (${peerClips.length})',
                                   keyName: 'peer',
                                 ),
                                 const SizedBox(width: 6),
                                 _buildFilterPill(
+                                  colors: colors,
                                   label: 'Mine (${localClips.length})',
                                   keyName: 'local',
                                 ),
@@ -287,7 +298,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                           ),
                         ),
                         IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppColors.textMuted),
+                          icon: Icon(Icons.delete_outline_rounded, size: 18, color: colors.textMuted),
                           tooltip: 'Clear history',
                           onPressed: allClips.isEmpty ? null : _confirmClear,
                         ),
@@ -300,16 +311,16 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
                         decoration: BoxDecoration(
-                          color: AppColors.surface,
+                          color: colors.surface,
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: AppColors.cardBorder),
+                          border: Border.all(color: colors.cardBorder),
                         ),
                         child: Column(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.content_paste_go_rounded,
                               size: 32,
-                              color: AppColors.textMuted,
+                              color: colors.textMuted,
                             ),
                             const SizedBox(height: 10),
                             Text(
@@ -318,10 +329,10 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                                   : _filter == 'local'
                                       ? 'No clips copied on this device yet.'
                                       : 'No clipboard history yet.',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
-                                color: AppColors.textSecondary,
+                                color: colors.textSecondary,
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -330,9 +341,9 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                                   ? 'Copy text on $peerPlatformLabel and it will appear here instantly.'
                                   : 'Copy any text on either device and it will sync automatically.',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 11,
-                                color: AppColors.textMuted,
+                                color: colors.textMuted,
                               ),
                             ),
                           ],
@@ -366,7 +377,11 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
     );
   }
 
-  Widget _buildFilterPill({required String label, required String keyName}) {
+  Widget _buildFilterPill({
+    required AppThemeColors colors,
+    required String label,
+    required String keyName,
+  }) {
     final isSelected = _filter == keyName;
 
     return GestureDetector(
@@ -376,11 +391,11 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: isSelected
-              ? AppColors.primary.withValues(alpha: 0.18)
-              : AppColors.surface,
+              ? colors.primary.withValues(alpha: 0.18)
+              : colors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppColors.primaryLight : AppColors.cardBorder,
+            color: isSelected ? colors.primaryLight : colors.cardBorder,
           ),
         ),
         child: Text(
@@ -388,7 +403,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-            color: isSelected ? AppColors.primaryLight : AppColors.textSecondary,
+            color: isSelected ? colors.primaryLight : colors.textSecondary,
           ),
         ),
       ),

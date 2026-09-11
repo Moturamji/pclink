@@ -5,7 +5,11 @@ import 'package:pclink/core/utils/validators.dart';
 import 'package:pclink/data/models/device_details.dart';
 import 'package:pclink/data/models/linked_device.dart';
 import 'package:pclink/data/models/server_info.dart';
+import 'package:pclink/core/theme/theme_service.dart';
+import 'package:pclink/core/widgets/universal/app_logo.dart';
+import 'package:pclink/core/widgets/universal/bounceable.dart';
 import 'package:pclink/core/widgets/universal/status_badge.dart';
+import 'package:pclink/core/widgets/universal/theme_toggle_button.dart';
 import 'package:pclink/data/services/auth_service.dart';
 import 'package:pclink/data/services/server_service.dart';
 import 'package:pclink/features/clipboard/models/clipboard_item.dart';
@@ -246,6 +250,41 @@ void main() {
       expect(find.text('TEST SYNC'), findsOneWidget);
     });
 
+    testWidgets('AppLogo renders with custom size and glow', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: AppLogo(
+              size: 48,
+              showGlow: true,
+              isAnimated: false,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(AppLogo), findsOneWidget);
+    });
+
+    testWidgets('Bounceable handles tap and scale micro-interaction', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Bounceable(
+              onTap: () => tapped = true,
+              child: const Text('Tap Me'),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Tap Me'), findsOneWidget);
+      await tester.tap(find.text('Tap Me'));
+      await tester.pumpAndSettle();
+      expect(tapped, isTrue);
+    });
+
     test('ServerService stores and clears local clipboard items in memory', () {
       final serverService = ServerService();
       expect(serverService.clipboardHistory, isEmpty);
@@ -264,6 +303,29 @@ void main() {
 
       serverService.clearClipboardHistory();
       expect(serverService.clipboardHistory, isEmpty);
+    });
+
+    test('ThemeService toggles and manages theme modes correctly', () {
+      final service = ThemeService();
+      service.setThemeMode(ThemeMode.dark);
+      expect(service.currentMode, ThemeMode.dark);
+
+      service.setThemeMode(ThemeMode.light);
+      expect(service.currentMode, ThemeMode.light);
+    });
+
+    testWidgets('ThemeToggleButton renders and toggles theme on tap', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: ThemeToggleButton(),
+          ),
+        ),
+      );
+
+      expect(find.byType(ThemeToggleButton), findsOneWidget);
+      await tester.tap(find.byType(ThemeToggleButton));
+      await tester.pumpAndSettle();
     });
   });
 }

@@ -14,6 +14,8 @@ class SecurityStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18.0),
@@ -25,24 +27,24 @@ class SecurityStatusCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryLight.withValues(alpha: 0.12),
+                    color: colors.primaryLight.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.shield_outlined,
                     size: 18,
-                    color: AppColors.primaryLight,
+                    color: colors.primaryLight,
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Expanded(
+                Expanded(
                   child: Text(
                     'SECURITY & DATA PRIVACY',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1.0,
-                      color: AppColors.textSecondary,
+                      color: colors.textSecondary,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -52,23 +54,23 @@ class SecurityStatusCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                   decoration: BoxDecoration(
-                    color: AppColors.success.withValues(alpha: 0.14),
+                    color: colors.success.withValues(alpha: 0.14),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
-                      color: AppColors.success.withValues(alpha: 0.3),
+                      color: colors.success.withValues(alpha: 0.3),
                     ),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.lock_rounded, size: 10, color: AppColors.successLight),
-                      SizedBox(width: 4),
+                      Icon(Icons.lock_rounded, size: 10, color: colors.success),
+                      const SizedBox(width: 4),
                       Text(
                         'E2EE Protected',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.successLight,
+                          color: colors.success,
                         ),
                       ),
                     ],
@@ -80,31 +82,34 @@ class SecurityStatusCard extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                color: AppColors.surface,
+                color: colors.surface,
                 borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: AppColors.cardBorder),
+                border: Border.all(color: colors.cardBorder),
               ),
               child: Column(
                 children: [
                   _buildSecurityRow(
+                    context: context,
                     icon: Icons.vpn_key_rounded,
                     title: 'Transport Encryption',
                     subtitle: 'TLS 1.3 / HTTPS Cloud Relay',
-                    color: AppColors.primaryLight,
+                    color: colors.primaryLight,
                   ),
-                  const Divider(color: AppColors.cardBorder, height: 18),
+                  Divider(color: colors.cardBorder, height: 18),
                   _buildSecurityRow(
+                    context: context,
                     icon: Icons.fingerprint_rounded,
                     title: 'Device Authorization',
                     subtitle: 'Paired Hardware Token Verification',
-                    color: AppColors.secondary,
+                    color: colors.secondary,
                   ),
-                  const Divider(color: AppColors.cardBorder, height: 18),
+                  Divider(color: colors.cardBorder, height: 18),
                   _buildSecurityRow(
+                    context: context,
                     icon: Icons.wifi_protected_setup_rounded,
                     title: 'Network Privacy',
                     subtitle: 'Confidential IPs & Ports Masked',
-                    color: AppColors.successLight,
+                    color: colors.success,
                   ),
                 ],
               ),
@@ -116,11 +121,13 @@ class SecurityStatusCard extends StatelessWidget {
   }
 
   Widget _buildSecurityRow({
+    required BuildContext context,
     required IconData icon,
     required String title,
     required String subtitle,
     required Color color,
   }) {
+    final colors = context.colors;
     return Row(
       children: [
         Container(
@@ -138,18 +145,18 @@ class SecurityStatusCard extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppColors.textPrimary,
+                  color: colors.textPrimary,
                 ),
               ),
               const SizedBox(height: 1),
               Text(
                 subtitle,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11,
-                  color: AppColors.textMuted,
+                  color: colors.textMuted,
                 ),
               ),
             ],

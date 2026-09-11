@@ -15,6 +15,8 @@ class InterfacesCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(22.0),
@@ -26,23 +28,23 @@ class InterfacesCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.secondary.withValues(alpha: 0.12),
+                    color: colors.secondary.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.alt_route_rounded,
                     size: 18,
-                    color: AppColors.secondary,
+                    color: colors.secondary,
                   ),
                 ),
                 const SizedBox(width: 10),
-                const Text(
+                Text(
                   AppStrings.activeInterfacesTitle,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 1.1,
-                    color: AppColors.textSecondary,
+                    color: colors.textSecondary,
                   ),
                 ),
               ],
@@ -53,7 +55,7 @@ class InterfacesCard extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: interfaces.length,
               separatorBuilder: (context, index) =>
-                  const Divider(color: AppColors.cardBorder, height: 20),
+                  Divider(color: colors.cardBorder, height: 20),
               itemBuilder: (context, index) {
                 final iface = interfaces[index];
                 return Row(
@@ -61,14 +63,14 @@ class InterfacesCard extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: AppColors.surface,
+                        color: colors.surface,
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppColors.cardBorder),
+                        border: Border.all(color: colors.cardBorder),
                       ),
                       child: Icon(
                         _getInterfaceIcon(iface.interfaceName),
                         size: 18,
-                        color: AppColors.secondary,
+                        color: colors.secondary,
                       ),
                     ),
                     const SizedBox(width: 14),
@@ -78,30 +80,30 @@ class InterfacesCard extends StatelessWidget {
                         children: [
                           Text(
                             iface.interfaceName,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 13,
-                              color: AppColors.textPrimary,
+                              color: colors.textPrimary,
                             ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             iface.address,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontFamily: 'Courier',
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
-                              color: AppColors.secondary,
+                              color: colors.secondary,
                             ),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.copy_rounded,
                         size: 15,
-                        color: AppColors.textMuted,
+                        color: colors.textMuted,
                       ),
                       tooltip: 'Copy IP',
                       onPressed: () => ClipboardHelper.copy(

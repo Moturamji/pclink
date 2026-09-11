@@ -89,28 +89,30 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return AlertDialog(
-      backgroundColor: AppColors.cardSurface,
+      backgroundColor: colors.cardSurface,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: AppColors.primaryLight.withValues(alpha: 0.14),
+              color: colors.primary.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(10),
             ),
-            child: const Icon(
+            child: Icon(
               Icons.lock_reset_rounded,
-              color: AppColors.primaryLight,
+              color: colors.primary,
               size: 20,
             ),
           ),
           const SizedBox(width: 12),
-          const Text(
+          Text(
             AppStrings.resetPasswordTitle,
             style: TextStyle(
-              color: AppColors.textPrimary,
+              color: colors.textPrimary,
               fontSize: 18,
               fontWeight: FontWeight.w700,
             ),
@@ -121,10 +123,10 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Enter your registered email address and we will send you a password reset link.',
             style: TextStyle(
-              color: AppColors.textSecondary,
+              color: colors.textSecondary,
               fontSize: 13,
               height: 1.4,
             ),
@@ -133,12 +135,12 @@ class _ForgotPasswordDialogState extends State<ForgotPasswordDialog> {
           TextField(
             controller: _controller,
             keyboardType: TextInputType.emailAddress,
-            style: const TextStyle(color: AppColors.textPrimary),
-            decoration: const InputDecoration(
+            style: TextStyle(color: colors.textPrimary),
+            decoration: InputDecoration(
               labelText: AppStrings.emailLabel,
               prefixIcon: Icon(
                 Icons.email_outlined,
-                color: AppColors.primaryLight,
+                color: colors.primary,
                 size: 20,
               ),
             ),

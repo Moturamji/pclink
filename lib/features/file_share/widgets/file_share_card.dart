@@ -212,6 +212,8 @@ class _FileShareCardState extends State<FileShareCard> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18.0),
@@ -220,7 +222,7 @@ class _FileShareCardState extends State<FileShareCard> {
           children: [
             AppCardHeader(
               icon: Icons.folder_shared_rounded,
-              iconColor: AppColors.secondaryLight,
+              iconColor: colors.secondary,
               title: 'SHARE FILES',
               trailing: _busy
                   ? const SizedBox(
@@ -234,18 +236,18 @@ class _FileShareCardState extends State<FileShareCard> {
                         vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.secondary.withValues(alpha: 0.14),
+                        color: colors.secondary.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: AppColors.secondary.withValues(alpha: 0.35),
+                          color: colors.secondary.withValues(alpha: 0.35),
                         ),
                       ),
                       child: Text(
                         '${_files.length}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w700,
-                          color: AppColors.successLight,
+                          color: colors.success,
                         ),
                       ),
                     ),
@@ -254,16 +256,16 @@ class _FileShareCardState extends State<FileShareCard> {
 
             // Live Real-Time Transfer Indicator Panel
             if (_transferProgress != null) ...[
-              _buildLiveTransferPanel(_transferProgress!),
+              _buildLiveTransferPanel(_transferProgress!, colors),
               const SizedBox(height: 14),
             ],
 
             if (widget.isWindows)
-              _buildWindowsPanel()
+              _buildWindowsPanel(colors)
             else
-              _buildAndroidPanel(),
+              _buildAndroidPanel(colors),
             const SizedBox(height: 12),
-            _buildFooter(),
+            _buildFooter(colors),
           ],
         ),
       ),
@@ -271,7 +273,7 @@ class _FileShareCardState extends State<FileShareCard> {
   }
 
   /// Dedicated real-time file transfer progress dashboard
-  Widget _buildLiveTransferPanel(TransferProgress progress) {
+  Widget _buildLiveTransferPanel(TransferProgress progress, AppThemeColors colors) {
     final isUpload = progress.isUpload;
     final isDone = progress.status == TransferStatus.completed;
     final isFailed = progress.status == TransferStatus.failed;
@@ -280,10 +282,10 @@ class _FileShareCardState extends State<FileShareCard> {
         progress.status == TransferStatus.preparing;
 
     final themeColor = isDone
-        ? AppColors.successLight
+        ? colors.success
         : (isFailed || isCancelled
             ? AppColors.error
-            : AppColors.primaryLight);
+            : colors.primaryLight);
 
     final actionLabel = isUpload
         ? (widget.isWindows ? 'Sending to Phone' : 'Sending to PC')
@@ -292,7 +294,7 @@ class _FileShareCardState extends State<FileShareCard> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: themeColor.withValues(alpha: 0.35),
@@ -335,10 +337,10 @@ class _FileShareCardState extends State<FileShareCard> {
                   children: [
                     Text(
                       progress.fileName,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
+                        color: colors.textPrimary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -389,7 +391,7 @@ class _FileShareCardState extends State<FileShareCard> {
                   ? progress.fraction
                   : (isDone ? 1.0 : 0.0),
               minHeight: 8,
-              backgroundColor: AppColors.background,
+              backgroundColor: colors.background,
               valueColor: AlwaysStoppedAnimation<Color>(themeColor),
             ),
           ),
@@ -403,19 +405,19 @@ class _FileShareCardState extends State<FileShareCard> {
               Expanded(
                 child: Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.data_usage_rounded,
                       size: 13,
-                      color: AppColors.textMuted,
+                      color: colors.textMuted,
                     ),
                     const SizedBox(width: 5),
                     Flexible(
                       child: Text(
                         progress.transferredLabel,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
+                          color: colors.textSecondary,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -428,18 +430,18 @@ class _FileShareCardState extends State<FileShareCard> {
               if (inProgress) ...[
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.speed_rounded,
                       size: 13,
-                      color: AppColors.textMuted,
+                      color: colors.textMuted,
                     ),
                     const SizedBox(width: 4),
                     Text(
                       progress.speedLabel,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.primaryLight,
+                        color: colors.primaryLight,
                       ),
                     ),
                   ],
@@ -449,23 +451,26 @@ class _FileShareCardState extends State<FileShareCard> {
 
               // Remaining
               Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
                     isDone
-                        ? Icons.done_all_rounded
-                        : Icons.timelapse_rounded,
+                        ? Icons.timer_off_rounded
+                        : Icons.hourglass_bottom_rounded,
                     size: 13,
-                    color: AppColors.textMuted,
+                    color: isDone ? colors.success : colors.textMuted,
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    progress.remainingLabel,
+                    isDone ? 'Finished' : progress.remainingLabel,
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: inProgress
+                          ? FontWeight.w700
+                          : FontWeight.w500,
                       color: isDone
-                          ? AppColors.successLight
-                          : AppColors.textSecondary,
+                          ? colors.success
+                          : colors.textSecondary,
                     ),
                   ),
                 ],
@@ -500,17 +505,17 @@ class _FileShareCardState extends State<FileShareCard> {
     );
   }
 
-  Widget _buildWindowsPanel() {
+  Widget _buildWindowsPanel(AppThemeColors colors) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Share files from this PC with your phone, or receive files sent '
           'from the phone - all over the temporary server.',
           style: TextStyle(
             fontSize: 12,
             height: 1.4,
-            color: AppColors.textSecondary,
+            color: colors.textSecondary,
           ),
         ),
         const SizedBox(height: 12),
@@ -524,8 +529,8 @@ class _FileShareCardState extends State<FileShareCard> {
                   _busy ? (_busyLabel ?? 'Working...') : 'Add Files to Share',
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.secondary,
-                  foregroundColor: AppColors.background,
+                  backgroundColor: colors.secondary,
+                  foregroundColor: Colors.white,
                   elevation: 2,
                 ),
               ),
@@ -537,16 +542,17 @@ class _FileShareCardState extends State<FileShareCard> {
           _files.isEmpty
               ? 'Nothing is being shared yet.'
               : 'Currently shared (${_files.length})',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.6,
-            color: AppColors.textSecondary,
+            color: colors.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
         if (_files.isEmpty)
           _emptyState(
+            colors: colors,
             icon: Icons.folder_open_rounded,
             title: 'No shared files',
             subtitle:
@@ -554,22 +560,22 @@ class _FileShareCardState extends State<FileShareCard> {
                 'from your phone. Files sent from the phone appear here too.',
           )
         else
-          ..._files.take(6).map(_buildFileTile),
+          ..._files.take(6).map((f) => _buildFileTile(f, colors)),
       ],
     );
   }
 
-  Widget _buildAndroidPanel() {
+  Widget _buildAndroidPanel(AppThemeColors colors) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Send files from this phone straight to your PC, or download files '
           'shared from the PC - over the temporary server, never via the cloud.',
           style: TextStyle(
             fontSize: 12,
             height: 1.4,
-            color: AppColors.textSecondary,
+            color: colors.textSecondary,
           ),
         ),
         const SizedBox(height: 12),
@@ -583,8 +589,8 @@ class _FileShareCardState extends State<FileShareCard> {
                   _busy ? (_busyLabel ?? 'Working...') : 'Send Files to PC',
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.secondary,
-                  foregroundColor: AppColors.background,
+                  backgroundColor: colors.secondary,
+                  foregroundColor: Colors.white,
                   elevation: 2,
                 ),
               ),
@@ -594,10 +600,10 @@ class _FileShareCardState extends State<FileShareCard> {
               onPressed: _busy ? null : _refreshFiles,
               tooltip: 'Refresh file list from PC',
               icon: const Icon(Icons.refresh_rounded, size: 20),
-              color: AppColors.textSecondary,
+              color: colors.textSecondary,
               style: IconButton.styleFrom(
-                backgroundColor: AppColors.surface,
-                side: const BorderSide(color: AppColors.cardBorder),
+                backgroundColor: colors.surface,
+                side: BorderSide(color: colors.cardBorder),
               ),
             ),
           ],
@@ -607,16 +613,17 @@ class _FileShareCardState extends State<FileShareCard> {
           _files.isEmpty
               ? 'Shared files from your PC'
               : 'Files available from your PC (${_files.length})',
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w700,
             letterSpacing: 0.6,
-            color: AppColors.textSecondary,
+            color: colors.textSecondary,
           ),
         ),
         const SizedBox(height: 8),
         if (_files.isEmpty)
           _emptyState(
+            colors: colors,
             icon: Icons.download_for_offline_rounded,
             title: 'Nothing shared yet',
             subtitle:
@@ -624,21 +631,21 @@ class _FileShareCardState extends State<FileShareCard> {
                 'Files shared from the PC can be downloaded with one tap.',
           )
         else
-          ..._files.take(6).map(_buildFileTile),
+          ..._files.take(6).map((f) => _buildFileTile(f, colors)),
       ],
     );
   }
 
-  Widget _buildFileTile(SharedFile file) {
+  Widget _buildFileTile(SharedFile file, AppThemeColors colors) {
     final isDownloadingThis = _downloadingId == file.id;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.cardBorder),
+        border: Border.all(color: colors.cardBorder),
       ),
       child: Row(
         children: [
@@ -646,16 +653,16 @@ class _FileShareCardState extends State<FileShareCard> {
             padding: const EdgeInsets.all(7),
             decoration: BoxDecoration(
               color: file.isFromAndroid
-                  ? AppColors.primaryLight.withValues(alpha: 0.12)
-                  : AppColors.secondary.withValues(alpha: 0.12),
+                  ? colors.primaryLight.withValues(alpha: 0.12)
+                  : colors.secondary.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               _iconFor(file.name),
               size: 18,
               color: file.isFromAndroid
-                  ? AppColors.primaryLight
-                  : AppColors.successLight,
+                  ? colors.primaryLight
+                  : colors.success,
             ),
           ),
           const SizedBox(width: 10),
@@ -667,18 +674,18 @@ class _FileShareCardState extends State<FileShareCard> {
                   file.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
+                    color: colors.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${file.sizeLabel}  •  ${file.isFromAndroid ? 'From phone' : 'From PC'}  •  ${_timeLabel(file.timestamp)}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 11,
-                    color: AppColors.textMuted,
+                    color: colors.textMuted,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -692,7 +699,7 @@ class _FileShareCardState extends State<FileShareCard> {
               onPressed: _busy ? null : () => _stopSharing(file),
               tooltip: 'Stop sharing',
               icon: const Icon(Icons.delete_outline_rounded, size: 18),
-              color: AppColors.textMuted,
+              color: colors.textMuted,
             )
           else if (isDownloadingThis)
             const SizedBox(
@@ -706,9 +713,9 @@ class _FileShareCardState extends State<FileShareCard> {
               icon: const Icon(Icons.download_rounded, size: 16),
               label: const Text('Get'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.successLight,
+                foregroundColor: colors.success,
                 side: BorderSide(
-                  color: AppColors.success.withValues(alpha: 0.4),
+                  color: colors.success.withValues(alpha: 0.4),
                 ),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
@@ -727,6 +734,7 @@ class _FileShareCardState extends State<FileShareCard> {
   }
 
   Widget _emptyState({
+    required AppThemeColors colors,
     required IconData icon,
     required String title,
     required String subtitle,
@@ -735,48 +743,48 @@ class _FileShareCardState extends State<FileShareCard> {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppColors.surface,
+        color: colors.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.cardBorder),
+        border: Border.all(color: colors.cardBorder),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 26, color: AppColors.textMuted),
+          Icon(icon, size: 26, color: colors.textMuted),
           const SizedBox(height: 8),
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppColors.textSecondary,
+              color: colors.textSecondary,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             subtitle,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+            style: TextStyle(fontSize: 11, color: colors.textMuted),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFooter() {
+  Widget _buildFooter(AppThemeColors colors) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Icon(Icons.shield_outlined, size: 15, color: AppColors.textMuted),
+        Icon(Icons.shield_outlined, size: 15, color: colors.textMuted),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
             widget.isWindows
                 ? 'Files are copied to the shared folder and served to your phone only while the PC Link Service is active. Real-time transfer speed and progress display automatically during transfers.'
                 : 'Transfers are direct between this phone and your PC via the temporary server - real-time progress, speed, and bytes update live throughout the transfer.',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               height: 1.4,
-              color: AppColors.textMuted,
+              color: colors.textMuted,
             ),
           ),
         ),
