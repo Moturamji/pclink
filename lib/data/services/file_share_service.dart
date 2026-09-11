@@ -71,6 +71,8 @@ class FileShareService {
     }
   }
 
+  final Set<String> _deadUrls = <String>{};
+
   /// All candidate PC server URLs (public WAN first, then LAN), deduplicated.
   List<String> _candidateUrls() {
     final list = _getTargetServerUrls?.call();
@@ -79,7 +81,16 @@ class FileShareService {
     for (final raw in list) {
       if (raw.isEmpty) continue;
       final s = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
-      if (!result.contains(s)) result.add(s);
+      if (!result.contains(s) && !_deadUrls.contains(s)) {
+        result.add(s);
+      }
+    }
+    if (result.isEmpty) {
+      for (final raw in list) {
+        if (raw.isEmpty) continue;
+        final s = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+        if (!result.contains(s)) result.add(s);
+      }
     }
     return result;
   }
@@ -115,7 +126,14 @@ class FileShareService {
         ).timeout(Duration(seconds: tunnel ? 15 : 8));
         return resp;
       } catch (e) {
-        debugPrint('FileShareService: $url unreachable - $e');
+        final isUnresolvable = e.toString().contains('Failed host lookup') ||
+            e.toString().contains('No address associated with hostname');
+        if (isUnresolvable) {
+          _deadUrls.add(url);
+          debugPrint('FileShareService: Pruned unresolvable host: $url');
+        } else {
+          debugPrint('FileShareService: $url unreachable - $e');
+        }
       }
     }
     return null;

@@ -79,6 +79,7 @@ class ClipboardService with WidgetsBindingObserver {
   bool _probeInFlight = false;
   DateTime _nextProbeAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
   String? _lastSeenServerSignature;
+  final Set<String> _deadUrls = <String>{};
 
   bool get isListening => _clipboardPollTimer != null;
   Stream<List<ClipboardItem>> get clipboardHistoryStream =>
@@ -191,7 +192,7 @@ void _onForegroundDataReceived(dynamic data) {
   // Adaptive URL routing helpers
   // -------------------------------------------------------------------------
 
-  /// All candidate PC server URLs (public WAN first, then LAN), deduplicated.
+  /// All candidate PC server URLs (public WAN first, then LAN), deduplicated and pruned of dead hosts.
   List<String> _candidateUrls() {
     final list = _getTargetServerUrls?.call();
     if (list == null || list.isEmpty) return const <String>[];
@@ -199,7 +200,17 @@ void _onForegroundDataReceived(dynamic data) {
     for (final raw in list) {
       if (raw.isEmpty) continue;
       final s = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
-      if (!result.contains(s)) result.add(s);
+      if (!result.contains(s) && !_deadUrls.contains(s)) {
+        result.add(s);
+      }
+    }
+    // If all candidate URLs were pruned, fallback to all raw candidates to allow retry
+    if (result.isEmpty) {
+      for (final raw in list) {
+        if (raw.isEmpty) continue;
+        final s = raw.endsWith('/') ? raw.substring(0, raw.length - 1) : raw;
+        if (!result.contains(s)) result.add(s);
+      }
     }
     return result;
   }
@@ -259,7 +270,14 @@ void _onForegroundDataReceived(dynamic data) {
           }
           return resp;
         } catch (e) {
-          debugPrint('ClipboardService: $url unreachable - $e');
+          final isUnresolvable = e.toString().contains('Failed host lookup') ||
+              e.toString().contains('No address associated with hostname');
+          if (isUnresolvable) {
+            _deadUrls.add(url);
+            debugPrint('ClipboardService: Pruned unresolvable host: $url');
+          } else {
+            debugPrint('ClipboardService: $url unreachable - $e');
+          }
         }
       }
     } finally {
@@ -357,9 +375,12 @@ void _onForegroundDataReceived(dynamic data) {
     }
 
     final response = await _tryUrlFallback(
-      (url) => _client
-          .get(Uri.parse('$url${ServerConstants.healthEndpoint}'))
-          .timeout(const Duration(seconds: 4)),
+      (url) {
+        final tunnel = url.startsWith('https://');
+        return _client
+            .get(Uri.parse('$url${ServerConstants.healthEndpoint}'))
+            .timeout(Duration(seconds: tunnel ? 6 : 4));
+      },
     );
 
     if (response != null && response.statusCode == 200) {
@@ -379,6 +400,7 @@ void _onForegroundDataReceived(dynamic data) {
         '${_candidateUrls().join('|')}#${_getServerStartTime?.call() ?? ''}';
     if (sig == _lastSeenServerSignature) return;
     _lastSeenServerSignature = sig;
+    _deadUrls.clear();
     _consecutiveFailures = 0;
     _nextProbeAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
     _workingServerUrl = null;
@@ -455,6 +477,7 @@ void _onForegroundDataReceived(dynamic data) {
     for (var i = 0; i < urls.length; i++) {
       final url = urls[(startIndex + i) % urls.length];
       try {
+        final tunnel = url.startsWith('https://');
         final uri = Uri.parse('$url${ServerConstants.clipboardEndpoint}');
         final response = await _client
             .post(
@@ -462,7 +485,7 @@ void _onForegroundDataReceived(dynamic data) {
               headers: _authHeaders(),
               body: jsonEncode(item.toMap()),
             )
-            .timeout(const Duration(seconds: 4));
+            .timeout(Duration(seconds: tunnel ? 6 : 4));
 
         if (response.statusCode == 200) {
           _markSuccess();
@@ -478,7 +501,14 @@ void _onForegroundDataReceived(dynamic data) {
           return;
         }
       } catch (e) {
-        debugPrint('ClipboardService _postClip error on $url: $e');
+        final isUnresolvable = e.toString().contains('Failed host lookup') ||
+            e.toString().contains('No address associated with hostname');
+        if (isUnresolvable) {
+          _deadUrls.add(url);
+          debugPrint('ClipboardService: Pruned unresolvable host: $url');
+        } else {
+          debugPrint('ClipboardService _postClip error on $url: $e');
+        }
       }
     }
     debugPrint('ClipboardService: POST failed on all candidate URLs');
@@ -497,7 +527,7 @@ void _onForegroundDataReceived(dynamic data) {
         final tunnel = url.startsWith('https://');
         return _client
             .get(Uri.parse('$url${ServerConstants.clipboardLatestEndpoint}'))
-            .timeout(Duration(seconds: tunnel ? 4 : 2));
+            .timeout(Duration(seconds: tunnel ? 6 : 4));
       },
     );
 
