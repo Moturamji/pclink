@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pclink/data/services/server_service.dart';
 import 'package:pclink/features/file_share/models/shared_file.dart';
+import 'package:pclink/features/file_share/models/transfer_progress.dart';
 
 void main() {
   group('SharedFile Model Tests', () {
@@ -94,6 +95,49 @@ void main() {
       } finally {
         service.dispose();
       }
+    });
+  });
+
+  group('TransferProgress Model Tests', () {
+    test('Calculates fraction, percentages, speed labels, and remaining labels correctly', () {
+      final progress = TransferProgress(
+        fileId: 'tx_123',
+        fileName: 'video.mp4',
+        bytesTransferred: 5 * 1024 * 1024,
+        totalBytes: 10 * 1024 * 1024,
+        speedBytesPerSec: 2.5 * 1024 * 1024,
+        isUpload: true,
+        status: TransferStatus.inProgress,
+        timestamp: DateTime.now(),
+      );
+
+      expect(progress.fraction, 0.5);
+      expect(progress.percentageLabel, '50.0%');
+      expect(progress.speedLabel, '2.50 MB/s');
+      expect(progress.transferredLabel, '5.00 MB / 10.00 MB');
+      expect(progress.remainingBytes, 5 * 1024 * 1024);
+      expect(progress.remainingLabel, '2 sec remaining');
+    });
+
+    test('Handles completed, failed, and cancelled transfer status labels', () {
+      final completed = TransferProgress(
+        fileId: 'tx_123',
+        fileName: 'doc.pdf',
+        bytesTransferred: 1024,
+        totalBytes: 1024,
+        isUpload: false,
+        status: TransferStatus.completed,
+        timestamp: DateTime.now(),
+      );
+      expect(completed.fraction, 1.0);
+      expect(completed.percentageLabel, '100.0%');
+      expect(completed.remainingLabel, 'Completed');
+
+      final failed = completed.copyWith(status: TransferStatus.failed);
+      expect(failed.remainingLabel, 'Failed');
+
+      final cancelled = completed.copyWith(status: TransferStatus.cancelled);
+      expect(cancelled.remainingLabel, 'Cancelled');
     });
   });
 }

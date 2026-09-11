@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../../core/constants/server_constants.dart';
 import '../../features/clipboard/models/clipboard_item.dart';
 import '../../features/file_share/models/shared_file.dart';
+import '../../features/file_share/models/transfer_progress.dart';
 import '../models/server_info.dart';
 import 'database_service.dart';
 
@@ -17,6 +18,11 @@ class ServerService {
   String? _connectedClientId;
   final List<ClipboardItem> _clipboardHistory = [];
   Function(ClipboardItem item)? onClipboardReceived;
+
+  // Real-time file transfer progress broadcast stream (active uploads/downloads)
+  TransferProgress? _currentTransferProgress;
+  final StreamController<TransferProgress?> _transferProgressController =
+      StreamController<TransferProgress?>.broadcast();
 
   // File sharing store: file bytes live on disk in the shared folder while the
   // metadata list stays in RAM (mirrors how the server keeps clipboard history).
@@ -45,6 +51,16 @@ class ServerService {
   List<SharedFile> get sharedFiles => List.unmodifiable(_sharedFiles);
   Stream<List<SharedFile>> get sharedFilesStream =>
       _sharedFilesController.stream;
+  Stream<TransferProgress?> get transferProgressStream =>
+      _transferProgressController.stream;
+  TransferProgress? get currentTransferProgress => _currentTransferProgress;
+
+  void _emitTransferProgress(TransferProgress? progress) {
+    _currentTransferProgress = progress;
+    if (!_transferProgressController.isClosed) {
+      _transferProgressController.add(progress);
+    }
+  }
 
   /// Stores a locally copied clip in the server history.
   void addLocalClipboardItem(ClipboardItem item) {
@@ -314,6 +330,10 @@ class ServerService {
             await _handleAuth(request);
             break;
 
+          case ServerConstants.disconnectEndpoint:
+            await _handleDisconnect(request);
+            break;
+
           case ServerConstants.pingEndpoint:
             await _handlePing(request);
             break;
@@ -353,6 +373,34 @@ class ServerService {
         await request.response.close();
       }
     });
+  }
+
+  Future<void> _handleDisconnect(HttpRequest request) async {
+    request.response.headers.contentType = ContentType.json;
+    final deviceId = request.headers.value(ServerConstants.authHeader);
+
+    _connectedClientId = null;
+    _currentInfo = ServerInfo(
+      isLive: true,
+      ipAddress: _currentInfo.ipAddress,
+      port: _currentInfo.port,
+      url: _currentInfo.url,
+      publicIp: _currentInfo.publicIp,
+      publicUrl: _currentInfo.publicUrl,
+      connectionMode: _currentInfo.connectionMode,
+      startedAt: _currentInfo.startedAt,
+      lastHeartbeat: DateTime.now(),
+      connectedClientId: null,
+    );
+    _stateController.add(_currentInfo);
+    _emitTransferProgress(null);
+
+    request.response.statusCode = HttpStatus.ok;
+    request.response.write(
+      jsonEncode({'success': true, 'message': 'Client disconnected successfully'}),
+    );
+    await request.response.close();
+    debugPrint('ServerService: Android client disconnected ($deviceId)');
   }
 
   Future<void> _handleClipboard(HttpRequest request) async {
@@ -467,8 +515,8 @@ class ServerService {
     await request.response.close();
   }
 
-  /// `POST /api/files/upload?name=<file>&deviceName=<name>` - receives a file
-  /// pushed from the phone and saves it into the shared folder.
+  /// `POST /api/files/upload?name=<file>&deviceName=<name>&size=<bytes>` - receives a file
+  /// pushed from the phone and saves it into the shared folder with real-time streaming progress.
   Future<void> _handleFileUpload(HttpRequest request) async {
     final deviceId = request.headers.value(ServerConstants.authHeader);
     final startTime = request.headers.value(ServerConstants.startTimeHeader);
@@ -499,6 +547,13 @@ class ServerService {
     );
     final deviceName =
         request.uri.queryParameters['deviceName'] ?? 'Android Device';
+    final totalBytes = int.tryParse(request.uri.queryParameters['size'] ?? '') ??
+        (request.contentLength > 0 ? request.contentLength : 0);
+
+    final transferId = 'rx_${DateTime.now().millisecondsSinceEpoch}';
+    final stopwatch = Stopwatch()..start();
+    var bytesReceived = 0;
+    var lastProgressTime = DateTime.now();
 
     try {
       final dir = await _getSharedDir();
@@ -506,13 +561,59 @@ class ServerService {
       final dest = File('${dir.path}\\${id}_$originalName');
 
       final sink = dest.openWrite();
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: originalName,
+          bytesTransferred: 0,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: false,
+          status: TransferStatus.inProgress,
+          timestamp: DateTime.now(),
+        ),
+      );
+
       try {
         await for (final chunk in request) {
           sink.add(chunk);
+          bytesReceived += chunk.length;
+          final now = DateTime.now();
+          if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+              (totalBytes > 0 && bytesReceived >= totalBytes)) {
+            lastProgressTime = now;
+            final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
+            final speed = elapsedSec > 0 ? bytesReceived / elapsedSec : 0.0;
+            _emitTransferProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: originalName,
+                bytesTransferred: bytesReceived,
+                totalBytes: totalBytes > 0 ? totalBytes : bytesReceived,
+                speedBytesPerSec: speed,
+                isUpload: false,
+                status: TransferStatus.inProgress,
+                timestamp: now,
+              ),
+            );
+          }
         }
         await sink.close();
       } catch (e) {
         debugPrint('ServerService: upload pipe error: $e');
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: transferId,
+            fileName: originalName,
+            bytesTransferred: bytesReceived,
+            totalBytes: totalBytes > 0 ? totalBytes : bytesReceived,
+            speedBytesPerSec: 0,
+            isUpload: false,
+            status: TransferStatus.failed,
+            errorMessage: e.toString(),
+            timestamp: DateTime.now(),
+          ),
+        );
         request.response.statusCode = HttpStatus.badRequest;
         request.response.headers.contentType = ContentType.json;
         request.response.write(
@@ -522,10 +623,30 @@ class ServerService {
         return;
       }
 
+      final actualSize = await dest.length();
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: originalName,
+          bytesTransferred: actualSize,
+          totalBytes: actualSize,
+          speedBytesPerSec: 0,
+          isUpload: false,
+          status: TransferStatus.completed,
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      Timer(const Duration(seconds: 3), () {
+        if (_currentTransferProgress?.fileId == transferId) {
+          _emitTransferProgress(null);
+        }
+      });
+
       final item = SharedFile(
         id: id,
         name: originalName,
-        size: await dest.length(),
+        size: actualSize,
         sourcePlatform: 'android',
         sourceDeviceName: deviceName,
         timestamp: DateTime.now(),
@@ -542,6 +663,19 @@ class ServerService {
       debugPrint('ServerService: Received upload from phone: $originalName');
     } catch (e) {
       debugPrint('ServerService: _handleFileUpload error: $e');
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: originalName,
+          bytesTransferred: bytesReceived,
+          totalBytes: totalBytes > 0 ? totalBytes : bytesReceived,
+          speedBytesPerSec: 0,
+          isUpload: false,
+          status: TransferStatus.failed,
+          errorMessage: e.toString(),
+          timestamp: DateTime.now(),
+        ),
+      );
       request.response.statusCode = HttpStatus.internalServerError;
       request.response.headers.contentType = ContentType.json;
       request.response.write(
@@ -551,7 +685,7 @@ class ServerService {
     }
   }
 
-  /// `GET /api/files/download?id=<id>` - streams a shared file to the phone.
+  /// `GET /api/files/download?id=<id>` - streams a shared file to the phone with real-time speed/progress tracking.
   Future<void> _handleFileDownload(HttpRequest request) async {
     final id = request.uri.queryParameters['id'] ?? '';
     SharedFile? match;
@@ -581,9 +715,76 @@ class ServerService {
       'attachment; filename="${match.name}"',
     );
     request.response.contentLength = length;
-    await request.response.addStream(file.openRead());
-    await request.response.close();
-    debugPrint('ServerService: Served file to phone: ${match.name}');
+
+    final transferId = 'tx_${DateTime.now().millisecondsSinceEpoch}';
+    final stopwatch = Stopwatch()..start();
+    var bytesSent = 0;
+    var lastProgressTime = DateTime.now();
+
+    _emitTransferProgress(
+      TransferProgress(
+        fileId: transferId,
+        fileName: match.name,
+        bytesTransferred: 0,
+        totalBytes: length,
+        speedBytesPerSec: 0,
+        isUpload: true,
+        status: TransferStatus.inProgress,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    try {
+      final fileStream = file.openRead();
+      await for (final chunk in fileStream) {
+        request.response.add(chunk);
+        bytesSent += chunk.length;
+        final now = DateTime.now();
+        if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+            bytesSent >= length) {
+          lastProgressTime = now;
+          final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
+          final speed = elapsedSec > 0 ? bytesSent / elapsedSec : 0.0;
+          _emitTransferProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: match.name,
+              bytesTransferred: bytesSent,
+              totalBytes: length,
+              speedBytesPerSec: speed,
+              isUpload: true,
+              status: bytesSent >= length
+                  ? TransferStatus.completed
+                  : TransferStatus.inProgress,
+              timestamp: now,
+            ),
+          );
+        }
+      }
+      await request.response.close();
+      debugPrint('ServerService: Served file to phone: ${match.name}');
+
+      Timer(const Duration(seconds: 3), () {
+        if (_currentTransferProgress?.fileId == transferId) {
+          _emitTransferProgress(null);
+        }
+      });
+    } catch (e) {
+      debugPrint('ServerService: _handleFileDownload error: $e');
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: match.name,
+          bytesTransferred: bytesSent,
+          totalBytes: length,
+          speedBytesPerSec: 0,
+          isUpload: true,
+          status: TransferStatus.failed,
+          errorMessage: e.toString(),
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
   }
 
   /// Shared auth gate used by file mutation endpoints. Writes a 401 JSON body
@@ -1017,11 +1218,61 @@ class ServerService {
     };
   }
 
+  /// Explicitly terminates active client connection from Android to the Windows server across any network.
+  static Future<void> disconnectClientWithServer({
+    required String serverUrl,
+    String? publicUrl,
+    required String androidDeviceId,
+    required String serverStartTime,
+    User? user,
+    DatabaseService? databaseService,
+  }) async {
+    final candidateUrls = [
+      if (publicUrl != null && publicUrl.isNotEmpty) publicUrl,
+      serverUrl,
+    ];
+
+    for (final targetUrl in candidateUrls) {
+      try {
+        final sanitizedUrl = targetUrl.endsWith('/')
+            ? targetUrl.substring(0, targetUrl.length - 1)
+            : targetUrl;
+        final uri = Uri.parse('$sanitizedUrl${ServerConstants.disconnectEndpoint}');
+
+        await http
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                ServerConstants.authHeader: androidDeviceId,
+                ServerConstants.startTimeHeader: serverStartTime,
+              },
+              body: jsonEncode({
+                'deviceId': androidDeviceId,
+                'clientPlatform': 'Android',
+                'serverStartTime': serverStartTime,
+                'timestamp': DateTime.now().toIso8601String(),
+              }),
+            )
+            .timeout(const Duration(seconds: 2));
+      } catch (_) {
+        // Fallback / best effort across candidate URLs
+      }
+    }
+
+    if (user != null && databaseService != null) {
+      await databaseService.disconnectClient(user: user);
+    }
+  }
+
   void dispose() {
     stopServer();
     _stateController.close();
     if (!_sharedFilesController.isClosed) {
       _sharedFilesController.close();
+    }
+    if (!_transferProgressController.isClosed) {
+      _transferProgressController.close();
     }
   }
 }

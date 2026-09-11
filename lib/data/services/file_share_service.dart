@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -5,13 +6,14 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../../core/constants/server_constants.dart';
 import '../../features/file_share/models/shared_file.dart';
+import '../../features/file_share/models/transfer_progress.dart';
 
 /// Android client for the Windows temporary server's file-sharing API.
 ///
 /// Mirrors the clipboard service: it discovers the PC via the same adaptive
 /// candidate-URL list (public WAN/tunnel first, then LAN), sends the same
 /// X-Device-Id + X-Start-Time auth headers, and transfers file bytes directly
-/// through the temp server - never through Firebase.
+/// through the temp server in real-time streaming chunks with continuous throughput tracking.
 class FileShareService {
   final http.Client _client = http.Client();
 
@@ -19,6 +21,22 @@ class FileShareService {
   String? Function()? _getServerStartTime;
   String? _deviceId;
   String? _currentDeviceName;
+
+  TransferProgress? _currentProgress;
+  final StreamController<TransferProgress?> _progressController =
+      StreamController<TransferProgress?>.broadcast();
+
+  bool _isCancelled = false;
+
+  Stream<TransferProgress?> get progressStream => _progressController.stream;
+  TransferProgress? get currentProgress => _currentProgress;
+
+  void _emitProgress(TransferProgress? progress) {
+    _currentProgress = progress;
+    if (!_progressController.isClosed) {
+      _progressController.add(progress);
+    }
+  }
 
   void configure({
     required List<String> Function()? getTargetServerUrls,
@@ -30,6 +48,24 @@ class FileShareService {
     _getServerStartTime = getServerStartTime;
     _deviceId = deviceId;
     _currentDeviceName = deviceName;
+  }
+
+  /// Cancels any active upload or download streams immediately.
+  void cancelActiveTransfers() {
+    _isCancelled = true;
+    if (_currentProgress != null &&
+        _currentProgress!.status == TransferStatus.inProgress) {
+      _emitProgress(
+        _currentProgress!.copyWith(
+          status: TransferStatus.cancelled,
+          errorMessage: 'Transfer cancelled by user',
+          timestamp: DateTime.now(),
+        ),
+      );
+      Timer(const Duration(seconds: 2), () {
+        _emitProgress(null);
+      });
+    }
   }
 
   /// All candidate PC server URLs (public WAN first, then LAN), deduplicated.
@@ -61,9 +97,7 @@ class FileShareService {
     return headers;
   }
 
-  /// Tries every candidate URL until one responds. Returns null on total
-  /// failure. File sharing is always user-initiated, so a simple loop over the
-  /// candidate list (rather than the clipboard's background backoff) is enough.
+  /// Tries every candidate URL until one responds. Returns null on total failure.
   Future<http.Response?> _tryUrlFallback(
     Future<http.Response> Function(String baseUrl) send,
   ) async {
@@ -71,7 +105,6 @@ class FileShareService {
     if (urls.isEmpty) return null;
 
     for (final url in urls) {
-      // The tunnel (https) can be slow on first contact (cold start / TLS).
       final tunnel = url.startsWith('https://');
       try {
         final resp = await send(
@@ -102,72 +135,318 @@ class FileShareService {
     }
   }
 
-  /// Uploads a local file (from the phone) to the PC's shared folder.
-  /// Returns true when the PC accepted it.
+  /// Uploads a local file from phone to PC with real-time streaming progress, percentage, and speed tracking.
   Future<bool> uploadFile(String filePath) async {
+    _isCancelled = false;
+    final urls = _candidateUrls();
+    if (urls.isEmpty) {
+      debugPrint('FileShareService uploadFile: no candidate server URLs');
+      return false;
+    }
+
     try {
       final file = File(filePath);
       if (!await file.exists()) return false;
 
+      final totalBytes = await file.length();
       final name = filePath.split(RegExp(r'[\\/]')).last;
       final encodedName = Uri.encodeQueryComponent(name);
       final deviceName = Uri.encodeQueryComponent(
         _currentDeviceName ?? 'Android Device',
       );
-      final bytes = await file.readAsBytes();
+      final transferId = 'tx_${DateTime.now().millisecondsSinceEpoch}';
 
-      final response = await _tryUrlFallback(
-        (url) => _client.post(
-          Uri.parse(
-            '$url${ServerConstants.filesUploadEndpoint}?name=$encodedName&deviceName=$deviceName',
-          ),
-          headers: _authHeaders(contentType: 'application/octet-stream'),
-          body: bytes,
+      _emitProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: name,
+          bytesTransferred: 0,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: true,
+          status: TransferStatus.preparing,
+          timestamp: DateTime.now(),
         ),
       );
-      return response != null && response.statusCode == 200;
+
+      for (final baseUrl in urls) {
+        if (_isCancelled) break;
+        try {
+          final uri = Uri.parse(
+            '$baseUrl${ServerConstants.filesUploadEndpoint}?name=$encodedName&deviceName=$deviceName&size=$totalBytes',
+          );
+
+          final request = http.StreamedRequest('POST', uri);
+          final headers = _authHeaders(contentType: 'application/octet-stream');
+          headers.forEach((key, val) => request.headers[key] = val);
+          request.contentLength = totalBytes;
+
+          final stopwatch = Stopwatch()..start();
+          var bytesSent = 0;
+          var lastProgressTime = DateTime.now();
+
+          // Stream file chunk-by-chunk to sink
+          final fileStream = file.openRead();
+          final streamSub = fileStream.listen(
+            (chunk) {
+              if (_isCancelled) {
+                return;
+              }
+              request.sink.add(chunk);
+              bytesSent += chunk.length;
+
+              final now = DateTime.now();
+              if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+                  bytesSent >= totalBytes) {
+                lastProgressTime = now;
+                final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
+                final speed = elapsedSec > 0 ? bytesSent / elapsedSec : 0.0;
+                _emitProgress(
+                  TransferProgress(
+                    fileId: transferId,
+                    fileName: name,
+                    bytesTransferred: bytesSent,
+                    totalBytes: totalBytes,
+                    speedBytesPerSec: speed,
+                    isUpload: true,
+                    status: TransferStatus.inProgress,
+                    timestamp: now,
+                  ),
+                );
+              }
+            },
+            onDone: () {
+              request.sink.close();
+            },
+            onError: (err) {
+              request.sink.addError(err);
+            },
+            cancelOnError: true,
+          );
+
+          final streamedResponse = await _client.send(request);
+          await streamSub.asFuture<void>();
+
+          if (_isCancelled) {
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: name,
+                bytesTransferred: bytesSent,
+                totalBytes: totalBytes,
+                speedBytesPerSec: 0,
+                isUpload: true,
+                status: TransferStatus.cancelled,
+                timestamp: DateTime.now(),
+              ),
+            );
+            return false;
+          }
+
+          if (streamedResponse.statusCode == 200) {
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: name,
+                bytesTransferred: totalBytes,
+                totalBytes: totalBytes,
+                speedBytesPerSec: 0,
+                isUpload: true,
+                status: TransferStatus.completed,
+                timestamp: DateTime.now(),
+              ),
+            );
+
+            Timer(const Duration(seconds: 3), () {
+              if (_currentProgress?.fileId == transferId) {
+                _emitProgress(null);
+              }
+            });
+            return true;
+          }
+        } catch (e) {
+          debugPrint('FileShareService: Upload to $baseUrl failed: $e');
+        }
+      }
+
+      _emitProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: name,
+          bytesTransferred: 0,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: true,
+          status: TransferStatus.failed,
+          errorMessage: 'Upload failed across all available routes.',
+          timestamp: DateTime.now(),
+        ),
+      );
+      Timer(const Duration(seconds: 3), () {
+        if (_currentProgress?.fileId == transferId) {
+          _emitProgress(null);
+        }
+      });
+      return false;
     } catch (e) {
       debugPrint('FileShareService uploadFile error: $e');
       return false;
     }
   }
 
-  /// Downloads a shared file from the PC into a sensible app directory
-  /// (Downloads when available, otherwise the app documents folder).
+  /// Downloads a shared file from PC to phone with real-time streaming chunks, speed, and percentage tracking.
   Future<File?> downloadFile(SharedFile item) async {
-    try {
-      final response = await _tryUrlFallback(
-        (url) => _client.get(
-          Uri.parse(
-            '$url${ServerConstants.filesDownloadEndpoint}?id=${Uri.encodeQueryComponent(item.id)}',
-          ),
-        ),
-      );
-      if (response == null ||
-          response.statusCode != 200 ||
-          response.bodyBytes.isEmpty) {
-        return null;
-      }
+    _isCancelled = false;
+    final urls = _candidateUrls();
+    if (urls.isEmpty) return null;
 
-      Directory dir;
+    final transferId = 'rx_${DateTime.now().millisecondsSinceEpoch}';
+    final totalBytes = item.size;
+
+    _emitProgress(
+      TransferProgress(
+        fileId: transferId,
+        fileName: item.name,
+        bytesTransferred: 0,
+        totalBytes: totalBytes,
+        speedBytesPerSec: 0,
+        isUpload: false,
+        status: TransferStatus.preparing,
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    for (final baseUrl in urls) {
+      if (_isCancelled) break;
       try {
-        dir =
-            await getDownloadsDirectory() ??
-            await getApplicationDocumentsDirectory();
-      } catch (_) {
-        dir = await getApplicationDocumentsDirectory();
-      }
+        final uri = Uri.parse(
+          '$baseUrl${ServerConstants.filesDownloadEndpoint}?id=${Uri.encodeQueryComponent(item.id)}',
+        );
 
-      final dest = File('${dir.path}${Platform.pathSeparator}${item.name}');
-      await dest.writeAsBytes(response.bodyBytes, flush: true);
-      return dest;
-    } catch (e) {
-      debugPrint('FileShareService downloadFile error: $e');
-      return null;
+        final request = http.Request('GET', uri);
+        final streamedResponse = await _client.send(request);
+
+        if (streamedResponse.statusCode != 200) continue;
+
+        final actualTotal = streamedResponse.contentLength ?? totalBytes;
+
+        Directory dir;
+        try {
+          dir =
+              await getDownloadsDirectory() ??
+              await getApplicationDocumentsDirectory();
+        } catch (_) {
+          dir = await getApplicationDocumentsDirectory();
+        }
+
+        final dest = File('${dir.path}${Platform.pathSeparator}${item.name}');
+        final sink = dest.openWrite();
+
+        final stopwatch = Stopwatch()..start();
+        var bytesReceived = 0;
+        var lastProgressTime = DateTime.now();
+
+        try {
+          await for (final chunk in streamedResponse.stream) {
+            if (_isCancelled) break;
+            sink.add(chunk);
+            bytesReceived += chunk.length;
+
+            final now = DateTime.now();
+            if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+                bytesReceived >= actualTotal) {
+              lastProgressTime = now;
+              final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
+              final speed = elapsedSec > 0 ? bytesReceived / elapsedSec : 0.0;
+              _emitProgress(
+                TransferProgress(
+                  fileId: transferId,
+                  fileName: item.name,
+                  bytesTransferred: bytesReceived,
+                  totalBytes: actualTotal,
+                  speedBytesPerSec: speed,
+                  isUpload: false,
+                  status: TransferStatus.inProgress,
+                  timestamp: now,
+                ),
+              );
+            }
+          }
+          await sink.close();
+        } catch (e) {
+          await sink.close();
+          if (await dest.exists()) await dest.delete();
+          rethrow;
+        }
+
+        if (_isCancelled) {
+          if (await dest.exists()) await dest.delete();
+          _emitProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: item.name,
+              bytesTransferred: bytesReceived,
+              totalBytes: actualTotal,
+              speedBytesPerSec: 0,
+              isUpload: false,
+              status: TransferStatus.cancelled,
+              timestamp: DateTime.now(),
+            ),
+          );
+          return null;
+        }
+
+        _emitProgress(
+          TransferProgress(
+            fileId: transferId,
+            fileName: item.name,
+            bytesTransferred: actualTotal,
+            totalBytes: actualTotal,
+            speedBytesPerSec: 0,
+            isUpload: false,
+            status: TransferStatus.completed,
+            timestamp: DateTime.now(),
+          ),
+        );
+
+        Timer(const Duration(seconds: 3), () {
+          if (_currentProgress?.fileId == transferId) {
+            _emitProgress(null);
+          }
+        });
+
+        return dest;
+      } catch (e) {
+        debugPrint('FileShareService: Download from $baseUrl failed: $e');
+      }
     }
+
+    _emitProgress(
+      TransferProgress(
+        fileId: transferId,
+        fileName: item.name,
+        bytesTransferred: 0,
+        totalBytes: totalBytes,
+        speedBytesPerSec: 0,
+        isUpload: false,
+        status: TransferStatus.failed,
+        errorMessage: 'Download failed across all available routes.',
+        timestamp: DateTime.now(),
+      ),
+    );
+    Timer(const Duration(seconds: 3), () {
+      if (_currentProgress?.fileId == transferId) {
+        _emitProgress(null);
+      }
+    });
+
+    return null;
   }
 
   void dispose() {
     _client.close();
+    if (!_progressController.isClosed) {
+      _progressController.close();
+    }
   }
 }

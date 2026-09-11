@@ -122,9 +122,12 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
               icon: Icons.content_paste_rounded,
               iconColor: AppColors.primaryLight,
               title: 'LIVE CLIPBOARD SYNC',
-              trailing: const StatusBadge(
-                label: 'BACKGROUND SYNC',
-                isActive: true,
+              trailing: StatusBadge(
+                label: (widget.isWindows || widget.clipboardService.isListening)
+                    ? 'BACKGROUND SYNC'
+                    : 'STANDBY',
+                isActive: widget.isWindows ||
+                    (widget.clipboardService.isListening && _serverReachable),
                 activeColor: AppColors.successLight,
               ),
             ),
@@ -136,13 +139,19 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: (_serverReachable ? AppColors.success : AppColors.error)
+                  color: (!widget.clipboardService.isListening
+                          ? AppColors.textMuted
+                          : (_serverReachable
+                              ? AppColors.success
+                              : AppColors.error))
                       .withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: (_serverReachable
-                            ? AppColors.successLight
-                            : AppColors.error)
+                    color: (!widget.clipboardService.isListening
+                            ? AppColors.cardBorder
+                            : (_serverReachable
+                                ? AppColors.successLight
+                                : AppColors.error))
                         .withValues(alpha: 0.35),
                   ),
                 ),
@@ -150,30 +159,38 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
-                      _serverReachable
-                          ? Icons.cloud_done_rounded
-                          : Icons.cloud_off_rounded,
+                      !widget.clipboardService.isListening
+                          ? Icons.pause_circle_outline_rounded
+                          : (_serverReachable
+                              ? Icons.cloud_done_rounded
+                              : Icons.cloud_off_rounded),
                       size: 16,
-                      color: _serverReachable
-                          ? AppColors.successLight
-                          : AppColors.error,
+                      color: !widget.clipboardService.isListening
+                          ? AppColors.textMuted
+                          : (_serverReachable
+                              ? AppColors.successLight
+                              : AppColors.error),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        _serverReachable
-                            ? 'Connected to your PC. Copies sync in real time.'
-                            : (_syncError ??
-                                'PC server is not reachable. Make sure PCLink is running on the PC.'),
+                        !widget.clipboardService.isListening
+                            ? 'Standby: Tap "Connect to Windows PC" above to activate live clipboard sync.'
+                            : (_serverReachable
+                                ? 'Connected to your PC. Copies sync in real time.'
+                                : (_syncError ??
+                                    'PC server is not reachable. Make sure PCLink is running on the PC.')),
                         style: TextStyle(
                           fontSize: 11.5,
                           height: 1.35,
-                          fontWeight: _serverReachable
+                          fontWeight: _serverReachable && widget.clipboardService.isListening
                               ? FontWeight.w600
                               : FontWeight.w500,
-                          color: _serverReachable
-                              ? AppColors.successLight
-                              : AppColors.textPrimary,
+                          color: !widget.clipboardService.isListening
+                              ? AppColors.textMuted
+                              : (_serverReachable
+                                  ? AppColors.successLight
+                                  : AppColors.textPrimary),
                         ),
                       ),
                     ),

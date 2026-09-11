@@ -7,6 +7,7 @@ abstract final class ServerConstants {
   // Endpoints
   static const String healthEndpoint = '/health';
   static const String authEndpoint = '/auth';
+  static const String disconnectEndpoint = '/disconnect';
   static const String statusEndpoint = '/status';
   static const String pingEndpoint = '/ping';
   static const String clipboardEndpoint = '/api/clipboard';

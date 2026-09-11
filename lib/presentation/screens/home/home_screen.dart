@@ -112,18 +112,54 @@ class _HomeScreenState extends State<HomeScreen> {
     } else if (user != null) {
       // Android: Listen for Windows server host info
       _serverSub = _databaseService.watchUserServer(user).listen((info) {
-        if (mounted && info != null) {
+        if (mounted) {
           setState(() {
             _currentServerInfo = info;
           });
-          // Probe immediately only when the PC address/session actually
-          // changed; otherwise throttled polling continues.
-          _clipboardService.onServerInfoPublished();
+          if (info == null || !info.isLive) {
+            _stopAndroidServices();
+          } else if (_clipboardService.isListening) {
+            // Probe immediately only when the PC address/session actually
+            // changed; otherwise throttled polling continues.
+            _clipboardService.onServerInfoPublished();
+          }
         }
       });
     }
 
     _loadDeviceDetails();
+  }
+
+  void _startAndroidServices(DeviceDetails details) {
+    if (kIsWeb || Platform.isWindows) return;
+    _clipboardService.startListening(
+      deviceName: details.deviceName,
+      isWindows: false,
+      deviceId: details.deviceId,
+      getTargetServerUrls: () {
+        final info = _currentServerInfo;
+        if (info == null) return <String>[];
+        return <String>[
+          if (info.publicUrl != null && info.publicUrl!.isNotEmpty)
+            info.publicUrl!,
+          if (info.url.isNotEmpty) info.url,
+        ];
+      },
+      getServerStartTime: () {
+        final info = _currentServerInfo;
+        return info?.startedAt?.toIso8601String();
+      },
+      onConnectionLost: () {
+        debugPrint('HomeScreen: Connection lost detected by ClipboardService');
+        _stopAndroidServices();
+      },
+    );
+  }
+
+  void _stopAndroidServices() {
+    if (kIsWeb || Platform.isWindows) return;
+    _fileShareService.cancelActiveTransfers();
+    _clipboardService.stopListening();
   }
 
   @override
@@ -190,32 +226,18 @@ class _HomeScreenState extends State<HomeScreen> {
               pcHostName: details.deviceName,
             );
           }
+
+          // Windows: Start direct server-routed clipboard handler
+          _clipboardService.startListening(
+            deviceName: details.deviceName,
+            isWindows: true,
+            serverService: _serverService,
+            deviceId: details.deviceId,
+          );
         }
 
-        // Start direct server-routed clipboard sync. Android tries the Public
-        // WAN URL first, then falls back to the LAN URL, caching whichever works.
-        _clipboardService.startListening(
-          deviceName: details.deviceName,
-          isWindows: details.isWindows,
-          serverService: details.isWindows ? _serverService : null,
-          deviceId: details.deviceId,
-          getTargetServerUrls: () {
-            final info = _currentServerInfo;
-            if (info == null) return <String>[];
-            return <String>[
-              if (info.publicUrl != null && info.publicUrl!.isNotEmpty)
-                info.publicUrl!,
-              if (info.url.isNotEmpty) info.url,
-            ];
-          },
-          getServerStartTime: () {
-            final info = _currentServerInfo;
-            return info?.startedAt?.toIso8601String();
-          },
-        );
-
-        // Configure the file-sharing client with the same adaptive server
-        // discovery + session password used by clipboard sync.
+        // Configure the file-sharing client with the adaptive server
+        // discovery + session password.
         _fileShareService.configure(
           getTargetServerUrls: () {
             final info = _currentServerInfo;
@@ -559,6 +581,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         localDeviceId: details.deviceId,
                         user: user,
                         databaseService: _databaseService,
+                        onConnectionStateChanged: (isConnected) {
+                          if (!details.isWindows) {
+                            if (isConnected) {
+                              _startAndroidServices(details);
+                            } else {
+                              _stopAndroidServices();
+                            }
+                          }
+                        },
+                        onDisconnectRequested: () {
+                          if (!details.isWindows) {
+                            _stopAndroidServices();
+                          }
+                        },
                       ),
                       const SizedBox(height: 14),
 

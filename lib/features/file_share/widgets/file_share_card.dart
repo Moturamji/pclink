@@ -6,12 +6,10 @@ import '../../../core/widgets/universal/app_card_header.dart';
 import '../../../data/services/file_share_service.dart';
 import '../../../data/services/server_service.dart';
 import '../models/shared_file.dart';
+import '../models/transfer_progress.dart';
 
 /// Card managing bidirectional file sharing between the Windows PC and the
-/// Android phone through the existing temporary server - zero cloud storage.
-///
-/// - Windows: pick PC files to publish for download + watch phone uploads.
-/// - Android: send files to the PC + download files shared by the PC.
+/// Android phone through the existing temporary server with live real-time transfer indicators.
 class FileShareCard extends StatefulWidget {
   final bool isWindows;
   final ServerService? serverService;
@@ -30,7 +28,9 @@ class FileShareCard extends StatefulWidget {
 
 class _FileShareCardState extends State<FileShareCard> {
   StreamSubscription<List<SharedFile>>? _fileSub;
+  StreamSubscription<TransferProgress?>? _progressSub;
   List<SharedFile> _files = const [];
+  TransferProgress? _transferProgress;
   bool _busy = false;
   String? _busyLabel;
   String? _downloadingId;
@@ -42,14 +42,40 @@ class _FileShareCardState extends State<FileShareCard> {
       final serverService = widget.serverService;
       _files = serverService?.sharedFiles ?? const [];
       _fileSub = serverService?.sharedFilesStream.listen(_onFilesChanged);
+      _transferProgress = serverService?.currentTransferProgress;
+      _progressSub =
+          serverService?.transferProgressStream.listen(_onProgressChanged);
     } else {
+      _transferProgress = widget.fileShareService?.currentProgress;
+      _progressSub =
+          widget.fileShareService?.progressStream.listen(_onProgressChanged);
       _refreshFiles();
+    }
+  }
+
+  @override
+  void didUpdateWidget(FileShareCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isWindows != oldWidget.isWindows ||
+        widget.fileShareService != oldWidget.fileShareService ||
+        widget.serverService != oldWidget.serverService) {
+      _progressSub?.cancel();
+      if (widget.isWindows) {
+        _transferProgress = widget.serverService?.currentTransferProgress;
+        _progressSub = widget.serverService?.transferProgressStream
+            .listen(_onProgressChanged);
+      } else {
+        _transferProgress = widget.fileShareService?.currentProgress;
+        _progressSub =
+            widget.fileShareService?.progressStream.listen(_onProgressChanged);
+      }
     }
   }
 
   @override
   void dispose() {
     _fileSub?.cancel();
+    _progressSub?.cancel();
     super.dispose();
   }
 
@@ -57,6 +83,14 @@ class _FileShareCardState extends State<FileShareCard> {
     if (mounted) {
       setState(() {
         _files = files;
+      });
+    }
+  }
+
+  void _onProgressChanged(TransferProgress? progress) {
+    if (mounted) {
+      setState(() {
+        _transferProgress = progress;
       });
     }
   }
@@ -212,6 +246,13 @@ class _FileShareCardState extends State<FileShareCard> {
                     ),
             ),
             const SizedBox(height: 12),
+
+            // Live Real-Time Transfer Indicator Panel
+            if (_transferProgress != null) ...[
+              _buildLiveTransferPanel(_transferProgress!),
+              const SizedBox(height: 14),
+            ],
+
             if (widget.isWindows)
               _buildWindowsPanel()
             else
@@ -220,6 +261,236 @@ class _FileShareCardState extends State<FileShareCard> {
             _buildFooter(),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Dedicated real-time file transfer progress dashboard
+  Widget _buildLiveTransferPanel(TransferProgress progress) {
+    final isUpload = progress.isUpload;
+    final isDone = progress.status == TransferStatus.completed;
+    final isFailed = progress.status == TransferStatus.failed;
+    final isCancelled = progress.status == TransferStatus.cancelled;
+    final inProgress = progress.status == TransferStatus.inProgress ||
+        progress.status == TransferStatus.preparing;
+
+    final themeColor = isDone
+        ? AppColors.successLight
+        : (isFailed || isCancelled
+            ? AppColors.error
+            : AppColors.primaryLight);
+
+    final actionLabel = isUpload
+        ? (widget.isWindows ? 'Sending to Phone' : 'Sending to PC')
+        : (widget.isWindows ? 'Receiving from Phone' : 'Receiving from PC');
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: themeColor.withValues(alpha: 0.35),
+          width: 1.5,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: themeColor.withValues(alpha: 0.08),
+            blurRadius: 10,
+            spreadRadius: 1,
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header: Icon + File Name + Status Badge
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: themeColor.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  isDone
+                      ? Icons.check_circle_rounded
+                      : (isUpload
+                          ? Icons.cloud_upload_rounded
+                          : Icons.cloud_download_rounded),
+                  size: 18,
+                  color: themeColor,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      progress.fileName,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      actionLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: themeColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: themeColor.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: themeColor.withValues(alpha: 0.3)),
+                ),
+                child: Text(
+                  isDone
+                      ? '100%'
+                      : (isFailed
+                          ? 'FAILED'
+                          : (isCancelled ? 'CANCELLED' : progress.percentageLabel)),
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: themeColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Linear Progress Bar
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: LinearProgressIndicator(
+              value: inProgress
+                  ? progress.fraction
+                  : (isDone ? 1.0 : 0.0),
+              minHeight: 8,
+              backgroundColor: AppColors.background,
+              valueColor: AlwaysStoppedAnimation<Color>(themeColor),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // 3-Column Real-Time Metrics Row (Transferred, Speed, Remaining)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              // Transferred / Total
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.data_usage_rounded,
+                      size: 13,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        progress.transferredLabel,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Speed
+              if (inProgress) ...[
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.speed_rounded,
+                      size: 13,
+                      color: AppColors.textMuted,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      progress.speedLabel,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primaryLight,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 10),
+              ],
+
+              // Remaining
+              Row(
+                children: [
+                  Icon(
+                    isDone
+                        ? Icons.done_all_rounded
+                        : Icons.timelapse_rounded,
+                    size: 13,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    progress.remainingLabel,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: isDone
+                          ? AppColors.successLight
+                          : AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+
+          // Cancel Button for Android sender/receiver
+          if (inProgress && !widget.isWindows && widget.fileShareService != null) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () =>
+                    widget.fileShareService?.cancelActiveTransfers(),
+                icon: const Icon(Icons.close_rounded, size: 14),
+                label: const Text('Cancel Transfer'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.error,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  minimumSize: Size.zero,
+                  textStyle: const TextStyle(fontSize: 11),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -354,6 +625,8 @@ class _FileShareCardState extends State<FileShareCard> {
   }
 
   Widget _buildFileTile(SharedFile file) {
+    final isDownloadingThis = _downloadingId == file.id;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(10),
@@ -416,7 +689,7 @@ class _FileShareCardState extends State<FileShareCard> {
               icon: const Icon(Icons.delete_outline_rounded, size: 18),
               color: AppColors.textMuted,
             )
-          else if (_downloadingId == file.id)
+          else if (isDownloadingThis)
             const SizedBox(
               width: 18,
               height: 18,
@@ -493,8 +766,8 @@ class _FileShareCardState extends State<FileShareCard> {
         Expanded(
           child: Text(
             widget.isWindows
-                ? 'Files are copied to the shared folder and served to your phone only while the PC Link Service is active. Your phone also sees files it uploaded here.'
-                : 'Transfers are direct between this phone and your PC via the temporary server - files never touch Firebase or any cloud storage.',
+                ? 'Files are copied to the shared folder and served to your phone only while the PC Link Service is active. Real-time transfer speed and progress display automatically during transfers.'
+                : 'Transfers are direct between this phone and your PC via the temporary server - real-time progress, speed, and bytes update live throughout the transfer.',
             style: const TextStyle(
               fontSize: 11,
               height: 1.4,

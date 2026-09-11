@@ -53,6 +53,7 @@ class ClipboardService with WidgetsBindingObserver {
   String? _currentDeviceName;
   String? _currentPlatformName;
   Function(ClipboardItem)? _onNewRemoteClipReceived;
+  VoidCallback? _onConnectionLost;
 
   String? _lastLocalText;
   String? _lastReceivedRemoteText;
@@ -125,6 +126,7 @@ class ClipboardService with WidgetsBindingObserver {
     String? Function()? getServerStartTime,
     String? deviceId,
     Function(ClipboardItem)? onNewRemoteClipReceived,
+    VoidCallback? onConnectionLost,
   }) {
     if (_clipboardPollTimer != null) return;
 
@@ -135,6 +137,7 @@ class ClipboardService with WidgetsBindingObserver {
     _getServerStartTime = getServerStartTime;
     _deviceId = deviceId;
     _onNewRemoteClipReceived = onNewRemoteClipReceived;
+    _onConnectionLost = onConnectionLost;
 
     WidgetsBinding.instance.addObserver(this);
 
@@ -289,6 +292,9 @@ void _onForegroundDataReceived(dynamic data) {
       if (!_errorController.isClosed) {
         _errorController.add(message);
       }
+    }
+    if (_consecutiveFailures >= 3) {
+      _onConnectionLost?.call();
     }
   }
 
@@ -620,13 +626,28 @@ void _onForegroundDataReceived(dynamic data) {
   void stopListening() {
     WidgetsBinding.instance.removeObserver(this);
     if (!kIsWeb && Platform.isAndroid) {
-      FlutterForegroundTask.removeTaskDataCallback(_onForegroundDataReceived);
-      FlutterForegroundTask.stopService();
+      try {
+        FlutterForegroundTask.removeTaskDataCallback(_onForegroundDataReceived);
+        FlutterForegroundTask.stopService();
+      } catch (e) {
+        debugPrint('ClipboardService stopService error: $e');
+      }
     }
     _clipboardPollTimer?.cancel();
     _clipboardPollTimer = null;
     _remoteFetchTimer?.cancel();
     _remoteFetchTimer = null;
+    _serverReachable = false;
+    _consecutiveFailures = 0;
+    _workingServerUrl = null;
+    _lastError = null;
+    _lastEmittedError = null;
+    _lastLocalText = null;
+    _lastReceivedRemoteText = null;
+    if (!_errorController.isClosed) {
+      _errorController.add(null);
+    }
+    debugPrint('ClipboardService: Stopped clipboard listening and foreground sync.');
   }
 
   void dispose() {

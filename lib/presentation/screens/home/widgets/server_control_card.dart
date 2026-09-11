@@ -14,6 +14,8 @@ class ServerControlCard extends StatefulWidget {
   final String? localDeviceId;
   final User? user;
   final DatabaseService? databaseService;
+  final Function(bool isConnected)? onConnectionStateChanged;
+  final VoidCallback? onDisconnectRequested;
 
   const ServerControlCard({
     super.key,
@@ -24,6 +26,8 @@ class ServerControlCard extends StatefulWidget {
     this.localDeviceId,
     this.user,
     this.databaseService,
+    this.onConnectionStateChanged,
+    this.onDisconnectRequested,
   });
 
   @override
@@ -36,6 +40,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
   String? _authMessage;
   bool _authSuccess = false;
   String? _connectedHostName;
+  ServerInfo? _lastKnownServer;
 
   Future<void> _handleAndroidConnect(ServerInfo server) async {
     if (widget.localDeviceId == null || widget.localDeviceId!.isEmpty) {
@@ -85,6 +90,8 @@ class _ServerControlCardState extends State<ServerControlCard> {
           : (result['error'] ?? 'Authentication failed');
     });
 
+    widget.onConnectionStateChanged?.call(isSuccess);
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(_authMessage!),
@@ -98,7 +105,21 @@ class _ServerControlCardState extends State<ServerControlCard> {
       _isDisconnecting = true;
     });
 
-    if (widget.user != null && widget.databaseService != null) {
+    // 1. Notify callback to stop background sync and cancel active transfers
+    widget.onDisconnectRequested?.call();
+
+    // 2. Terminate connection with PC server and clear Firebase RTDB
+    final server = _lastKnownServer ?? widget.currentServerInfo;
+    if (server != null && widget.localDeviceId != null) {
+      await ServerService.disconnectClientWithServer(
+        serverUrl: server.url,
+        publicUrl: server.publicUrl,
+        androidDeviceId: widget.localDeviceId!,
+        serverStartTime: server.startedAt?.toIso8601String() ?? '',
+        user: widget.user,
+        databaseService: widget.databaseService,
+      );
+    } else if (widget.user != null && widget.databaseService != null) {
       await widget.databaseService!.disconnectClient(user: widget.user!);
     }
 
@@ -108,11 +129,14 @@ class _ServerControlCardState extends State<ServerControlCard> {
       _isDisconnecting = false;
       _authSuccess = false;
       _authMessage = null;
+      _connectedHostName = null;
     });
+
+    widget.onConnectionStateChanged?.call(false);
 
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Disconnected from Windows PC.'),
+        content: Text('Disconnected from Windows PC. Background sync and transfers terminated.'),
         backgroundColor: AppColors.surface,
       ),
     );
@@ -363,13 +387,28 @@ class _ServerControlCardState extends State<ServerControlCard> {
     return StreamBuilder<ServerInfo?>(
       stream: widget.serverStream,
       builder: (context, snapshot) {
-        final server = snapshot.data;
+        final server = snapshot.data ?? widget.currentServerInfo;
+        if (server != null) {
+          _lastKnownServer = server;
+        }
         final isLive = server != null && server.isLive;
         final isClientMatch = server?.connectedClientId != null &&
             server!.connectedClientId!.isNotEmpty &&
             widget.localDeviceId != null &&
             server.connectedClientId == widget.localDeviceId;
         final isConnected = isLive && (_authSuccess || isClientMatch);
+
+        if (!isLive && _authSuccess) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _authSuccess) {
+              setState(() {
+                _authSuccess = false;
+                _connectedHostName = null;
+              });
+              widget.onConnectionStateChanged?.call(false);
+            }
+          });
+        }
 
         return Card(
           child: Padding(
