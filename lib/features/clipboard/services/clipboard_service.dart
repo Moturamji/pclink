@@ -532,6 +532,7 @@ void _onForegroundDataReceived(dynamic data) {
 
     _lastReceivedRemoteText = item.text;
     _lastReceivedRemoteTime = DateTime.now();
+    _lastLocalText = item.text;
     _addClipToLocalHistory(item);
     _onNewRemoteClipReceived?.call(item);
 

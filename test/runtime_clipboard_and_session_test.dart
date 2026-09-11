@@ -124,6 +124,35 @@ void main() {
         expect(history.any((c) => c.text == 'Rapid message index $i'), isTrue);
       }
     });
+
+    test('Received Android clip preserves Android sourcePlatform tag without flipping to Windows', () async {
+      final clip = ClipboardItem(
+        id: 'clip_tag_test',
+        text: 'Origin Source Tag Test Message',
+        sourcePlatform: 'android',
+        sourceDeviceName: 'Pixel 9 Pro',
+        timestamp: DateTime.now(),
+      );
+
+      final client = http.Client();
+      final uri = Uri.parse('$serverUrl${ServerConstants.clipboardEndpoint}');
+      final resp = await client.post(
+        uri,
+        headers: {
+          ServerConstants.authHeader: testDeviceId,
+          ServerConstants.startTimeHeader: serverStartTime,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(clip.toMap()),
+      );
+      expect(resp.statusCode, equals(200));
+
+      final storedItem = serverService.clipboardHistory.firstWhere((c) => c.id == 'clip_tag_test');
+      expect(storedItem.sourcePlatform, equals('android'));
+      expect(storedItem.sourceDeviceName, equals('Pixel 9 Pro'));
+      expect(storedItem.isFromAndroid, isTrue);
+      expect(storedItem.isFromWindows, isFalse);
+    });
   });
 
   group('Session Identity & Server Restart Validation Tests', () {
