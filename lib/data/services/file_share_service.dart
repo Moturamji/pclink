@@ -185,18 +185,19 @@ class FileShareService {
           var bytesSent = 0;
           var lastProgressTime = DateTime.now();
 
-          // Stream file chunk-by-chunk to sink
-          final fileStream = file.openRead();
-          final streamSub = fileStream.listen(
-            (chunk) {
+          // Stream file chunk-by-chunk to sink asynchronously
+          final responseFuture = _client.send(request);
+
+          try {
+            await for (final chunk in file.openRead()) {
               if (_isCancelled) {
-                return;
+                break;
               }
               request.sink.add(chunk);
               bytesSent += chunk.length;
 
               final now = DateTime.now();
-              if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+              if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
                   bytesSent >= totalBytes) {
                 lastProgressTime = now;
                 final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
@@ -214,18 +215,12 @@ class FileShareService {
                   ),
                 );
               }
-            },
-            onDone: () {
-              request.sink.close();
-            },
-            onError: (err) {
-              request.sink.addError(err);
-            },
-            cancelOnError: true,
-          );
+            }
+          } finally {
+            await request.sink.close();
+          }
 
-          final streamedResponse = await _client.send(request);
-          await streamSub.asFuture<void>();
+          final streamedResponse = await responseFuture;
 
           if (_isCancelled) {
             _emitProgress(
@@ -353,7 +348,7 @@ class FileShareService {
             bytesReceived += chunk.length;
 
             final now = DateTime.now();
-            if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+            if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
                 bytesReceived >= actualTotal) {
               lastProgressTime = now;
               final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
@@ -372,6 +367,7 @@ class FileShareService {
               );
             }
           }
+          await sink.flush();
           await sink.close();
         } catch (e) {
           await sink.close();
@@ -379,20 +375,36 @@ class FileShareService {
           rethrow;
         }
 
-        if (_isCancelled) {
+        if (_isCancelled || (actualTotal > 0 && bytesReceived < actualTotal)) {
           if (await dest.exists()) await dest.delete();
-          _emitProgress(
-            TransferProgress(
-              fileId: transferId,
-              fileName: item.name,
-              bytesTransferred: bytesReceived,
-              totalBytes: actualTotal,
-              speedBytesPerSec: 0,
-              isUpload: false,
-              status: TransferStatus.cancelled,
-              timestamp: DateTime.now(),
-            ),
-          );
+          if (_isCancelled) {
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: item.name,
+                bytesTransferred: bytesReceived,
+                totalBytes: actualTotal,
+                speedBytesPerSec: 0,
+                isUpload: false,
+                status: TransferStatus.cancelled,
+                timestamp: DateTime.now(),
+              ),
+            );
+          } else {
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: item.name,
+                bytesTransferred: bytesReceived,
+                totalBytes: actualTotal,
+                speedBytesPerSec: 0,
+                isUpload: false,
+                status: TransferStatus.failed,
+                errorMessage: 'Download incomplete',
+                timestamp: DateTime.now(),
+              ),
+            );
+          }
           return null;
         }
 

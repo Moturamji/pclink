@@ -139,5 +139,33 @@ void main() {
       final cancelled = completed.copyWith(status: TransferStatus.cancelled);
       expect(cancelled.remainingLabel, 'Cancelled');
     });
+
+    test('Ensures exact byte tracking and clamp safety under zero and edge conditions', () {
+      final zero = TransferProgress(
+        fileId: 'zero_1',
+        fileName: 'empty.bin',
+        bytesTransferred: 0,
+        totalBytes: 0,
+        isUpload: false,
+        status: TransferStatus.inProgress,
+        timestamp: DateTime.now(),
+      );
+      expect(zero.fraction, 0.0);
+      expect(zero.percentageLabel, '0.0%');
+      expect(zero.remainingBytes, 0);
+
+      final exact = TransferProgress(
+        fileId: 'exact_1',
+        fileName: 'large.zip',
+        bytesTransferred: 1048576,
+        totalBytes: 1048576,
+        isUpload: true,
+        status: TransferStatus.completed,
+        timestamp: DateTime.now(),
+      );
+      expect(exact.fraction, 1.0);
+      expect(exact.percentageLabel, '100.0%');
+      expect(exact.remainingBytes, 0);
+    });
   });
 }

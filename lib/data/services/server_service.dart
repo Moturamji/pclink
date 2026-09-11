@@ -579,7 +579,7 @@ class ServerService {
           sink.add(chunk);
           bytesReceived += chunk.length;
           final now = DateTime.now();
-          if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+          if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
               (totalBytes > 0 && bytesReceived >= totalBytes)) {
             lastProgressTime = now;
             final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
@@ -598,9 +598,12 @@ class ServerService {
             );
           }
         }
+        await sink.flush();
         await sink.close();
       } catch (e) {
         debugPrint('ServerService: upload pipe error: $e');
+        await sink.close();
+        if (await dest.exists()) await dest.delete();
         _emitTransferProgress(
           TransferProgress(
             fileId: transferId,
@@ -618,6 +621,31 @@ class ServerService {
         request.response.headers.contentType = ContentType.json;
         request.response.write(
           jsonEncode({'success': false, 'error': 'Upload failed'}),
+        );
+        await request.response.close();
+        return;
+      }
+
+      // Verify that the entire payload was received completely
+      if (totalBytes > 0 && bytesReceived < totalBytes) {
+        if (await dest.exists()) await dest.delete();
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: transferId,
+            fileName: originalName,
+            bytesTransferred: bytesReceived,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: false,
+            status: TransferStatus.failed,
+            errorMessage: 'Upload interrupted before complete transmission',
+            timestamp: DateTime.now(),
+          ),
+        );
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({'success': false, 'error': 'Transfer incomplete'}),
         );
         await request.response.close();
         return;
@@ -740,7 +768,7 @@ class ServerService {
         request.response.add(chunk);
         bytesSent += chunk.length;
         final now = DateTime.now();
-        if (now.difference(lastProgressTime).inMilliseconds >= 80 ||
+        if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
             bytesSent >= length) {
           lastProgressTime = now;
           final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
@@ -761,6 +789,7 @@ class ServerService {
           );
         }
       }
+      await request.response.flush();
       await request.response.close();
       debugPrint('ServerService: Served file to phone: ${match.name}');
 

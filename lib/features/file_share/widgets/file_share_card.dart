@@ -59,8 +59,12 @@ class _FileShareCardState extends State<FileShareCard> {
     if (widget.isWindows != oldWidget.isWindows ||
         widget.fileShareService != oldWidget.fileShareService ||
         widget.serverService != oldWidget.serverService) {
+      _fileSub?.cancel();
       _progressSub?.cancel();
       if (widget.isWindows) {
+        _files = widget.serverService?.sharedFiles ?? const [];
+        _fileSub =
+            widget.serverService?.sharedFilesStream.listen(_onFilesChanged);
         _transferProgress = widget.serverService?.currentTransferProgress;
         _progressSub = widget.serverService?.transferProgressStream
             .listen(_onProgressChanged);
@@ -68,6 +72,7 @@ class _FileShareCardState extends State<FileShareCard> {
         _transferProgress = widget.fileShareService?.currentProgress;
         _progressSub =
             widget.fileShareService?.progressStream.listen(_onProgressChanged);
+        _refreshFiles();
       }
     }
   }
