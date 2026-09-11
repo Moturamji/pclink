@@ -5,9 +5,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
-import '../../../core/widgets/universal/app_logo.dart';
-import '../../../core/widgets/universal/bounceable.dart';
-import '../../../core/widgets/universal/theme_toggle_button.dart';
 import '../../../data/models/device_details.dart';
 import '../../../data/models/server_info.dart';
 import '../../../data/services/auth_service.dart';
@@ -18,17 +15,12 @@ import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
-import '../../../features/clipboard/widgets/clipboard_sync_card.dart';
-import '../../../features/file_share/widgets/file_share_card.dart';
 import '../auth/auth_screen.dart';
-import 'widgets/linked_devices_card.dart';
-import 'widgets/platform_header.dart';
-import 'widgets/security_status_card.dart';
-import 'widgets/server_control_card.dart';
-import 'widgets/specs_card.dart';
-import 'widgets/user_session_card.dart';
+import 'desktop/desktop_dashboard_view.dart';
+import 'mobile/mobile_dashboard_view.dart';
 
-/// Main dashboard displaying device identity, active network interfaces, local server, and system parameters.
+/// Main dashboard orchestrator: renders dedicated, distinct UI experiences
+/// for Desktop (Windows / wide screens) and Mobile (Android / touch screens).
 class HomeScreen extends StatefulWidget {
   final DeviceService? deviceService;
   final AuthService? authService;
@@ -122,8 +114,6 @@ class _HomeScreenState extends State<HomeScreen> {
           if (info == null || !info.isLive) {
             _stopAndroidServices();
           } else if (_clipboardService.isListening) {
-            // Probe immediately only when the PC address/session actually
-            // changed; otherwise throttled polling continues.
             _clipboardService.onServerInfoPublished();
           }
         }
@@ -204,13 +194,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // Windows only: Automatically launch lightweight local server and announce to RTDB
         if (!kIsWeb && details.isWindows) {
-          // Bind the authorized phone from the DB (device ID) instead of
-          // accepting "first caller wins".
           _serverService.setAuthorizedAndroidDeviceId(
             await _databaseService.getAndroidDeviceId(user: user),
           );
-          // Prefer a public tunnel URL (ngrok/cloudflared) so the phone can
-          // reach the PC even on mobile data / CGNAT networks without ports.
           final tunnelUrl = await _deviceService.getTunnelUrl();
           final serverInfo = await _serverService.startServer(
             hostIp: details.primaryIp,
@@ -239,8 +225,7 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        // Configure the file-sharing client with the adaptive server
-        // discovery + session password.
+        // Configure the file-sharing client
         _fileShareService.configure(
           getTargetServerUrls: () {
             final info = _currentServerInfo;
@@ -298,11 +283,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Fully-automated public tunnel (cloudflared quick tunnel). No user setup:
-  /// the app downloads the client on first run, starts it, and publishes the
-  /// resulting public HTTPS URL to Firebase so the phone can reach the PC from
-  /// any network. Server keeps running on WAN/LAN meanwhile; when the tunnel
-  /// URL is ready it quietly upgrades the published address.
   void _startAutomatedTunnel(User user) {
     if (kIsWeb || !Platform.isWindows) return;
 
@@ -318,20 +298,14 @@ class _HomeScreenState extends State<HomeScreen> {
       debugPrint('HomeScreen: Published automated tunnel URL: $url');
     });
 
-    // Fire-and-forget so server startup is never blocked by the tunnel setup.
     _tunnelService.start();
   }
 
-  /// Periodically re-checks the tunnel URL and re-publishes to Firebase if it
-  /// changed (ngrok/cloudflared rotate addresses). Cheap local HTTP call, so a
-  /// 15s timer is safe.
   void _startTunnelWatcher(User user) {
     _tunnelWatcherTimer?.cancel();
     _tunnelWatcherTimer = Timer.periodic(
       const Duration(seconds: 15),
       (_) async {
-        // Prefer the live automated-tunnel URL so a stale override file or
-        // dead ngrok entry can never clobber the working public address.
         final autoUrl = _tunnelService.currentUrl;
         final url = (autoUrl != null && autoUrl.isNotEmpty)
             ? autoUrl
@@ -398,13 +372,15 @@ class _HomeScreenState extends State<HomeScreen> {
             height: 1.4,
           ),
         ),
-        actionsPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        actionsPadding:
+            const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: Text(
               AppStrings.cancel,
-              style: TextStyle(color: colors.textMuted, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                  color: colors.textMuted, fontWeight: FontWeight.w600),
             ),
           ),
           ElevatedButton(
@@ -445,75 +421,13 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final user = _authService.currentUser;
-    final colors = context.colors;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            const AppLogo(
-              size: 34,
-              borderRadius: 10,
-              showGlow: true,
-              isAnimated: false,
-            ),
-            const SizedBox(width: 12),
-            ShaderMask(
-              shaderCallback: (bounds) => LinearGradient(
-                colors: [
-                  colors.textPrimary,
-                  colors.primaryLight,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ).createShader(bounds),
-              child: const Text(
-                AppStrings.appName,
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.8,
-                  fontSize: 19,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          const ThemeToggleButton(),
-          const SizedBox(width: 4),
-          Bounceable(
-            onTap: _isRefreshing ? null : _refresh,
-            child: IconButton(
-              icon: _isRefreshing
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.refresh_rounded),
-              tooltip: 'Refresh details',
-              onPressed: null, // handled by Bounceable
-            ),
-          ),
-          Bounceable(
-            onTap: _confirmSignOut,
-            child: const IconButton(
-              icon: Icon(Icons.logout_rounded, color: AppColors.error),
-              tooltip: AppStrings.signOut,
-              onPressed: null, // handled by Bounceable
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: FutureBuilder<DeviceDetails>(
-        future: _deviceDetailsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
+    return FutureBuilder<DeviceDetails>(
+      future: _deviceDetailsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Scaffold(
+            body: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -525,11 +439,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ],
               ),
-            );
-          }
+            ),
+          );
+        }
 
-          if (snapshot.hasError) {
-            return Center(
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
               child: Padding(
                 padding: const EdgeInsets.all(24.0),
                 child: Column(
@@ -552,110 +468,74 @@ class _HomeScreenState extends State<HomeScreen> {
                   ],
                 ),
               ),
-            );
-          }
-
-          final details = snapshot.data!;
-
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16.0, vertical: 16.0),
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 800),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (user?.email != null)
-                        UserSessionCard(email: user!.email!),
-                      const SizedBox(height: 14),
-
-                      PlatformHeader(details: details),
-                      const SizedBox(height: 14),
-
-                      // Local/Public Windows Server or Android Server Listener Card
-                      ServerControlCard(
-                        isWindows: details.isWindows,
-                        currentServerInfo: _currentServerInfo ??
-                            _serverService.currentServerInfo,
-                        serverStream: user != null
-                            ? _databaseService.watchUserServer(user)
-                            : null,
-                        onToggleServer: () => _toggleServer(details),
-                        localDeviceId: details.deviceId,
-                        user: user,
-                        databaseService: _databaseService,
-                        onConnectionStateChanged: (isConnected) {
-                          if (!details.isWindows) {
-                            if (isConnected) {
-                              _startAndroidServices(details);
-                            } else {
-                              _stopAndroidServices();
-                            }
-                          }
-                        },
-                        onDisconnectRequested: () {
-                          if (!details.isWindows) {
-                            _stopAndroidServices();
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Real-Time Cross-Platform Clipboard Sync
-                      if (user != null) ...[
-                        ClipboardSyncCard(
-                          isWindows: details.isWindows,
-                          user: user,
-                          databaseService: _databaseService,
-                          clipboardService: _clipboardService,
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // Direct File Sharing Through the Temporary Server
-                      if (user != null) ...[
-                        FileShareCard(
-                          isWindows: details.isWindows,
-                          serverService:
-                              details.isWindows ? _serverService : null,
-                          fileShareService:
-                              details.isWindows ? null : _fileShareService,
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // Realtime Database Cloud-Linked Devices
-                      if (user != null) ...[
-                        LinkedDevicesCard(
-                          devicesStream:
-                              _databaseService.watchUserDevices(user),
-                        ),
-                        const SizedBox(height: 14),
-                      ],
-
-                      // Security, Encryption, and Data Privacy Health Card
-                      SecurityStatusCard(
-                        isConnected: details.isConnected,
-                        isWindows: details.isWindows,
-                      ),
-                      const SizedBox(height: 14),
-
-                      SpecsCard(details: details),
-                      const SizedBox(height: 20),
-                    ],
-                  ),
-                ),
-              ),
             ),
           );
-        },
-      ),
+        }
+
+        final details = snapshot.data!;
+        final isDesktop = (!kIsWeb && Platform.isWindows) ||
+            MediaQuery.sizeOf(context).width >= 900;
+
+        if (isDesktop) {
+          return DesktopDashboardView(
+            details: details,
+            user: user,
+            currentServerInfo:
+                _currentServerInfo ?? _serverService.currentServerInfo,
+            databaseService: _databaseService,
+            serverService: _serverService,
+            clipboardService: _clipboardService,
+            fileShareService: _fileShareService,
+            isRefreshing: _isRefreshing,
+            onRefresh: _refresh,
+            onSignOut: _confirmSignOut,
+            onToggleServer: () => _toggleServer(details),
+            onConnectionStateChanged: (isConnected) {
+              if (!details.isWindows) {
+                if (isConnected) {
+                  _startAndroidServices(details);
+                } else {
+                  _stopAndroidServices();
+                }
+              }
+            },
+            onDisconnectRequested: () {
+              if (!details.isWindows) {
+                _stopAndroidServices();
+              }
+            },
+          );
+        }
+
+        return MobileDashboardView(
+          details: details,
+          user: user,
+          currentServerInfo:
+              _currentServerInfo ?? _serverService.currentServerInfo,
+          databaseService: _databaseService,
+          serverService: _serverService,
+          clipboardService: _clipboardService,
+          fileShareService: _fileShareService,
+          isRefreshing: _isRefreshing,
+          onRefresh: _refresh,
+          onSignOut: _confirmSignOut,
+          onToggleServer: () => _toggleServer(details),
+          onConnectionStateChanged: (isConnected) {
+            if (!details.isWindows) {
+              if (isConnected) {
+                _startAndroidServices(details);
+              } else {
+                _stopAndroidServices();
+              }
+            }
+          },
+          onDisconnectRequested: () {
+            if (!details.isWindows) {
+              _stopAndroidServices();
+            }
+          },
+        );
+      },
     );
   }
 }
-
-

@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
 
-/// Centralized Material 3 theme definitions: Cute, Premium, Modern & Cyber-Clean.
-/// Provides both vibrant Dark Theme and crisp Light Theme.
+/// Centralized Material 3 theme definitions: Soft, Elegant, Premium & Modern.
+/// Provides both soft Dark Theme and silky Light Theme with smooth transitions.
 abstract final class AppTheme {
-  /// Dark Theme (Obsidian & Electric Cyan Neon)
+  /// Dark Theme (Obsidian Slate & Soft Sky Blue)
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: ZoomPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         brightness: Brightness.dark,
@@ -130,11 +138,19 @@ abstract final class AppTheme {
     );
   }
 
-  /// Light Theme (Crisp Frost & Electric Sky Blue)
+  /// Light Theme (Silky Frost & Soft Sky Blue)
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: ZoomPageTransitionsBuilder(),
+          TargetPlatform.windows: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.linux: FadeUpwardsPageTransitionsBuilder(),
+          TargetPlatform.macOS: FadeUpwardsPageTransitionsBuilder(),
+        },
+      ),
       colorScheme: ColorScheme.fromSeed(
         seedColor: AppColors.primary,
         brightness: Brightness.light,

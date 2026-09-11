@@ -1,49 +1,56 @@
 import 'package:flutter/material.dart';
 
-/// Design system color palette: Cute, Premium, Modern, and Cyber-Clean.
+/// Design system color palette: Soft, Elegant, Premium, Modern, and Cute.
 /// Styled and harmonious with the official PCLink logo branding in both Dark and Light modes.
 abstract final class AppColors {
-  // Brand & Cyber Accents (Matching official Logo Electric Cyan/Blue)
-  static const Color primary = Color(0xFF0EA5E9); // Electric Cyan Sky
-  static const Color primaryLight = Color(0xFF38BDF8); // Luminous Sky Neon
-  static const Color primaryDark = Color(0xFF0284C7); // Deep Cyber Blue
+  // Brand & Accents (Soft sky, lavender, and gentle teal)
+  static const Color primary = Color(0xFF0EA5E9); // Soft Sky Blue
+  static const Color primaryLight = Color(0xFF38BDF8); // Light Cyan
+  static const Color primaryDark = Color(0xFF0284C7); // Deep Sky
+  static const Color primaryPastel = Color(0xFFE0F2FE); // Delicate Sky Mist
 
-  // Secondary Fresh & Vibrant Accents
-  static const Color secondary = Color(0xFF10B981); // Emerald Mint
-  static const Color secondaryLight = Color(0xFF34D399); // Soft Neo Mint
+  // Secondary Fresh & Soft Accents
+  static const Color secondary = Color(0xFF10B981); // Soft Emerald
+  static const Color secondaryLight = Color(0xFF34D399); // Neo Mint
   static const Color secondaryDark = Color(0xFF059669);
+  static const Color secondaryPastel = Color(0xFFD1FAE5);
 
   // Cute Accents & Playful Highlights
-  static const Color accentPurple = Color(0xFF8B5CF6); // Cute Electric Violet
+  static const Color accentPurple = Color(0xFF8B5CF6); // Soft Lavender Violet
   static const Color accentPurpleLight = Color(0xFFA78BFA);
-  static const Color accentPink = Color(0xFFEC4899); // Cute Rose Magenta
-  static const Color accentCoral = Color(0xFFF43F5E); // Soft Coral Rose
-  static const Color accentCoralLight = Color(0xFFFDA4AF);
-  static const Color accentWarm = Color(0xFFF59E0B); // Radiant Amber
+  static const Color accentPurplePastel = Color(0xFFEDE9FE);
+  
+  static const Color accentPink = Color(0xFFF43F5E); // Soft Coral Pink
+  static const Color accentPinkLight = Color(0xFFFDA4AF);
+  static const Color accentPinkPastel = Color(0xFFFFE4E6);
+
+  static const Color accentWarm = Color(0xFFF59E0B); // Soft Warm Amber
+  static const Color accentWarmLight = Color(0xFFFBBF24);
+  static const Color accentWarmPastel = Color(0xFFFEF3C7);
 
   // Status & Utility Colors
-  static const Color success = Color(0xFF10B981); // Mint Success
+  static const Color success = Color(0xFF10B981);
   static const Color successLight = Color(0xFF34D399);
-  static const Color error = Color(0xFFF43F5E); // Cute Coral Red
-  static const Color warning = Color(0xFFF59E0B); // Amber Warning
+  static const Color error = Color(0xFFF43F5E);
+  static const Color warning = Color(0xFFF59E0B);
 
-  // --- Dark Mode Surface & Palette ---
-  static const Color darkBackground = Color(0xFF0A0E17); // Deep Midnight Obsidian
-  static const Color darkSurface = Color(0xFF101726); // Dark Graphite Slate
-  static const Color darkCardSurface = Color(0xFF162032); // Elevated Luminous Card
-  static const Color darkCardSurfaceHover = Color(0xFF1D2A42);
-  static const Color darkCardBorder = Color(0xFF24334D); // Crisp 1px Border Outline
-  static const Color darkCardBorderGlow = Color(0x3338BDF8); // Soft Neon Blue Halo
-  static const Color darkTextPrimary = Color(0xFFF8FAFC); // Clean Bright Ivory
+  // --- Dark Mode Surface & Palette (Soft Deep Slate, Low Eye Strain) ---
+  static const Color darkBackground = Color(0xFF0A0E17); // Midnight Obsidian
+  static const Color darkSurface = Color(0xFF101726); // Graphite Slate
+  static const Color darkCardSurface = Color(0xFF162032); // Elevated Card Surface
+  static const Color darkCardSurfaceHover = Color(0xFF1E2B42);
+  static const Color darkCardBorder = Color(0xFF24334D); // Soft Slate Outline
+  static const Color darkCardBorderGlow = Color(0x3338BDF8); // Soft Halo Glow
+  static const Color darkTextPrimary = Color(0xFFF8FAFC); // Crisp Ivory Text
   static const Color darkTextSecondary = Color(0xFF94A3B8); // Soft Slate Silver
-  static const Color darkTextMuted = Color(0xFF64748B); // Muted Graphite
+  static const Color darkTextMuted = Color(0xFF64748B); // Muted Slate
 
-  // --- Light Mode Surface & Palette (Crisp, Modern, High-Contrast) ---
-  static const Color lightBackground = Color(0xFFF8FAFC); // Soft Alabaster Mist
+  // --- Light Mode Surface & Palette (Silky Alabaster, High Contrast) ---
+  static const Color lightBackground = Color(0xFFF8FAFC); // Silky Alabaster Mist
   static const Color lightSurface = Color(0xFFF1F5F9); // Crisp Slate Container
   static const Color lightCardSurface = Color(0xFFFFFFFF); // Pure Crisp White
   static const Color lightCardSurfaceHover = Color(0xFFF8FAFC);
-  static const Color lightCardBorder = Color(0xFFE2E8F0); // Delicate Slate 200 outline
+  static const Color lightCardBorder = Color(0xFFE2E8F0); // Delicate Slate Outline
   static const Color lightCardBorderGlow = Color(0x1A0EA5E9); // Soft Sky Halo
   static const Color lightTextPrimary = Color(0xFF0F172A); // Deep Slate Charcoal
   static const Color lightTextSecondary = Color(0xFF475569); // Medium Slate
@@ -81,7 +88,11 @@ class AppThemeColors {
   final Color textMuted;
   final Color primary;
   final Color primaryLight;
+  final Color primaryPastel;
   final Color secondary;
+  final Color accentPurple;
+  final Color accentPink;
+  final Color accentWarm;
   final Color error;
   final Color success;
 
@@ -98,7 +109,11 @@ class AppThemeColors {
     required this.textMuted,
     required this.primary,
     required this.primaryLight,
+    required this.primaryPastel,
     required this.secondary,
+    required this.accentPurple,
+    required this.accentPink,
+    required this.accentWarm,
     required this.error,
     required this.success,
   });
@@ -116,7 +131,11 @@ class AppThemeColors {
     textMuted: AppColors.darkTextMuted,
     primary: AppColors.primary,
     primaryLight: AppColors.primaryLight,
+    primaryPastel: Color(0x1F0EA5E9),
     secondary: AppColors.secondary,
+    accentPurple: AppColors.accentPurple,
+    accentPink: AppColors.accentPink,
+    accentWarm: AppColors.accentWarm,
     error: AppColors.error,
     success: AppColors.success,
   );
@@ -134,7 +153,11 @@ class AppThemeColors {
     textMuted: AppColors.lightTextMuted,
     primary: AppColors.primaryDark,
     primaryLight: AppColors.primary,
+    primaryPastel: AppColors.primaryPastel,
     secondary: AppColors.secondaryDark,
+    accentPurple: AppColors.accentPurple,
+    accentPink: AppColors.accentPink,
+    accentWarm: AppColors.accentWarm,
     error: AppColors.error,
     success: AppColors.success,
   );

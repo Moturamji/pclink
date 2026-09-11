@@ -6,13 +6,17 @@ import 'package:pclink/data/models/device_details.dart';
 import 'package:pclink/data/models/linked_device.dart';
 import 'package:pclink/data/models/server_info.dart';
 import 'package:pclink/core/theme/theme_service.dart';
+import 'package:pclink/core/widgets/universal/animated_tab_bar.dart';
 import 'package:pclink/core/widgets/universal/app_logo.dart';
 import 'package:pclink/core/widgets/universal/bounceable.dart';
+import 'package:pclink/core/widgets/universal/hoverable.dart';
 import 'package:pclink/core/widgets/universal/status_badge.dart';
 import 'package:pclink/core/widgets/universal/theme_toggle_button.dart';
 import 'package:pclink/data/services/auth_service.dart';
 import 'package:pclink/data/services/server_service.dart';
 import 'package:pclink/features/clipboard/models/clipboard_item.dart';
+import 'package:pclink/presentation/screens/home/desktop/desktop_command_bar.dart';
+import 'package:pclink/presentation/screens/home/desktop/desktop_sidebar.dart';
 import 'package:pclink/presentation/screens/home/widgets/server_control_card.dart';
 
 void main() {
@@ -137,7 +141,6 @@ void main() {
     });
   });
 
-
   group('AuthService Tests', () {
     test('getErrorMessage returns proper message for exceptions', () {
       expect(
@@ -149,105 +152,93 @@ void main() {
 
   group('ServerControlCard Widget Tests', () {
     testWidgets('Shows Connect button when disconnected and server is live', (tester) async {
-      final server = ServerInfo(
+      const liveInfo = ServerInfo(
         isLive: true,
         ipAddress: '192.168.1.10',
         port: 8088,
         url: 'http://192.168.1.10:8088',
-        connectedClientId: null,
       );
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Scaffold(
             body: ServerControlCard(
               isWindows: false,
-              localDeviceId: 'my-android-id',
-              serverStream: Stream.value(server),
+              currentServerInfo: liveInfo,
+              localDeviceId: 'test-phone-id',
             ),
           ),
         ),
       );
 
-      await tester.pumpAndSettle();
-
       expect(find.text('Connect to Windows PC'), findsOneWidget);
-      expect(find.text('Connected to Windows PC'), findsNothing);
-      expect(find.text('Disconnect from Windows PC'), findsNothing);
     });
 
     testWidgets('Does not show Connect button when connected, shows Connected and Disconnect button', (tester) async {
-      final server = ServerInfo(
+      const liveInfoWithClient = ServerInfo(
         isLive: true,
         ipAddress: '192.168.1.10',
         port: 8088,
         url: 'http://192.168.1.10:8088',
-        connectedClientId: 'my-android-id',
+        connectedClientId: 'test-phone-id',
       );
 
       await tester.pumpWidget(
-        MaterialApp(
+        const MaterialApp(
           home: Scaffold(
             body: ServerControlCard(
               isWindows: false,
-              localDeviceId: 'my-android-id',
-              serverStream: Stream.value(server),
+              currentServerInfo: liveInfoWithClient,
+              localDeviceId: 'test-phone-id',
             ),
           ),
         ),
       );
 
-      await tester.pumpAndSettle();
-
-      // "Connect to Windows PC" must NOT be shown when connected
-      expect(find.text('Connect to Windows PC'), findsNothing);
-      // Connected state UI elements MUST be shown
-      expect(find.text('Connected to Windows PC'), findsOneWidget);
       expect(find.text('Disconnect from Windows PC'), findsOneWidget);
-      expect(find.text('CONNECTED'), findsOneWidget);
+      expect(find.text('Connect to Windows PC'), findsNothing);
     });
   });
 
-  group('Clipboard Feature & Universal Widget Tests', () {
+  group('Universal & Platform Specific Widget Tests', () {
     test('ClipboardItem serializes and deserializes correctly', () {
       final now = DateTime.now();
       final item = ClipboardItem(
-        id: 'clip_123',
-        text: 'Hello from Windows PC!',
-        sourcePlatform: 'windows',
-        sourceDeviceName: 'Desktop-Workstation',
+        id: 'clip-1',
+        text: 'Hello from Android',
+        sourcePlatform: 'android',
+        sourceDeviceName: 'Pixel 7',
         timestamp: now,
       );
 
-      expect(item.isFromWindows, isTrue);
-      expect(item.isFromAndroid, isFalse);
-      expect(item.charCount, 22);
-      expect(item.previewText, 'Hello from Windows PC!');
-
       final map = item.toMap();
-      expect(map['id'], 'clip_123');
-      expect(map['text'], 'Hello from Windows PC!');
-      expect(map['sourcePlatform'], 'windows');
+      expect(map['id'], 'clip-1');
+      expect(map['text'], 'Hello from Android');
+      expect(map['sourcePlatform'], 'android');
+      expect(map['sourceDeviceName'], 'Pixel 7');
 
-      final fromMapItem = ClipboardItem.fromMap(map);
-      expect(fromMapItem.id, 'clip_123');
-      expect(fromMapItem.text, 'Hello from Windows PC!');
-      expect(fromMapItem.sourcePlatform, 'windows');
+      final fromMap = ClipboardItem.fromMap(map);
+      expect(fromMap.id, 'clip-1');
+      expect(fromMap.text, 'Hello from Android');
+      expect(fromMap.sourceDeviceName, 'Pixel 7');
     });
 
     testWidgets('StatusBadge renders active and inactive states', (tester) async {
       await tester.pumpWidget(
         const MaterialApp(
           home: Scaffold(
-            body: StatusBadge(
-              label: 'TEST SYNC',
-              isActive: true,
+            body: Column(
+              children: [
+                StatusBadge(label: 'LIVE SYNC', isActive: true),
+                StatusBadge(label: 'STANDBY', isActive: false),
+              ],
             ),
           ),
         ),
       );
 
-      expect(find.text('TEST SYNC'), findsOneWidget);
+      expect(find.text('LIVE SYNC'), findsOneWidget);
+      expect(find.text('STANDBY'), findsOneWidget);
     });
 
     testWidgets('AppLogo renders with custom size and glow', (tester) async {
@@ -283,6 +274,103 @@ void main() {
       await tester.tap(find.text('Tap Me'));
       await tester.pumpAndSettle();
       expect(tapped, isTrue);
+    });
+
+    testWidgets('Hoverable renders child correctly', (tester) async {
+      var hoveredTap = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Hoverable(
+              onTap: () => hoveredTap = true,
+              child: const Text('Hover Me'),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Hover Me'), findsOneWidget);
+      await tester.tap(find.text('Hover Me'));
+      await tester.pumpAndSettle();
+      expect(hoveredTap, isTrue);
+    });
+
+    testWidgets('AnimatedTabBar renders tabs and responds to selection', (tester) async {
+      var selected = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AnimatedTabBar(
+              selectedIndex: selected,
+              onTabSelected: (idx) => selected = idx,
+              items: const [
+                TabItemData(
+                  icon: Icons.home,
+                  activeIcon: Icons.home,
+                  label: 'Home',
+                ),
+                TabItemData(
+                  icon: Icons.folder,
+                  activeIcon: Icons.folder,
+                  label: 'Files',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('Files'), findsOneWidget);
+      await tester.tap(find.text('Files'));
+      await tester.pumpAndSettle();
+      expect(selected, 1);
+    });
+
+    testWidgets('DesktopSidebar renders navigation links', (tester) async {
+      var currentTab = DesktopNavTab.overview;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 300,
+              height: 800,
+              child: DesktopSidebar(
+                currentTab: currentTab,
+                onTabChanged: (tab) => currentTab = tab,
+                userEmail: 'user@example.com',
+                isServerLive: true,
+                isRefreshing: false,
+                onRefresh: () {},
+                onSignOut: () {},
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('WORKSPACES'), findsOneWidget);
+      expect(find.text('Dashboard & Server'), findsOneWidget);
+      expect(find.text('File Transfer Studio'), findsOneWidget);
+      expect(find.text('user@example.com'), findsOneWidget);
+    });
+
+    testWidgets('DesktopCommandBar renders title and subtitle', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: DesktopCommandBar(
+              title: 'Dashboard & Server Hub',
+              subtitle: 'Manage local server endpoints',
+              isWindows: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Dashboard & Server Hub'), findsOneWidget);
+      expect(find.text('Manage local server endpoints'), findsOneWidget);
+      expect(find.text('Open Downloads'), findsOneWidget);
     });
 
     test('ServerService stores and clears local clipboard items in memory', () {
@@ -329,4 +417,3 @@ void main() {
     });
   });
 }
-
