@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../../core/constants/server_constants.dart';
 import '../../features/clipboard/models/clipboard_item.dart';
 import '../../features/file_share/models/shared_file.dart';
@@ -151,18 +152,39 @@ class ServerService {
     }
   }
 
-  /// Resolves (and lazily creates) the on-disk shared folder.
-  /// Files here are wiped only when the user removes them - the folder itself
-  /// persists across server restarts so downloads keep working.
+  /// Resolves (and lazily creates) the on-disk shared folder located inside
+  /// the system's Downloads folder under the dedicated 'PCLink' subfolder.
   Future<Directory> _getSharedDir() async {
-    if (_sharedDir != null) return _sharedDir!;
-    final appData = Platform.environment['APPDATA'] ?? '.';
-    final dir = Directory('$appData\\pclink\\shared_files');
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
+    if (_sharedDir != null && await _sharedDir!.exists()) return _sharedDir!;
+
+    Directory? targetDir;
+    if (!kIsWeb && Platform.isWindows) {
+      final userProfile = Platform.environment['USERPROFILE'];
+      if (userProfile != null && userProfile.isNotEmpty) {
+        final candidate = Directory('$userProfile\\Downloads\\PCLink');
+        targetDir = candidate;
+      }
     }
-    _sharedDir = dir;
-    return dir;
+
+    try {
+      final downloads = await getDownloadsDirectory();
+      if (downloads != null) {
+        targetDir ??= Directory('${downloads.path}\\PCLink');
+      }
+    } catch (_) {}
+
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      targetDir ??= Directory('${docs.path}\\PCLink');
+    } catch (_) {}
+
+    targetDir ??= Directory('.\\PCLink');
+
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+    _sharedDir = targetDir;
+    return targetDir;
   }
 
   /// Rebuilds the in-memory list from disk so previously shared files stay

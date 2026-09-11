@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../../core/constants/server_constants.dart';
@@ -10,11 +11,13 @@ import '../../features/file_share/models/transfer_progress.dart';
 
 /// Android client for the Windows temporary server's file-sharing API.
 ///
-/// Mirrors the clipboard service: it discovers the PC via the same adaptive
-/// candidate-URL list (public WAN/tunnel first, then LAN), sends the same
-/// X-Device-Id + X-Start-Time auth headers, and transfers file bytes directly
-/// through the temp server in real-time streaming chunks with continuous throughput tracking.
+/// Discovers the PC via adaptive candidate URLs (public WAN/tunnel first, then LAN),
+/// sends auth headers, transfers file bytes directly in streaming chunks,
+/// and stores files in the public Downloads/PCLink directory with MediaStore indexing.
 class FileShareService {
+  static const MethodChannel _storageChannel =
+      MethodChannel('com.example.pclink/storage');
+
   final http.Client _client = http.Client();
 
   List<String> Function()? _getTargetServerUrls;
@@ -185,7 +188,6 @@ class FileShareService {
           var bytesSent = 0;
           var lastProgressTime = DateTime.now();
 
-          // Stream file chunk-by-chunk to sink asynchronously
           final responseFuture = _client.send(request);
 
           try {
@@ -216,11 +218,12 @@ class FileShareService {
                 );
               }
             }
-          } finally {
             await request.sink.close();
+          } catch (e) {
+            debugPrint('FileShareService: Upload streaming failed: $e');
+            await request.sink.close();
+            rethrow;
           }
-
-          final streamedResponse = await responseFuture;
 
           if (_isCancelled) {
             _emitProgress(
@@ -238,6 +241,10 @@ class FileShareService {
             return false;
           }
 
+          final streamedResponse = await responseFuture.timeout(
+            const Duration(seconds: 15),
+          );
+
           if (streamedResponse.statusCode == 200) {
             _emitProgress(
               TransferProgress(
@@ -251,7 +258,6 @@ class FileShareService {
                 timestamp: DateTime.now(),
               ),
             );
-
             Timer(const Duration(seconds: 3), () {
               if (_currentProgress?.fileId == transferId) {
                 _emitProgress(null);
@@ -324,16 +330,7 @@ class FileShareService {
         if (streamedResponse.statusCode != 200) continue;
 
         final actualTotal = streamedResponse.contentLength ?? totalBytes;
-
-        Directory dir;
-        try {
-          dir =
-              await getDownloadsDirectory() ??
-              await getApplicationDocumentsDirectory();
-        } catch (_) {
-          dir = await getApplicationDocumentsDirectory();
-        }
-
+        final dir = await _getPCLinkDownloadDir();
         final dest = File('${dir.path}${Platform.pathSeparator}${item.name}');
         final sink = dest.openWrite();
 
@@ -408,6 +405,9 @@ class FileShareService {
           return null;
         }
 
+        // Notify Android MediaStore so the file immediately shows up in Downloads / Files app
+        await _notifyMediaScanner(dest.path);
+
         _emitProgress(
           TransferProgress(
             fileId: transferId,
@@ -453,6 +453,93 @@ class FileShareService {
     });
 
     return null;
+  }
+
+  /// Notifies the Android MediaScanner to index the newly downloaded file.
+  Future<void> _notifyMediaScanner(String filePath) async {
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        await _storageChannel.invokeMethod('scanFile', {'path': filePath});
+      } catch (e) {
+        debugPrint('FileShareService: scanFile invoke error: $e');
+      }
+    }
+  }
+
+  /// Resolves (and lazily creates) the standard device Downloads/PCLink folder.
+  Future<Directory> _getPCLinkDownloadDir() async {
+    if (!kIsWeb && Platform.isAndroid) {
+      // 1. Try native Android environment API for Downloads
+      try {
+        final String? nativePath =
+            await _storageChannel.invokeMethod<String>('getPublicDownloadsDirectory');
+        if (nativePath != null && nativePath.isNotEmpty) {
+          final nativeDir = Directory(nativePath);
+          if (!await nativeDir.exists()) {
+            await nativeDir.create(recursive: true);
+          }
+          return nativeDir;
+        }
+      } catch (e) {
+        debugPrint('FileShareService: Native getPublicDownloadsDirectory error: $e');
+      }
+
+      // 2. Direct Android primary storage Download folder
+      final androidDownload = Directory('/storage/emulated/0/Download/PCLink');
+      try {
+        if (!await androidDownload.exists()) {
+          await androidDownload.create(recursive: true);
+        }
+        return androidDownload;
+      } catch (e) {
+        debugPrint(
+          'FileShareService: Falling back from /storage/emulated/0/Download/PCLink: $e',
+        );
+      }
+
+      // 3. App-accessible external storage directories
+      try {
+        final extDirs = await getExternalStorageDirectories(
+          type: StorageDirectory.downloads,
+        );
+        if (extDirs != null && extDirs.isNotEmpty) {
+          final candidate =
+              Directory('${extDirs.first.path}${Platform.pathSeparator}PCLink');
+          if (!await candidate.exists()) {
+            await candidate.create(recursive: true);
+          }
+          return candidate;
+        }
+      } catch (e) {
+        debugPrint('FileShareService: External downloads fallback error: $e');
+      }
+    }
+
+    // 4. Standard path_provider getDownloadsDirectory
+    Directory? targetDir;
+    try {
+      final downloads = await getDownloadsDirectory();
+      if (downloads != null) {
+        targetDir = Directory(
+          '${downloads.path}${Platform.pathSeparator}PCLink',
+        );
+      }
+    } catch (_) {}
+
+    // 5. Fallback to Documents/PCLink
+    try {
+      final docs = await getApplicationDocumentsDirectory();
+      targetDir ??= Directory(
+        '${docs.path}${Platform.pathSeparator}PCLink',
+      );
+    } catch (_) {}
+
+    targetDir ??= Directory('.${Platform.pathSeparator}PCLink');
+
+    if (!await targetDir.exists()) {
+      await targetDir.create(recursive: true);
+    }
+    return targetDir;
   }
 
   void dispose() {
