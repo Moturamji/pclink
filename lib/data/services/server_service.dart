@@ -261,20 +261,20 @@ class ServerService {
       _server = await HttpServer.bind(
         InternetAddress.anyIPv4,
         port,
-        shared: true,
       );
 
-      final serverUrl = 'http://$hostIp:$port';
+      final boundPort = _server!.port;
+      final serverUrl = 'http://$hostIp:$boundPort';
       // A tunnel URL (ngrok / cloudflared) is used verbatim when provided;
       // otherwise fall back to the raw public WAN IP.
       final publicUrl =
           publicUrlOverride ??
-          (publicIp != null ? 'http://$publicIp:$port' : null);
+          (publicIp != null ? 'http://$publicIp:$boundPort' : null);
 
       _currentInfo = ServerInfo(
         isLive: true,
         ipAddress: hostIp,
-        port: port,
+        port: boundPort,
         url: serverUrl,
         publicIp: publicIp,
         publicUrl: publicUrl,
@@ -537,8 +537,8 @@ class ServerService {
     await request.response.close();
   }
 
-  /// `POST /api/files/upload?name=<file>&deviceName=<name>&size=<bytes>` - receives a file
-  /// pushed from the phone and saves it into the shared folder with real-time streaming progress.
+  /// `POST /api/files/upload?name=<file>&deviceName=<name>&size=<bytes>&offset=<bytes>&fileKey=<key>`
+  /// Receives a file pushed from the phone and saves it into the shared folder with resumable streaming progress.
   Future<void> _handleFileUpload(HttpRequest request) async {
     final deviceId = request.headers.value(ServerConstants.authHeader);
     final startTime = request.headers.value(ServerConstants.startTimeHeader);
@@ -571,23 +571,57 @@ class ServerService {
         request.uri.queryParameters['deviceName'] ?? 'Android Device';
     final totalBytes = int.tryParse(request.uri.queryParameters['size'] ?? '') ??
         (request.contentLength > 0 ? request.contentLength : 0);
+    final offsetParam =
+        int.tryParse(request.uri.queryParameters['offset'] ?? '') ?? 0;
+    final fileKey = request.uri.queryParameters['fileKey'] ??
+        '${originalName}_$totalBytes';
+
+    // Support offset check endpoint
+    if (request.method == 'GET' &&
+        request.uri.queryParameters['checkOffset'] == 'true') {
+      final dir = await _getSharedDir();
+      final partFile = File('${dir.path}\\.part_$fileKey.tmp');
+      final currentBytes =
+          (await partFile.exists()) ? await partFile.length() : 0;
+      request.response.statusCode = HttpStatus.ok;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(
+        jsonEncode({'offset': currentBytes, 'totalBytes': totalBytes}),
+      );
+      await request.response.close();
+      return;
+    }
 
     final transferId = 'rx_${DateTime.now().millisecondsSinceEpoch}';
     final stopwatch = Stopwatch()..start();
-    var bytesReceived = 0;
+    var bytesReceivedThisSession = 0;
     var lastProgressTime = DateTime.now();
 
     try {
       final dir = await _getSharedDir();
-      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
-      final dest = File('${dir.path}\\${id}_$originalName');
+      final partFile = File('${dir.path}\\.part_$fileKey.tmp');
 
-      final sink = dest.openWrite();
+      var effectiveOffset = 0;
+      if (offsetParam > 0 && await partFile.exists()) {
+        final existingLen = await partFile.length();
+        if (existingLen == offsetParam) {
+          effectiveOffset = existingLen;
+        } else if (existingLen > offsetParam) {
+          effectiveOffset = offsetParam;
+        }
+      } else if (offsetParam == 0 && await partFile.exists()) {
+        await partFile.delete();
+      }
+
+      final sink = partFile.openWrite(
+        mode: effectiveOffset > 0 ? FileMode.append : FileMode.write,
+      );
+
       _emitTransferProgress(
         TransferProgress(
           fileId: transferId,
           fileName: originalName,
-          bytesTransferred: 0,
+          bytesTransferred: effectiveOffset,
           totalBytes: totalBytes,
           speedBytesPerSec: 0,
           isUpload: false,
@@ -599,19 +633,24 @@ class ServerService {
       try {
         await for (final chunk in request) {
           sink.add(chunk);
-          bytesReceived += chunk.length;
+          bytesReceivedThisSession += chunk.length;
+          final currentTotalTransferred =
+              effectiveOffset + bytesReceivedThisSession;
           final now = DateTime.now();
           if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
-              (totalBytes > 0 && bytesReceived >= totalBytes)) {
+              (totalBytes > 0 && currentTotalTransferred >= totalBytes)) {
             lastProgressTime = now;
             final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
-            final speed = elapsedSec > 0 ? bytesReceived / elapsedSec : 0.0;
+            final speed =
+                elapsedSec > 0 ? bytesReceivedThisSession / elapsedSec : 0.0;
             _emitTransferProgress(
               TransferProgress(
                 fileId: transferId,
                 fileName: originalName,
-                bytesTransferred: bytesReceived,
-                totalBytes: totalBytes > 0 ? totalBytes : bytesReceived,
+                bytesTransferred: currentTotalTransferred,
+                totalBytes: totalBytes > 0
+                    ? totalBytes
+                    : currentTotalTransferred,
                 speedBytesPerSec: speed,
                 isUpload: false,
                 status: TransferStatus.inProgress,
@@ -625,13 +664,14 @@ class ServerService {
       } catch (e) {
         debugPrint('ServerService: upload pipe error: $e');
         await sink.close();
-        if (await dest.exists()) await dest.delete();
+        final currentLen =
+            await partFile.exists() ? await partFile.length() : 0;
         _emitTransferProgress(
           TransferProgress(
             fileId: transferId,
             fileName: originalName,
-            bytesTransferred: bytesReceived,
-            totalBytes: totalBytes > 0 ? totalBytes : bytesReceived,
+            bytesTransferred: currentLen,
+            totalBytes: totalBytes > 0 ? totalBytes : currentLen,
             speedBytesPerSec: 0,
             isUpload: false,
             status: TransferStatus.failed,
@@ -642,20 +682,25 @@ class ServerService {
         request.response.statusCode = HttpStatus.badRequest;
         request.response.headers.contentType = ContentType.json;
         request.response.write(
-          jsonEncode({'success': false, 'error': 'Upload failed'}),
+          jsonEncode({
+            'success': false,
+            'error': 'Upload interrupted',
+            'offset': currentLen,
+          }),
         );
         await request.response.close();
         return;
       }
 
-      // Verify that the entire payload was received completely
-      if (totalBytes > 0 && bytesReceived < totalBytes) {
-        if (await dest.exists()) await dest.delete();
+      final totalOnDisk = await partFile.length();
+
+      // Verify whether the entire payload was received completely
+      if (totalBytes > 0 && totalOnDisk < totalBytes) {
         _emitTransferProgress(
           TransferProgress(
             fileId: transferId,
             fileName: originalName,
-            bytesTransferred: bytesReceived,
+            bytesTransferred: totalOnDisk,
             totalBytes: totalBytes,
             speedBytesPerSec: 0,
             isUpload: false,
@@ -667,13 +712,23 @@ class ServerService {
         request.response.statusCode = HttpStatus.badRequest;
         request.response.headers.contentType = ContentType.json;
         request.response.write(
-          jsonEncode({'success': false, 'error': 'Transfer incomplete'}),
+          jsonEncode({
+            'success': false,
+            'error': 'Transfer incomplete',
+            'offset': totalOnDisk,
+          }),
         );
         await request.response.close();
         return;
       }
 
-      final actualSize = await dest.length();
+      // Verify integrity and atomically rename from .part file to final destination
+      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
+      final finalDest = File('${dir.path}\\${id}_$originalName');
+      if (await finalDest.exists()) await finalDest.delete();
+      await partFile.rename(finalDest.path);
+
+      final actualSize = await finalDest.length();
       _emitTransferProgress(
         TransferProgress(
           fileId: transferId,
@@ -700,7 +755,7 @@ class ServerService {
         sourcePlatform: 'android',
         sourceDeviceName: deviceName,
         timestamp: DateTime.now(),
-        filePath: dest.path,
+        filePath: finalDest.path,
       );
       _sharedFiles.insert(0, item);
       if (_sharedFiles.length > 100) _sharedFiles.removeLast();
@@ -710,22 +765,9 @@ class ServerService {
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode({'success': true, 'id': item.id}));
       await request.response.close();
-      debugPrint('ServerService: Received upload from phone: $originalName');
+      debugPrint('ServerService: Received upload from phone: $originalName ($actualSize bytes)');
     } catch (e) {
       debugPrint('ServerService: _handleFileUpload error: $e');
-      _emitTransferProgress(
-        TransferProgress(
-          fileId: transferId,
-          fileName: originalName,
-          bytesTransferred: bytesReceived,
-          totalBytes: totalBytes > 0 ? totalBytes : bytesReceived,
-          speedBytesPerSec: 0,
-          isUpload: false,
-          status: TransferStatus.failed,
-          errorMessage: e.toString(),
-          timestamp: DateTime.now(),
-        ),
-      );
       request.response.statusCode = HttpStatus.internalServerError;
       request.response.headers.contentType = ContentType.json;
       request.response.write(
@@ -735,7 +777,7 @@ class ServerService {
     }
   }
 
-  /// `GET /api/files/download?id=<id>` - streams a shared file to the phone with real-time speed/progress tracking.
+  /// `GET /api/files/download?id=<id>` - streams a shared file to the phone with HTTP Range resume support.
   Future<void> _handleFileDownload(HttpRequest request) async {
     final id = request.uri.queryParameters['id'] ?? '';
     SharedFile? match;
@@ -757,14 +799,54 @@ class ServerService {
     }
 
     final file = File(match.filePath!);
-    final length = await file.length();
-    request.response.statusCode = HttpStatus.ok;
+    final totalLength = await file.length();
+
+    // Check for HTTP Range header (e.g. "bytes=1048576-")
+    final rangeHeader =
+        request.headers.value('range') ?? request.headers.value('Range');
+    var startByte = 0;
+    var endByte = totalLength - 1;
+    var isRangeRequest = false;
+
+    if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
+      final rangeSpec = rangeHeader.substring(6).trim();
+      final parts = rangeSpec.split('-');
+      if (parts.isNotEmpty && parts[0].isNotEmpty) {
+        final parsedStart = int.tryParse(parts[0]);
+        if (parsedStart != null &&
+            parsedStart >= 0 &&
+            parsedStart < totalLength) {
+          startByte = parsedStart;
+          isRangeRequest = true;
+          if (parts.length > 1 && parts[1].isNotEmpty) {
+            final parsedEnd = int.tryParse(parts[1]);
+            if (parsedEnd != null &&
+                parsedEnd >= startByte &&
+                parsedEnd < totalLength) {
+              endByte = parsedEnd;
+            }
+          }
+        }
+      }
+    }
+
+    final contentLength = endByte - startByte + 1;
+
+    request.response.statusCode =
+        isRangeRequest ? HttpStatus.partialContent : HttpStatus.ok;
     request.response.headers.contentType = ContentType.binary;
+    request.response.headers.set('Accept-Ranges', 'bytes');
     request.response.headers.set(
       'Content-Disposition',
       'attachment; filename="${match.name}"',
     );
-    request.response.contentLength = length;
+    if (isRangeRequest) {
+      request.response.headers.set(
+        'Content-Range',
+        'bytes $startByte-$endByte/$totalLength',
+      );
+    }
+    request.response.contentLength = contentLength;
 
     final transferId = 'tx_${DateTime.now().millisecondsSinceEpoch}';
     final stopwatch = Stopwatch()..start();
@@ -775,8 +857,8 @@ class ServerService {
       TransferProgress(
         fileId: transferId,
         fileName: match.name,
-        bytesTransferred: 0,
-        totalBytes: length,
+        bytesTransferred: startByte,
+        totalBytes: totalLength,
         speedBytesPerSec: 0,
         isUpload: true,
         status: TransferStatus.inProgress,
@@ -785,13 +867,14 @@ class ServerService {
     );
 
     try {
-      final fileStream = file.openRead();
+      final fileStream = file.openRead(startByte, endByte + 1);
       await for (final chunk in fileStream) {
         request.response.add(chunk);
         bytesSent += chunk.length;
+        final currentTotalSent = startByte + bytesSent;
         final now = DateTime.now();
         if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
-            bytesSent >= length) {
+            currentTotalSent >= totalLength) {
           lastProgressTime = now;
           final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
           final speed = elapsedSec > 0 ? bytesSent / elapsedSec : 0.0;
@@ -799,11 +882,11 @@ class ServerService {
             TransferProgress(
               fileId: transferId,
               fileName: match.name,
-              bytesTransferred: bytesSent,
-              totalBytes: length,
+              bytesTransferred: currentTotalSent,
+              totalBytes: totalLength,
               speedBytesPerSec: speed,
               isUpload: true,
-              status: bytesSent >= length
+              status: currentTotalSent >= totalLength
                   ? TransferStatus.completed
                   : TransferStatus.inProgress,
               timestamp: now,
@@ -813,7 +896,7 @@ class ServerService {
       }
       await request.response.flush();
       await request.response.close();
-      debugPrint('ServerService: Served file to phone: ${match.name}');
+      debugPrint('ServerService: Served file to phone: ${match.name} ($bytesSent bytes)');
 
       Timer(const Duration(seconds: 3), () {
         if (_currentTransferProgress?.fileId == transferId) {
@@ -826,8 +909,8 @@ class ServerService {
         TransferProgress(
           fileId: transferId,
           fileName: match.name,
-          bytesTransferred: bytesSent,
-          totalBytes: length,
+          bytesTransferred: startByte + bytesSent,
+          totalBytes: totalLength,
           speedBytesPerSec: 0,
           isUpload: true,
           status: TransferStatus.failed,
@@ -1067,14 +1150,29 @@ class ServerService {
   }
 
   /// Verifies the server start time password that both devices read from RTDB.
+  /// Uses timezone-independent epoch comparison and exact string matching.
   bool _isValidServerStartTime(String? raw) {
     if (raw == null || raw.trim().isEmpty) return false;
-    final parsed = DateTime.tryParse(raw.trim());
-    if (parsed == null) return false;
     final startedAt = _currentInfo.startedAt;
     if (startedAt == null) return false;
-    // Tolerate small round-trip/clock skew while still rejecting wrong sessions.
-    return startedAt.difference(parsed).abs() < const Duration(seconds: 5);
+
+    final rawTrimmed = raw.trim();
+    // 1. Direct exact string match with ISO8601 or UTC representation
+    if (rawTrimmed == startedAt.toIso8601String() ||
+        rawTrimmed == startedAt.toUtc().toIso8601String()) {
+      return true;
+    }
+
+    // 2. Parse and compare epoch milliseconds (completely immune to local/UTC timezone differences)
+    final parsed = DateTime.tryParse(rawTrimmed);
+    if (parsed == null) return false;
+
+    final startedMs = startedAt.millisecondsSinceEpoch;
+    final parsedMs = parsed.millisecondsSinceEpoch;
+    if (startedMs == parsedMs) return true;
+
+    // 3. Tolerate server reconnect propagation window (up to 60s)
+    return (startedMs - parsedMs).abs() < 60000;
   }
 
   /// Best-effort attempt to add a Windows Firewall inbound rule for the server port.

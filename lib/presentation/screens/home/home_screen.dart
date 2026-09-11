@@ -51,6 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final TunnelService _tunnelService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
+  DeviceDetails? _cachedDeviceDetails;
   ServerInfo? _currentServerInfo;
   StreamSubscription<dynamic>? _serverSub;
   StreamSubscription<Map<String, dynamic>?>? _cloudHandshakeSub;
@@ -113,8 +114,12 @@ class _HomeScreenState extends State<HomeScreen> {
           });
           if (info == null || !info.isLive) {
             _stopAndroidServices();
-          } else if (_clipboardService.isListening) {
-            _clipboardService.onServerInfoPublished();
+          } else {
+            if (!_clipboardService.isListening && _cachedDeviceDetails != null) {
+              _startAndroidServices(_cachedDeviceDetails!);
+            } else if (_clipboardService.isListening) {
+              _clipboardService.onServerInfoPublished();
+            }
           }
         }
       });
@@ -125,6 +130,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startAndroidServices(DeviceDetails details) {
     if (kIsWeb || Platform.isWindows) return;
+    _cachedDeviceDetails = details;
+    if (_clipboardService.isListening) {
+      _clipboardService.onServerInfoPublished();
+      return;
+    }
     _clipboardService.startListening(
       deviceName: details.deviceName,
       isWindows: false,
@@ -243,6 +253,10 @@ class _HomeScreenState extends State<HomeScreen> {
           deviceId: details.deviceId,
           deviceName: details.deviceName,
         );
+
+        if (!kIsWeb && !details.isWindows && (_currentServerInfo?.isLive ?? false)) {
+          _startAndroidServices(details);
+        }
       } catch (_) {
         // Handled silently for offline scenarios
       }

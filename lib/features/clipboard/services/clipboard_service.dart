@@ -57,6 +57,7 @@ class ClipboardService with WidgetsBindingObserver {
 
   String? _lastLocalText;
   String? _lastReceivedRemoteText;
+  DateTime? _lastReceivedRemoteTime;
   bool isAutoSyncEnabled = true;
 
   // Connection health tracking
@@ -220,23 +221,18 @@ void _onForegroundDataReceived(dynamic data) {
     return DateTime.now().isAfter(_nextProbeAllowedAt);
   }
 
-  /// Tries every candidate URL (starting from the last working one) and
-  /// returns the first response. Serializes concurrent probes into a single
-  /// in-flight attempt; marks connectivity + resets backoff on any HTTP
-  /// response; treats transport errors as per-candidate failures.
-  /// Set [allowBackoffSkip] to false to always attempt (user-initiated ops
-  /// like a fresh POST / DELETE).
+  /// Tries candidate URLs in sequence for background polling / health checks.
+  /// Skips gracefully if a probe is already running so background timers never deadlock.
   Future<http.Response?> _tryUrlFallback(
     Future<http.Response> Function(String baseUrl) send, {
     bool allowBackoffSkip = true,
   }) async {
-    // Wait for any in-flight probe so concurrent timers don't stack requests.
-    while (_probeInFlight) {
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+    // If a probe is already in flight, skip this tick gracefully
+    if (_probeInFlight) {
+      return null;
     }
 
     if (allowBackoffSkip && !_shouldProbeNow()) {
-      debugPrint('ClipboardService: Probe throttled (offline backoff) - skipping.');
       return null;
     }
 
@@ -272,9 +268,7 @@ void _onForegroundDataReceived(dynamic data) {
 
     _workingServerUrl = null;
     _consecutiveFailures++;
-    // Progressive backoff (5s, 10s, 15s, 20s, then max 30s) so an unreachable
-    // PC doesn't cause endless 3s timeouts on every 2s timer.
-    final backoffSeconds = const [5, 10, 15, 20, 30][
+    final backoffSeconds = const [3, 6, 10, 15, 20][
       (_consecutiveFailures - 1).clamp(0, 4)
     ];
     _nextProbeAllowedAt = DateTime.now().add(Duration(seconds: backoffSeconds));
@@ -379,9 +373,7 @@ void _onForegroundDataReceived(dynamic data) {
     }
   }
 
-  /// Called whenever Firebase publishes a fresh server info. Only when the
-  /// address or the server session (start time) actually changed do we reset
-  /// the offline backoff and probe immediately - otherwise we stay throttled.
+  /// Called whenever Firebase publishes a fresh server info.
   void onServerInfoPublished() {
     final sig =
         '${_candidateUrls().join('|')}#${_getServerStartTime?.call() ?? ''}';
@@ -389,7 +381,7 @@ void _onForegroundDataReceived(dynamic data) {
     _lastSeenServerSignature = sig;
     _consecutiveFailures = 0;
     _nextProbeAllowedAt = DateTime.fromMillisecondsSinceEpoch(0);
-    _workingServerUrl = null; // re-probe from a fresh candidate list
+    _workingServerUrl = null;
     debugPrint('ClipboardService: New server info published - probing now.');
     _checkServerConnectivityAndSync();
   }
@@ -402,12 +394,22 @@ void _onForegroundDataReceived(dynamic data) {
 
       if (currentText == null || currentText.trim().isEmpty) return;
 
-      // Ignore if text is unchanged or matches text we just received from remote
-      if (currentText == _lastLocalText || currentText == _lastReceivedRemoteText) {
+      // Ignore if text is identical to last local text
+      if (currentText == _lastLocalText) {
+        return;
+      }
+
+      // If text matches remote text auto-synced recently (within 4 seconds), ignore the echo
+      if (currentText == _lastReceivedRemoteText &&
+          _lastReceivedRemoteTime != null &&
+          DateTime.now().difference(_lastReceivedRemoteTime!) <
+              const Duration(seconds: 4)) {
         return;
       }
 
       _lastLocalText = currentText;
+      _lastReceivedRemoteText = null;
+      _lastReceivedRemoteTime = null;
 
       final item = ClipboardItem(
         id: 'clip_${DateTime.now().millisecondsSinceEpoch}',
@@ -428,54 +430,58 @@ void _onForegroundDataReceived(dynamic data) {
       }
 
       debugPrint(
-          'ClipboardService: Transferred local clip directly (${item.charCount} chars)');
+        'ClipboardService: Transferred local clip directly (${item.charCount} chars)',
+      );
     } catch (e) {
       debugPrint('ClipboardService check error: $e');
     }
   }
 
-  /// Android -> Windows: Directly sends copied text to Windows server.
+  /// Android -> Windows: Directly sends copied text to Windows server without blocking on background locks.
   Future<void> _postClipToWindowsServer(ClipboardItem item) async {
-    var startUrl = _targetServerUrl;
-    if (startUrl == null || startUrl.isEmpty) {
-      // PC address may still be arriving from Firebase; retry briefly so the
-      // first copy isn't lost.
-      await Future<void>.delayed(const Duration(milliseconds: 1500));
-      startUrl = _targetServerUrl;
+    var urls = _candidateUrls();
+    if (urls.isEmpty) {
+      await Future<void>.delayed(const Duration(milliseconds: 1000));
+      urls = _candidateUrls();
     }
-    if (startUrl == null || startUrl.isEmpty) {
+    if (urls.isEmpty) {
       debugPrint('ClipboardService _postClip: server URL not ready yet');
       return;
     }
 
-    // User just copied something — always attempt, ignoring offline backoff.
-    final response = await _tryUrlFallback(
-      (url) => _client
-          .post(
-            Uri.parse('$url${ServerConstants.clipboardEndpoint}'),
-            headers: _authHeaders(),
-            body: jsonEncode(item.toMap()),
-          )
-          .timeout(const Duration(seconds: 3)),
-      allowBackoffSkip: false,
-    );
+    var startIndex = urls.indexOf(_workingServerUrl ?? '');
+    if (startIndex < 0) startIndex = 0;
 
-    if (response == null) {
-      debugPrint('ClipboardService: POST failed on all server addresses');
-      return;
-    }
+    for (var i = 0; i < urls.length; i++) {
+      final url = urls[(startIndex + i) % urls.length];
+      try {
+        final uri = Uri.parse('$url${ServerConstants.clipboardEndpoint}');
+        final response = await _client
+            .post(
+              uri,
+              headers: _authHeaders(),
+              body: jsonEncode(item.toMap()),
+            )
+            .timeout(const Duration(seconds: 4));
 
-    if (response.statusCode == 200) {
-      debugPrint('ClipboardService: Direct clip sent to PC (${item.charCount} chars)');
-    } else {
-      debugPrint(
-          'ClipboardService _postClip error: status ${response.statusCode} - ${response.body}');
-      if (response.statusCode == 401) {
-        _reportFailure(
-          'PC rejected this device or the server session password. Open PCLink on the PC (restart if needed), then reconnect.',
-        );
+        if (response.statusCode == 200) {
+          _markSuccess();
+          _workingServerUrl = url;
+          debugPrint(
+            'ClipboardService: Direct clip sent to PC (${item.charCount} chars) via $url',
+          );
+          return;
+        } else if (response.statusCode == 401) {
+          _reportFailure(
+            'PC rejected this device or the server session password. Open PCLink on the PC (restart if needed), then reconnect.',
+          );
+          return;
+        }
+      } catch (e) {
+        debugPrint('ClipboardService _postClip error on $url: $e');
       }
     }
+    debugPrint('ClipboardService: POST failed on all candidate URLs');
   }
 
   /// Android <- Windows: Fetches the latest copied clip directly from the PC server.
@@ -486,16 +492,12 @@ void _onForegroundDataReceived(dynamic data) {
     final serverUrl = _targetServerUrl;
     if (serverUrl == null || serverUrl.isEmpty) return;
 
-    // Throttling is handled centrally inside [_tryUrlFallback] (serialized
-    // probes + progressive backoff), so every timer tick simply delegates.
     final response = await _tryUrlFallback(
       (url) {
-        // Tunnel (https) first contact can be slow (cold start / TLS) -
-        // allow extra time; LAN stays snappy.
         final tunnel = url.startsWith('https://');
         return _client
             .get(Uri.parse('$url${ServerConstants.clipboardLatestEndpoint}'))
-            .timeout(Duration(seconds: tunnel ? 10 : 4));
+            .timeout(Duration(seconds: tunnel ? 4 : 2));
       },
     );
 
@@ -504,15 +506,20 @@ void _onForegroundDataReceived(dynamic data) {
     if (response.statusCode == 200 &&
         response.body.isNotEmpty &&
         response.body != 'null') {
-      final dynamic data = jsonDecode(response.body);
-      if (data is Map) {
-        final item = ClipboardItem.fromMap(data);
-        if (item.sourcePlatform != _currentPlatformName &&
-            item.text != _lastReceivedRemoteText) {
-          debugPrint(
-              'ClipboardService: Received new clip from PC: ${item.previewText}');
-          _handleRemoteClipReceived(item);
+      try {
+        final dynamic data = jsonDecode(response.body);
+        if (data is Map) {
+          final item = ClipboardItem.fromMap(data);
+          if (item.sourcePlatform != _currentPlatformName &&
+              item.text != _lastReceivedRemoteText) {
+            debugPrint(
+              'ClipboardService: Received new clip from PC: ${item.previewText}',
+            );
+            _handleRemoteClipReceived(item);
+          }
         }
+      } catch (e) {
+        debugPrint('ClipboardService decode error: $e');
       }
     }
   }
@@ -524,6 +531,7 @@ void _onForegroundDataReceived(dynamic data) {
     }
 
     _lastReceivedRemoteText = item.text;
+    _lastReceivedRemoteTime = DateTime.now();
     _addClipToLocalHistory(item);
     _onNewRemoteClipReceived?.call(item);
 

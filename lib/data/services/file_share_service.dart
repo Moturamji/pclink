@@ -175,40 +175,71 @@ class FileShareService {
       for (final baseUrl in urls) {
         if (_isCancelled) break;
         try {
+          // 1. Check if the server already has a partial .part file for this upload
+          var existingOffset = 0;
+          try {
+            final checkUri = Uri.parse(
+              '$baseUrl${ServerConstants.filesUploadEndpoint}?checkOffset=true&name=$encodedName&size=$totalBytes&fileKey=${encodedName}_$totalBytes',
+            );
+            final checkResp = await _client
+                .get(checkUri, headers: _authHeaders())
+                .timeout(const Duration(seconds: 4));
+            if (checkResp.statusCode == 200) {
+              final dynamic data = jsonDecode(checkResp.body);
+              if (data is Map && data['offset'] is int) {
+                final serverOffset = data['offset'] as int;
+                if (serverOffset > 0 && serverOffset < totalBytes) {
+                  existingOffset = serverOffset;
+                  debugPrint(
+                    'FileShareService: Resuming upload from byte $existingOffset / $totalBytes',
+                  );
+                }
+              }
+            }
+          } catch (_) {
+            // Check offset is optional, fallback to 0 if unsupported
+          }
+
           final uri = Uri.parse(
-            '$baseUrl${ServerConstants.filesUploadEndpoint}?name=$encodedName&deviceName=$deviceName&size=$totalBytes',
+            '$baseUrl${ServerConstants.filesUploadEndpoint}?name=$encodedName&deviceName=$deviceName&size=$totalBytes&offset=$existingOffset&fileKey=${encodedName}_$totalBytes',
           );
 
           final request = http.StreamedRequest('POST', uri);
           final headers = _authHeaders(contentType: 'application/octet-stream');
           headers.forEach((key, val) => request.headers[key] = val);
-          request.contentLength = totalBytes;
+          request.contentLength = totalBytes - existingOffset;
 
           final stopwatch = Stopwatch()..start();
-          var bytesSent = 0;
+          var bytesSentThisSession = 0;
           var lastProgressTime = DateTime.now();
 
           final responseFuture = _client.send(request);
 
           try {
-            await for (final chunk in file.openRead()) {
+            final stream = existingOffset > 0
+                ? file.openRead(existingOffset)
+                : file.openRead();
+
+            await for (final chunk in stream) {
               if (_isCancelled) {
                 break;
               }
               request.sink.add(chunk);
-              bytesSent += chunk.length;
+              bytesSentThisSession += chunk.length;
+              final currentTotalSent = existingOffset + bytesSentThisSession;
 
               final now = DateTime.now();
               if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
-                  bytesSent >= totalBytes) {
+                  currentTotalSent >= totalBytes) {
                 lastProgressTime = now;
                 final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
-                final speed = elapsedSec > 0 ? bytesSent / elapsedSec : 0.0;
+                final speed =
+                    elapsedSec > 0 ? bytesSentThisSession / elapsedSec : 0.0;
                 _emitProgress(
                   TransferProgress(
                     fileId: transferId,
                     fileName: name,
-                    bytesTransferred: bytesSent,
+                    bytesTransferred: currentTotalSent,
                     totalBytes: totalBytes,
                     speedBytesPerSec: speed,
                     isUpload: true,
@@ -230,7 +261,7 @@ class FileShareService {
               TransferProgress(
                 fileId: transferId,
                 fileName: name,
-                bytesTransferred: bytesSent,
+                bytesTransferred: existingOffset + bytesSentThisSession,
                 totalBytes: totalBytes,
                 speedBytesPerSec: 0,
                 isUpload: true,
@@ -242,7 +273,7 @@ class FileShareService {
           }
 
           final streamedResponse = await responseFuture.timeout(
-            const Duration(seconds: 15),
+            const Duration(seconds: 20),
           );
 
           if (streamedResponse.statusCode == 200) {
@@ -290,19 +321,22 @@ class FileShareService {
       });
       return false;
     } catch (e) {
-      debugPrint('FileShareService uploadFile error: $e');
+      debugPrint('FileShareService: uploadFile fatal error: $e');
       return false;
     }
   }
 
-  /// Downloads a shared file from PC to phone with real-time streaming chunks, speed, and percentage tracking.
+  /// Downloads a shared file from the PC with resumable Range header support.
   Future<File?> downloadFile(SharedFile item) async {
     _isCancelled = false;
     final urls = _candidateUrls();
-    if (urls.isEmpty) return null;
+    if (urls.isEmpty) {
+      debugPrint('FileShareService: No server URLs configured for download');
+      return null;
+    }
 
-    final transferId = 'rx_${DateTime.now().millisecondsSinceEpoch}';
     final totalBytes = item.size;
+    final transferId = 'rx_${DateTime.now().millisecondsSinceEpoch}';
 
     _emitProgress(
       TransferProgress(
@@ -320,42 +354,90 @@ class FileShareService {
     for (final baseUrl in urls) {
       if (_isCancelled) break;
       try {
+        final dir = await _getPCLinkDownloadDir();
+        final partFile = File(
+          '${dir.path}${Platform.pathSeparator}.part_${item.id}_${item.name}',
+        );
+        final finalDest = File(
+          '${dir.path}${Platform.pathSeparator}${item.name}',
+        );
+
+        var existingBytes = 0;
+        if (await partFile.exists()) {
+          existingBytes = await partFile.length();
+          if (existingBytes >= totalBytes) {
+            // Already fully downloaded in .part file! Verify and finalize
+            if (await finalDest.exists()) await finalDest.delete();
+            await partFile.rename(finalDest.path);
+            await _notifyMediaScanner(finalDest.path);
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: item.name,
+                bytesTransferred: totalBytes,
+                totalBytes: totalBytes,
+                speedBytesPerSec: 0,
+                isUpload: false,
+                status: TransferStatus.completed,
+                timestamp: DateTime.now(),
+              ),
+            );
+            return finalDest;
+          }
+        }
+
         final uri = Uri.parse(
           '$baseUrl${ServerConstants.filesDownloadEndpoint}?id=${Uri.encodeQueryComponent(item.id)}',
         );
 
         final request = http.Request('GET', uri);
+        final headers = _authHeaders();
+        headers.forEach((k, v) => request.headers[k] = v);
+
+        if (existingBytes > 0) {
+          request.headers['Range'] = 'bytes=$existingBytes-';
+          debugPrint(
+            'FileShareService: Resuming download from byte $existingBytes / $totalBytes',
+          );
+        }
+
         final streamedResponse = await _client.send(request);
 
-        if (streamedResponse.statusCode != 200) continue;
+        if (streamedResponse.statusCode != 200 &&
+            streamedResponse.statusCode != 206) {
+          continue;
+        }
 
-        final actualTotal = streamedResponse.contentLength ?? totalBytes;
-        final dir = await _getPCLinkDownloadDir();
-        final dest = File('${dir.path}${Platform.pathSeparator}${item.name}');
-        final sink = dest.openWrite();
+        final isPartial = streamedResponse.statusCode == 206;
+        final startOffset = isPartial ? existingBytes : 0;
+        final sink = partFile.openWrite(
+          mode: isPartial ? FileMode.append : FileMode.write,
+        );
 
         final stopwatch = Stopwatch()..start();
-        var bytesReceived = 0;
+        var bytesReceivedThisSession = 0;
         var lastProgressTime = DateTime.now();
 
         try {
           await for (final chunk in streamedResponse.stream) {
             if (_isCancelled) break;
             sink.add(chunk);
-            bytesReceived += chunk.length;
+            bytesReceivedThisSession += chunk.length;
+            final currentTotal = startOffset + bytesReceivedThisSession;
 
             final now = DateTime.now();
             if (now.difference(lastProgressTime).inMilliseconds >= 50 ||
-                bytesReceived >= actualTotal) {
+                currentTotal >= totalBytes) {
               lastProgressTime = now;
               final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
-              final speed = elapsedSec > 0 ? bytesReceived / elapsedSec : 0.0;
+              final speed =
+                  elapsedSec > 0 ? bytesReceivedThisSession / elapsedSec : 0.0;
               _emitProgress(
                 TransferProgress(
                   fileId: transferId,
                   fileName: item.name,
-                  bytesTransferred: bytesReceived,
-                  totalBytes: actualTotal,
+                  bytesTransferred: currentTotal,
+                  totalBytes: totalBytes,
                   speedBytesPerSec: speed,
                   isUpload: false,
                   status: TransferStatus.inProgress,
@@ -368,52 +450,56 @@ class FileShareService {
           await sink.close();
         } catch (e) {
           await sink.close();
-          if (await dest.exists()) await dest.delete();
+          // Keep partFile for subsequent resume retry
           rethrow;
         }
 
-        if (_isCancelled || (actualTotal > 0 && bytesReceived < actualTotal)) {
-          if (await dest.exists()) await dest.delete();
-          if (_isCancelled) {
-            _emitProgress(
-              TransferProgress(
-                fileId: transferId,
-                fileName: item.name,
-                bytesTransferred: bytesReceived,
-                totalBytes: actualTotal,
-                speedBytesPerSec: 0,
-                isUpload: false,
-                status: TransferStatus.cancelled,
-                timestamp: DateTime.now(),
-              ),
-            );
-          } else {
-            _emitProgress(
-              TransferProgress(
-                fileId: transferId,
-                fileName: item.name,
-                bytesTransferred: bytesReceived,
-                totalBytes: actualTotal,
-                speedBytesPerSec: 0,
-                isUpload: false,
-                status: TransferStatus.failed,
-                errorMessage: 'Download incomplete',
-                timestamp: DateTime.now(),
-              ),
-            );
-          }
+        if (_isCancelled) {
+          if (await partFile.exists()) await partFile.delete();
+          _emitProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: item.name,
+              bytesTransferred: startOffset + bytesReceivedThisSession,
+              totalBytes: totalBytes,
+              speedBytesPerSec: 0,
+              isUpload: false,
+              status: TransferStatus.cancelled,
+              timestamp: DateTime.now(),
+            ),
+          );
           return null;
         }
 
-        // Notify Android MediaStore so the file immediately shows up in Downloads / Files app
-        await _notifyMediaScanner(dest.path);
+        final totalDownloaded = await partFile.length();
+        if (totalBytes > 0 && totalDownloaded < totalBytes) {
+          _emitProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: item.name,
+              bytesTransferred: totalDownloaded,
+              totalBytes: totalBytes,
+              speedBytesPerSec: 0,
+              isUpload: false,
+              status: TransferStatus.failed,
+              errorMessage: 'Download incomplete',
+              timestamp: DateTime.now(),
+            ),
+          );
+          return null;
+        }
+
+        // Atomically rename .part file to destination file and notify media scanner
+        if (await finalDest.exists()) await finalDest.delete();
+        await partFile.rename(finalDest.path);
+        await _notifyMediaScanner(finalDest.path);
 
         _emitProgress(
           TransferProgress(
             fileId: transferId,
             fileName: item.name,
-            bytesTransferred: actualTotal,
-            totalBytes: actualTotal,
+            bytesTransferred: totalBytes,
+            totalBytes: totalBytes,
             speedBytesPerSec: 0,
             isUpload: false,
             status: TransferStatus.completed,
@@ -427,7 +513,7 @@ class FileShareService {
           }
         });
 
-        return dest;
+        return finalDest;
       } catch (e) {
         debugPrint('FileShareService: Download from $baseUrl failed: $e');
       }
