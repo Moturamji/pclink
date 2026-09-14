@@ -138,7 +138,7 @@ class DesktopCommandBar extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Cloudflare Tunnel',
+                      'PCLink Cloud Relay',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,

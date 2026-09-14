@@ -69,7 +69,7 @@ class TunnelService {
 
     try {
       debugPrint(
-          'TunnelService: Launching cloudflared quick tunnel on port $_targetPort...');
+          'TunnelService: Launching PCLink Relay tunnel on port $_targetPort...');
       _process = await Process.start(
         _binaryPath!,
         [
@@ -82,7 +82,7 @@ class TunnelService {
       );
       _processRunning = true;
     } catch (e) {
-      debugPrint('TunnelService: Failed to launch cloudflared: $e');
+      debugPrint('TunnelService: Failed to launch PCLink Relay service: $e');
       _process = null;
       _starting = false;
       return null;
@@ -202,18 +202,33 @@ void _watchProcess(Process process) {
       final baseDir = (appData != null && appData.isNotEmpty)
           ? '$appData\\pclink'
           : '.';
-      final binPath = '$baseDir\\cloudflared.exe';
+      final binPath = '$baseDir\\pclink-relay.exe';
+      final oldBinPath = '$baseDir\\cloudflared.exe';
+
+      // Auto-migrate previous binary name if present
       final file = File(binPath);
+      final oldFile = File(oldBinPath);
+
+      if (!await file.exists() && await oldFile.exists()) {
+        try {
+          await oldFile.rename(binPath);
+          debugPrint('TunnelService: Migrated binary to $binPath');
+        } catch (_) {
+          try {
+            await oldFile.copy(binPath);
+          } catch (_) {}
+        }
+      }
 
       if (await file.exists()) {
         _binaryPath = binPath;
         _binaryParent = baseDir;
-        debugPrint('TunnelService: cloudflared already installed at $binPath');
+        debugPrint('TunnelService: PCLink Relay binary ready at $binPath');
         return true;
       }
 
       debugPrint(
-          'TunnelService: First run - downloading cloudflared (about 30 MB, one time only).');
+          'TunnelService: First run - downloading PCLink Relay service (one time only)...');
       // Stream to disk in chunks instead of buffering the whole ~30 MB
       // binary in memory via response.bodyBytes.
       final request = http.Request('GET', Uri.parse(downloadUrl));
@@ -222,7 +237,7 @@ void _watchProcess(Process process) {
           );
       if (streamed.statusCode != 200) {
         debugPrint(
-            'TunnelService: cloudflared download failed (HTTP ${streamed.statusCode}). Falling back to WAN/LAN route.');
+            'TunnelService: PCLink Relay download failed (HTTP ${streamed.statusCode}). Falling back to WAN/LAN route.');
         return false;
       }
 
@@ -244,11 +259,11 @@ void _watchProcess(Process process) {
 
       _binaryPath = binPath;
       _binaryParent = baseDir;
-      debugPrint('TunnelService: cloudflared installed at $binPath');
+      debugPrint('TunnelService: PCLink Relay installed at $binPath');
       return true;
     } catch (e) {
       debugPrint(
-          'TunnelService: cloudflared setup failed: $e. Falling back to WAN/LAN route.');
+          'TunnelService: PCLink Relay setup failed: $e. Falling back to WAN/LAN route.');
       return false;
     }
   }

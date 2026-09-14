@@ -15,11 +15,13 @@ import 'package:pclink/core/widgets/universal/theme_toggle_button.dart';
 import 'package:pclink/data/services/auth_service.dart';
 import 'package:pclink/data/services/server_service.dart';
 import 'package:pclink/data/services/system_power_service.dart';
+import 'package:pclink/data/services/windows_permission_service.dart';
 import 'package:pclink/features/clipboard/models/clipboard_item.dart';
 import 'package:pclink/presentation/screens/home/desktop/desktop_command_bar.dart';
 import 'package:pclink/presentation/screens/home/desktop/desktop_sidebar.dart';
 import 'package:pclink/presentation/screens/home/widgets/server_control_card.dart';
 import 'package:pclink/presentation/screens/home/widgets/system_power_card.dart';
+import 'package:pclink/presentation/screens/home/widgets/windows_permission_dialog.dart';
 
 void main() {
   group('Validators Unit Tests', () {
@@ -588,6 +590,51 @@ void main() {
       );
 
       expect(find.text('SYSTEM CONTROLS'), findsNothing);
+    });
+  });
+
+  group('WindowsPermissionDialog & Service Tests', () {
+    testWidgets('Renders all PCLink permission items with zero other names like cloudflare', (tester) async {
+      bool dismissed = false;
+      bool granted = false;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: WindowsPermissionDialog(
+              onDismiss: () => dismissed = true,
+              onPermissionsGranted: () => granted = true,
+            ),
+          ),
+        ),
+      );
+
+      // Verify title & setup text
+      expect(find.text('Welcome to PCLink'), findsOneWidget);
+      expect(find.text('One-Time Network Permission Setup'), findsOneWidget);
+
+      // Verify every permission explicitly names PCLink
+      expect(find.text('PCLink Local Sync'), findsOneWidget);
+      expect(find.text('PCLink Network Relay'), findsOneWidget);
+      expect(find.text('PCLink Firewall Authorization'), findsOneWidget);
+      expect(find.text('Grant PCLink Permissions'), findsOneWidget);
+
+      // Verify NO other name like cloudflare appears anywhere in the dialog text
+      expect(find.textContaining('cloudflare', findRichText: true), findsNothing);
+      expect(find.textContaining('Cloudflare', findRichText: true), findsNothing);
+
+      // Verify dismiss button
+      expect(find.text('Maybe Later'), findsOneWidget);
+      await tester.ensureVisible(find.text('Maybe Later'));
+      await tester.tap(find.text('Maybe Later'));
+      await tester.pumpAndSettle();
+      expect(dismissed, isTrue);
+      expect(granted, isFalse);
+    });
+
+    test('WindowsPermissionService returns valid boolean for setup check', () async {
+      final status = await WindowsPermissionService.hasCompletedPermissionSetup();
+      expect(status, isA<bool>());
     });
   });
 }

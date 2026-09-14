@@ -15,10 +15,12 @@ import '../../../data/services/file_share_service.dart';
 import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
+import '../../../data/services/windows_permission_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
 import '../auth/auth_screen.dart';
 import 'desktop/desktop_dashboard_view.dart';
 import 'mobile/mobile_dashboard_view.dart';
+import 'widgets/windows_permission_dialog.dart';
 
 /// Main dashboard orchestrator: renders dedicated, distinct UI experiences
 /// for Desktop (Windows / wide screens) and Mobile (Android / touch screens).
@@ -99,6 +101,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     if (!kIsWeb && Platform.isWindows) {
+      _checkWindowsPermissions();
       _currentServerInfo = _serverService.currentServerInfo;
       _serverSub = _serverService.serverStateStream.listen((info) {
         if (mounted) {
@@ -211,6 +214,35 @@ class _HomeScreenState extends State<HomeScreen> {
         _stopAndroidServices();
       },
     );
+  }
+
+  Future<void> _checkWindowsPermissions() async {
+    if (kIsWeb || !Platform.isWindows) return;
+    try {
+      final completed = await WindowsPermissionService.hasCompletedPermissionSetup();
+      if (!completed && mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (dialogContext) {
+                return WindowsPermissionDialog(
+                  onDismiss: () {
+                    Navigator.of(dialogContext, rootNavigator: true).pop();
+                  },
+                  onPermissionsGranted: () {
+                    Navigator.of(dialogContext, rootNavigator: true).pop();
+                  },
+                );
+              },
+            );
+          }
+        });
+      }
+    } catch (e) {
+      debugPrint('HomeScreen: Error checking Windows permissions: $e');
+    }
   }
 
   void _stopAndroidServices() {
