@@ -48,6 +48,45 @@ class ServerInfo {
     );
   }
 
+  /// Determines if the server is marked live AND has sent a recent heartbeat (default within 20s).
+  bool isFreshlyLive({
+    DateTime? referenceTime,
+    Duration maxStaleness = const Duration(seconds: 20),
+  }) {
+    if (!isLive) return false;
+    final heartbeat = lastHeartbeat ?? startedAt;
+    if (heartbeat == null) return isLive;
+    final now = referenceTime ?? DateTime.now();
+    final diff = now.toUtc().difference(heartbeat.toUtc()).abs();
+    return diff <= maxStaleness;
+  }
+
+  ServerInfo copyWith({
+    bool? isLive,
+    String? ipAddress,
+    int? port,
+    String? url,
+    String? publicIp,
+    String? publicUrl,
+    String? connectionMode,
+    DateTime? startedAt,
+    DateTime? lastHeartbeat,
+    String? connectedClientId,
+  }) {
+    return ServerInfo(
+      isLive: isLive ?? this.isLive,
+      ipAddress: ipAddress ?? this.ipAddress,
+      port: port ?? this.port,
+      url: url ?? this.url,
+      publicIp: publicIp ?? this.publicIp,
+      publicUrl: publicUrl ?? this.publicUrl,
+      connectionMode: connectionMode ?? this.connectionMode,
+      startedAt: startedAt ?? this.startedAt,
+      lastHeartbeat: lastHeartbeat ?? this.lastHeartbeat,
+      connectedClientId: connectedClientId ?? this.connectedClientId,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'isLive': isLive,
@@ -58,7 +97,7 @@ class ServerInfo {
       'publicUrl': publicUrl ?? (publicIp != null ? 'http://$publicIp:$port' : null),
       'connectionMode': connectionMode,
       'startedAt': startedAt?.toIso8601String() ?? DateTime.now().toIso8601String(),
-      'lastHeartbeat': DateTime.now().toIso8601String(),
+      'lastHeartbeat': lastHeartbeat?.toIso8601String() ?? DateTime.now().toIso8601String(),
       'connectedClientId': connectedClientId,
     };
   }

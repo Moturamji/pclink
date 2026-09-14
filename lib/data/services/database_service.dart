@@ -93,7 +93,7 @@ class DatabaseService {
           'deviceName': details.deviceName,
           'osVersion': details.osVersion,
           'ipAddress': details.primaryIp,
-          'lastSeen': nowIso,
+          'lastSeen': {'.sv': 'timestamp'},
           'isOnline': true,
         }),
       );
@@ -114,14 +114,88 @@ class DatabaseService {
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
 
+      final map = serverInfo.toMap();
+      if (serverInfo.isLive) {
+        map['lastHeartbeat'] = {'.sv': 'timestamp'};
+      }
+
       final resp = await _client.put(
         uri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(serverInfo.toMap()),
+        body: jsonEncode(map),
       );
       debugPrint('DatabaseService: Updated server info with status ${resp.statusCode}');
     } catch (e) {
       debugPrint('DatabaseService updateServerInfo error: $e');
+    }
+  }
+
+  /// Sends a lightweight presence heartbeat for the running Windows server.
+  Future<void> updateServerHeartbeat({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+
+      await _client.patch(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'isLive': true,
+          'lastHeartbeat': {'.sv': 'timestamp'},
+        }),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService updateServerHeartbeat error: $e');
+    }
+  }
+
+  /// Sends a lightweight presence heartbeat for the active device (Android/Windows).
+  Future<void> updateDeviceHeartbeat({
+    required User user,
+    required String platformKey,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+
+      await _client.patch(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'isOnline': true,
+          'lastSeen': {'.sv': 'timestamp'},
+        }),
+      );
+    } catch (e) {
+      debugPrint('DatabaseService updateDeviceHeartbeat error: $e');
+    }
+  }
+
+  /// Marks the current device node as offline in Firebase RTDB.
+  Future<void> setDeviceOffline({
+    required User user,
+    required String platformKey,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+
+      await http.patch(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'isOnline': false,
+          'lastSeen': {'.sv': 'timestamp'},
+        }),
+      ).timeout(const Duration(seconds: 2));
+      debugPrint('DatabaseService: Marked $platformKey device offline');
+    } catch (e) {
+      debugPrint('DatabaseService setDeviceOffline error: $e');
     }
   }
 
@@ -134,18 +208,29 @@ class DatabaseService {
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
 
-      final resp = await _client.patch(
+      await http.patch(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'isLive': false,
-          'lastHeartbeat': DateTime.now().toIso8601String(),
+          'lastHeartbeat': {'.sv': 'timestamp'},
           'connectedClientId': null,
         }),
-      );
-      debugPrint('DatabaseService: Marked server offline with status ${resp.statusCode}');
+      ).timeout(const Duration(seconds: 2));
+      debugPrint('DatabaseService: Marked server offline');
     } catch (e) {
       debugPrint('DatabaseService setServerOffline error: $e');
+    }
+  }
+
+  DateTime? _extractServerTime(http.Response? response) {
+    if (response == null) return null;
+    final dateStr = response.headers['date'];
+    if (dateStr == null) return null;
+    try {
+      return HttpDate.parse(dateStr);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -167,10 +252,13 @@ class DatabaseService {
             response.body != 'null') {
           final dynamic data = jsonDecode(response.body);
           if (data is Map) {
+            final serverTime = _extractServerTime(response);
             final List<LinkedDevice> list = [];
             data.forEach((key, value) {
               if (value is Map) {
-                list.add(LinkedDevice.fromMap(key.toString(), value));
+                final dev = LinkedDevice.fromMap(key.toString(), value);
+                final isFresh = dev.isFreshlyOnline(referenceTime: serverTime);
+                list.add(dev.copyWith(isOnline: isFresh));
               }
             });
             if (!controller.isClosed) {
@@ -221,7 +309,10 @@ class DatabaseService {
             response.body != 'null') {
           final dynamic data = jsonDecode(response.body);
           if (data is Map) {
-            final server = ServerInfo.fromMap(data);
+            final serverTime = _extractServerTime(response);
+            final rawServer = ServerInfo.fromMap(data);
+            final isFresh = rawServer.isFreshlyLive(referenceTime: serverTime);
+            final server = rawServer.copyWith(isLive: isFresh);
             if (!controller.isClosed) {
               controller.add(server);
             }

@@ -44,13 +44,45 @@ class LinkedDevice {
     );
   }
 
+  /// Determines if the device is marked online AND has sent a recent heartbeat (default within 25s).
+  bool isFreshlyOnline({
+    DateTime? referenceTime,
+    Duration maxStaleness = const Duration(seconds: 25),
+  }) {
+    if (!isOnline) return false;
+    if (lastSeen == null) return isOnline;
+    final now = referenceTime ?? DateTime.now();
+    final diff = now.toUtc().difference(lastSeen!.toUtc()).abs();
+    return diff <= maxStaleness;
+  }
+
+  LinkedDevice copyWith({
+    String? platformKey,
+    String? deviceId,
+    String? deviceName,
+    String? osVersion,
+    String? ipAddress,
+    DateTime? lastSeen,
+    bool? isOnline,
+  }) {
+    return LinkedDevice(
+      platformKey: platformKey ?? this.platformKey,
+      deviceId: deviceId ?? this.deviceId,
+      deviceName: deviceName ?? this.deviceName,
+      osVersion: osVersion ?? this.osVersion,
+      ipAddress: ipAddress ?? this.ipAddress,
+      lastSeen: lastSeen ?? this.lastSeen,
+      isOnline: isOnline ?? this.isOnline,
+    );
+  }
+
   Map<String, dynamic> toMap() {
     return {
       'deviceId': deviceId,
       'deviceName': deviceName,
       'osVersion': osVersion,
       'ipAddress': ipAddress,
-      'lastSeen': DateTime.now().toIso8601String(),
+      'lastSeen': lastSeen?.toIso8601String() ?? DateTime.now().toIso8601String(),
       'isOnline': isOnline,
     };
   }

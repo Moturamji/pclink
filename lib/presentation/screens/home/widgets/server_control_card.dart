@@ -43,6 +43,16 @@ class _ServerControlCardState extends State<ServerControlCard> {
   ServerInfo? _lastKnownServer;
 
   Future<void> _handleAndroidConnect(ServerInfo server) async {
+    if (!server.isFreshlyLive()) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Windows PC is currently offline or not responding. Please start Link Service on PC.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+      return;
+    }
+
     if (widget.localDeviceId == null || widget.localDeviceId!.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -391,7 +401,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
         if (server != null) {
           _lastKnownServer = server;
         }
-        final isLive = server != null && server.isLive;
+        final isLive = server != null && server.isFreshlyLive();
         final isClientMatch = server?.connectedClientId != null &&
             server!.connectedClientId!.isNotEmpty &&
             widget.localDeviceId != null &&

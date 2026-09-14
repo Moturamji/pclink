@@ -139,6 +139,72 @@ void main() {
       expect(s1, equals(s2));
       expect(s1.hashCode, equals(s2.hashCode));
     });
+
+    test('ServerInfo isFreshlyLive evaluates freshness correctly', () {
+      final now = DateTime.now();
+      final freshServer = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.50',
+        port: 8088,
+        url: 'http://192.168.1.50:8088',
+        lastHeartbeat: now.subtract(const Duration(seconds: 5)),
+      );
+      expect(freshServer.isFreshlyLive(referenceTime: now), isTrue);
+
+      final staleServer = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.50',
+        port: 8088,
+        url: 'http://192.168.1.50:8088',
+        lastHeartbeat: now.subtract(const Duration(seconds: 35)),
+      );
+      expect(staleServer.isFreshlyLive(referenceTime: now), isFalse);
+
+      final offlineServer = ServerInfo(
+        isLive: false,
+        ipAddress: '192.168.1.50',
+        port: 8088,
+        url: 'http://192.168.1.50:8088',
+        lastHeartbeat: now,
+      );
+      expect(offlineServer.isFreshlyLive(referenceTime: now), isFalse);
+    });
+
+    test('LinkedDevice isFreshlyOnline evaluates freshness correctly', () {
+      final now = DateTime.now();
+      final freshDevice = LinkedDevice(
+        platformKey: 'android',
+        deviceId: 'id-1',
+        deviceName: 'Pixel',
+        osVersion: '14',
+        ipAddress: '192.168.1.2',
+        isOnline: true,
+        lastSeen: now.subtract(const Duration(seconds: 5)),
+      );
+      expect(freshDevice.isFreshlyOnline(referenceTime: now), isTrue);
+
+      final staleDevice = LinkedDevice(
+        platformKey: 'android',
+        deviceId: 'id-1',
+        deviceName: 'Pixel',
+        osVersion: '14',
+        ipAddress: '192.168.1.2',
+        isOnline: true,
+        lastSeen: now.subtract(const Duration(seconds: 40)),
+      );
+      expect(staleDevice.isFreshlyOnline(referenceTime: now), isFalse);
+
+      final offlineDevice = LinkedDevice(
+        platformKey: 'android',
+        deviceId: 'id-1',
+        deviceName: 'Pixel',
+        osVersion: '14',
+        ipAddress: '192.168.1.2',
+        isOnline: false,
+        lastSeen: now,
+      );
+      expect(offlineDevice.isFreshlyOnline(referenceTime: now), isFalse);
+    });
   });
 
   group('AuthService Tests', () {

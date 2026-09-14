@@ -146,6 +146,7 @@ class LinkedDevicesCard extends StatelessWidget {
     final colors = context.colors;
     final isWindows = device.isWindows;
     final avatarColor = isWindows ? colors.primaryLight : colors.secondary;
+    final isOnline = device.isFreshlyOnline();
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -187,11 +188,11 @@ class LinkedDevicesCard extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                     decoration: BoxDecoration(
-                      color: (device.isOnline ? colors.success : colors.textMuted)
+                      color: (isOnline ? colors.success : colors.textMuted)
                           .withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
-                        color: (device.isOnline ? colors.success : colors.textMuted)
+                        color: (isOnline ? colors.success : colors.textMuted)
                             .withValues(alpha: 0.3),
                       ),
                     ),
@@ -203,18 +204,18 @@ class LinkedDevicesCard extends StatelessWidget {
                           height: 5,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            color: device.isOnline
+                            color: isOnline
                                 ? colors.success
                                 : colors.textMuted,
                           ),
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          device.isOnline ? 'ONLINE' : 'SAVED',
+                          isOnline ? 'ONLINE' : 'SAVED',
                           style: TextStyle(
                             fontSize: 9,
                             fontWeight: FontWeight.w800,
-                            color: device.isOnline
+                            color: isOnline
                                 ? colors.success
                                 : colors.textMuted,
                           ),

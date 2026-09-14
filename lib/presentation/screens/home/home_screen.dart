@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -58,6 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<Map<String, dynamic>?>? _notificationSub;
   Timer? _tunnelWatcherTimer;
   StreamSubscription<String?>? _tunnelUrlSub;
+  Timer? _serverHeartbeatTimer;
+  Timer? _deviceHeartbeatTimer;
+  AppLifecycleListener? _lifecycleListener;
   bool _isRefreshing = false;
   bool _wasServerLive = false;
   String? _lastAlertedNotificationId;
@@ -74,6 +78,19 @@ class _HomeScreenState extends State<HomeScreen> {
     _tunnelService = TunnelService();
 
     final user = _authService.currentUser;
+
+    // Listen for application exit / quit lifecycle events to gracefully mark offline
+    _lifecycleListener = AppLifecycleListener(
+      onExitRequested: () async {
+        debugPrint('HomeScreen: Application exit requested');
+        await _cleanupAndMarkOffline();
+        return AppExitResponse.exit;
+      },
+      onDetach: () {
+        debugPrint('HomeScreen: Application detached');
+        _cleanupAndMarkOffline();
+      },
+    );
 
     // Initialize FCM push notification service on Android
     NotificationService.initialize(
@@ -202,8 +219,53 @@ class _HomeScreenState extends State<HomeScreen> {
     _clipboardService.stopListening();
   }
 
+  Future<void> _cleanupAndMarkOffline() async {
+    _serverHeartbeatTimer?.cancel();
+    _serverHeartbeatTimer = null;
+    _deviceHeartbeatTimer?.cancel();
+    _deviceHeartbeatTimer = null;
+
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    final isWindows = !kIsWeb && Platform.isWindows;
+    final platformKey = isWindows ? 'windows' : 'android';
+
+    final futures = <Future<void>>[
+      _databaseService.setDeviceOffline(user: user, platformKey: platformKey),
+    ];
+
+    if (isWindows && _serverService.isRunning) {
+      futures.add(_databaseService.setServerOffline(user: user));
+      futures.add(_serverService.stopServer());
+    }
+
+    try {
+      await Future.wait(futures).timeout(const Duration(seconds: 2));
+    } catch (_) {}
+  }
+
+  void _startDeviceHeartbeat(User user, String platformKey) {
+    _deviceHeartbeatTimer?.cancel();
+    _deviceHeartbeatTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      _databaseService.updateDeviceHeartbeat(user: user, platformKey: platformKey);
+    });
+  }
+
+  void _startServerHeartbeat(User user) {
+    _serverHeartbeatTimer?.cancel();
+    _serverHeartbeatTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (_serverService.isRunning) {
+        _databaseService.updateServerHeartbeat(user: user);
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _lifecycleListener?.dispose();
+    _serverHeartbeatTimer?.cancel();
+    _deviceHeartbeatTimer?.cancel();
     _serverSub?.cancel();
     _cloudHandshakeSub?.cancel();
     _notificationSub?.cancel();
@@ -212,11 +274,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _tunnelService.dispose();
     _clipboardService.dispose();
     _fileShareService.dispose();
+    _cleanupAndMarkOffline();
     if (!kIsWeb && Platform.isWindows) {
-      final user = _authService.currentUser;
-      if (user != null) {
-        _databaseService.setServerOffline(user: user);
-      }
       _serverService.dispose();
     }
     super.dispose();
@@ -240,6 +299,8 @@ class _HomeScreenState extends State<HomeScreen> {
           details: details,
         );
 
+        _startDeviceHeartbeat(user, details.isWindows ? 'windows' : 'android');
+
         // Windows only: Automatically launch lightweight local server and announce to RTDB
         if (!kIsWeb && details.isWindows) {
           _serverService.setAuthorizedAndroidDeviceId(
@@ -256,6 +317,7 @@ class _HomeScreenState extends State<HomeScreen> {
               user: user,
               serverInfo: serverInfo,
             );
+            _startServerHeartbeat(user);
             _startTunnelWatcher(user);
             _startAutomatedTunnel(user);
             await _databaseService.queueServerLiveNotification(
@@ -312,6 +374,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _toggleServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (_serverService.isRunning) {
+      _serverHeartbeatTimer?.cancel();
+      _serverHeartbeatTimer = null;
       _tunnelWatcherTimer?.cancel();
       _tunnelWatcherTimer = null;
       _tunnelUrlSub?.cancel();
@@ -333,6 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
           user: user,
           serverInfo: serverInfo,
         );
+        _startServerHeartbeat(user);
         _startTunnelWatcher(user);
         _startAutomatedTunnel(user);
         await _databaseService.queueServerLiveNotification(
@@ -453,18 +518,12 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
-              if (!kIsWeb && Platform.isWindows) {
-                final user = _authService.currentUser;
-                if (user != null) {
-                  await _databaseService.setServerOffline(user: user);
-                }
-                _tunnelWatcherTimer?.cancel();
-                _tunnelWatcherTimer = null;
-                _tunnelUrlSub?.cancel();
-                _tunnelUrlSub = null;
-                await _tunnelService.stop();
-                await _serverService.stopServer();
-              }
+              await _cleanupAndMarkOffline();
+              _tunnelWatcherTimer?.cancel();
+              _tunnelWatcherTimer = null;
+              _tunnelUrlSub?.cancel();
+              _tunnelUrlSub = null;
+              await _tunnelService.stop();
               await _authService.signOut();
               if (mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
