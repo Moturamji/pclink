@@ -43,6 +43,7 @@ dependencies:
   flutter_foreground_task: ^11.0.3
   file_picker: ^12.2.0
   path_provider: ^2.1.6
+  googleapis_auth: ^2.3.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

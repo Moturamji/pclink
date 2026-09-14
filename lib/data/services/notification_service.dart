@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../firebase_options.dart';
 import 'database_service.dart';
@@ -34,12 +35,14 @@ class NotificationService {
     channelId,
     channelName,
     description: channelDescription,
-    importance: Importance.high,
+    importance: Importance.max,
     playSound: true,
     enableVibration: true,
+    showBadge: true,
   );
 
   static bool _isInitialized = false;
+  static const int serverLiveNotificationId = 8881;
 
   /// Initializes notification services, channels, and registers FCM listeners on supported platforms.
   static Future<void> initialize({
@@ -69,12 +72,13 @@ class NotificationService {
         },
       );
 
-      // 2. Create the high importance Android channel
+      // 2. Create the high importance Android channel & request permissions on Android 13+
       final androidPlugin = _localNotifications
           .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
 
       if (androidPlugin != null) {
         await androidPlugin.createNotificationChannel(_androidChannel);
+        await androidPlugin.requestNotificationsPermission();
       }
 
       // 3. Request permissions from user
@@ -119,6 +123,12 @@ class NotificationService {
         debugPrint('NotificationService: App opened from notification: ${message.data}');
       });
 
+      // 9. Notification tap when app was completely closed / terminated
+      final initialMessage = await FirebaseMessaging.instance.getInitialMessage();
+      if (initialMessage != null) {
+        debugPrint('NotificationService: App launched from notification: ${initialMessage.data}');
+      }
+
       _isInitialized = true;
     } catch (e) {
       debugPrint('NotificationService initialize error: $e');
@@ -140,6 +150,73 @@ class NotificationService {
     }
   }
 
+  /// Displays a rich, professional heads-up notification alerting that the Windows PC is online.
+  static Future<void> showServerLiveNotification({
+    required String hostName,
+    String? ipAddress,
+    String? publicUrl,
+  }) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+
+    try {
+      final endpointSummary = (publicUrl != null && publicUrl.isNotEmpty)
+          ? 'Cloud Tunnel Active ($publicUrl)'
+          : (ipAddress != null && ipAddress.isNotEmpty)
+              ? 'Local Network ($ipAddress)'
+              : 'Secure Connection Ready';
+
+      final bigTextStyleInformation = BigTextStyleInformation(
+        '**$hostName** is running PCLink and ready for secure connection.\n\n'
+        '• Status: Online & Live\n'
+        '• Endpoint: $endpointSummary\n\n'
+        'Tap to open PCLink and sync clipboard or transfer files.',
+        htmlFormatBigText: false,
+        contentTitle: '🖥️ Windows PC is Online & Ready',
+        htmlFormatContentTitle: false,
+        summaryText: 'PCLink Live Server',
+        htmlFormatSummaryText: false,
+      );
+
+      final androidDetails = AndroidNotificationDetails(
+        channelId,
+        channelName,
+        channelDescription: channelDescription,
+        importance: Importance.max,
+        priority: Priority.max,
+        icon: '@mipmap/ic_launcher',
+        color: const Color(0xFF4F46E5),
+        playSound: true,
+        enableVibration: true,
+        vibrationPattern: Int64List.fromList([0, 250, 200, 250]),
+        styleInformation: bigTextStyleInformation,
+        ticker: '$hostName is Live',
+        autoCancel: true,
+      );
+
+      final platformDetails = NotificationDetails(android: androidDetails);
+
+      await _localNotifications.show(
+        id: serverLiveNotificationId,
+        title: '🖥️ Windows PC is Online & Ready',
+        body: '$hostName is live • $endpointSummary',
+        notificationDetails: platformDetails,
+        payload: 'home',
+      );
+    } catch (e) {
+      debugPrint('NotificationService showServerLiveNotification error: $e');
+    }
+  }
+
+  /// Cancels the server live notification (e.g. when PC turns offline)
+  static Future<void> cancelServerLiveNotification() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _localNotifications.cancel(id: serverLiveNotificationId);
+    } catch (e) {
+      debugPrint('NotificationService cancelServerLiveNotification error: $e');
+    }
+  }
+
   /// Displays a local heads-up notification for foreground or data-only FCM messages.
   static Future<void> _showLocalNotification(RemoteMessage message) async {
     final notification = message.notification;
@@ -150,9 +227,10 @@ class NotificationService {
       channelId,
       channelName,
       channelDescription: channelDescription,
-      importance: Importance.high,
-      priority: Priority.high,
+      importance: Importance.max,
+      priority: Priority.max,
       icon: '@mipmap/ic_launcher',
+      color: Color(0xFF4F46E5),
       playSound: true,
       enableVibration: true,
     );

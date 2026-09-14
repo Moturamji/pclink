@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 import '../models/device_details.dart';
 import '../models/linked_device.dart';
@@ -78,12 +80,12 @@ class DatabaseService {
             'DatabaseService sync warning: user get returned [${userResponse.statusCode}] ${userResponse.body}');
       }
 
-      // 2. Store or update platform device node
+      // 2. Store or update platform device node (use PATCH to prevent wiping out fcmToken)
       final platformKey = details.isWindows ? 'windows' : 'android';
       final deviceUri = Uri.parse(
           '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
 
-      final devResp = await _client.put(
+      final devResp = await _client.patch(
         deviceUri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
@@ -430,7 +432,7 @@ class DatabaseService {
     }
   }
 
-  /// Updates the FCM device push token for the user's Android device.
+  /// Updates the FCM device push token for the user's Android device across RTDB paths.
   Future<void> updateFcmToken({
     required User user,
     required String fcmToken,
@@ -438,33 +440,82 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
 
-      final resp = await _client.put(
+      // 1. Direct leaf node
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
+      await _client.put(
         uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(fcmToken),
       );
-      debugPrint('DatabaseService: Updated Android FCM Token with status ${resp.statusCode}');
+
+      // 2. Also patch into devices/android object to preserve other fields
+      final devUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android.json$authQuery');
+      await _client.patch(
+        devUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'fcmToken': fcmToken}),
+      );
+
+      // 3. Also write to root user fcmToken node as convenience fallback
+      final userFcmUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/fcmToken.json$authQuery');
+      await _client.put(
+        userFcmUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(fcmToken),
+      );
+
+      debugPrint('DatabaseService: Registered Android FCM Token successfully across RTDB nodes');
     } catch (e) {
       debugPrint('DatabaseService updateFcmToken error: $e');
     }
   }
 
-  /// Retrieves the registered Android FCM token for the given [user].
+  /// Retrieves the registered Android FCM token for the given [user], checking multiple fallback nodes.
   Future<String?> getAndroidFcmToken({required User user}) async {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
-      final response = await _client.get(uri);
 
-      if (response.statusCode == 200 &&
+      // 1. Primary path: /users/{uid}/devices/android/fcmToken.json
+      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
+      final response = await _safeGet(uri);
+
+      if (response != null &&
+          response.statusCode == 200 &&
           response.body.isNotEmpty &&
           response.body != 'null') {
         final decoded = jsonDecode(response.body);
         if (decoded is String && decoded.isNotEmpty) {
           return decoded;
+        }
+      }
+
+      // 2. Fallback path: /users/{uid}/fcmToken.json
+      final fallbackUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/fcmToken.json$authQuery');
+      final fallbackResp = await _safeGet(fallbackUri);
+      if (fallbackResp != null &&
+          fallbackResp.statusCode == 200 &&
+          fallbackResp.body.isNotEmpty &&
+          fallbackResp.body != 'null') {
+        final decoded = jsonDecode(fallbackResp.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+
+      // 3. Fallback path: check /users/{uid}/devices/android.json if fcmToken is nested inside
+      final devUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android.json$authQuery');
+      final devResp = await _safeGet(devUri);
+      if (devResp != null &&
+          devResp.statusCode == 200 &&
+          devResp.body.isNotEmpty &&
+          devResp.body != 'null') {
+        final decoded = jsonDecode(devResp.body);
+        if (decoded is Map &&
+            decoded['fcmToken'] is String &&
+            (decoded['fcmToken'] as String).isNotEmpty) {
+          return decoded['fcmToken'] as String;
         }
       }
     } catch (e) {
@@ -501,6 +552,8 @@ class DatabaseService {
   Future<void> queueServerLiveNotification({
     required User user,
     required String pcHostName,
+    String? ipAddress,
+    String? publicUrl,
   }) async {
     try {
       final token = await user.getIdToken();
@@ -517,6 +570,8 @@ class DatabaseService {
           'timestamp': DateTime.now().toIso8601String(),
           'type': 'server_live',
           'hostName': pcHostName,
+          'ipAddress': ipAddress,
+          'publicUrl': publicUrl,
         }),
       );
       debugPrint('DatabaseService: Queued server live notification alert');
@@ -533,6 +588,54 @@ class DatabaseService {
     }
   }
 
+  /// Streams the latest notification event queued in RTDB for the given [user].
+  Stream<Map<String, dynamic>?> watchLatestNotification(User user) {
+    late final StreamController<Map<String, dynamic>?> controller;
+    Timer? timer;
+
+    Future<void> fetchLatestNotification() async {
+      try {
+        final token = await user.getIdToken();
+        final authQuery = token != null ? '?auth=$token' : '';
+        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/notifications/latest.json$authQuery');
+        final response = await _safeGet(uri);
+
+        if (response != null &&
+            response.statusCode == 200 &&
+            response.body.isNotEmpty &&
+            response.body != 'null') {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map) {
+            if (!controller.isClosed) {
+              controller.add(Map<String, dynamic>.from(data));
+            }
+            return;
+          }
+        }
+        if (!controller.isClosed) {
+          controller.add(null);
+        }
+      } catch (e) {
+        debugPrint('DatabaseService watchLatestNotification error: $e');
+        if (!controller.isClosed) {
+          controller.add(null);
+        }
+      }
+    }
+
+    controller = StreamController<Map<String, dynamic>?>.broadcast(
+      onListen: () {
+        fetchLatestNotification();
+        timer = Timer.periodic(const Duration(seconds: 3), (_) => fetchLatestNotification());
+      },
+      onCancel: () {
+        timer?.cancel();
+      },
+    );
+
+    return controller.stream;
+  }
+
   /// Dispatches an immediate FCM Push Notification directly from Windows to the Android device.
   Future<bool> sendDirectFcmPush({
     required User user,
@@ -540,13 +643,6 @@ class DatabaseService {
     required String body,
     required String hostName,
   }) async {
-    if (fcmServerKey.isEmpty) {
-      debugPrint(
-          'DatabaseService: FCM server key not configured - direct push skipped. Add it to DatabaseService.fcmServerKey (Firebase console -> Project settings -> Cloud Messaging).',
-      );
-      return false;
-    }
-
     try {
       final fcmToken = await getAndroidFcmToken(user: user);
       if (fcmToken == null || fcmToken.isEmpty) {
@@ -554,40 +650,156 @@ class DatabaseService {
         return false;
       }
 
-      final payload = {
-        'to': fcmToken,
-        'priority': 'high',
-        'notification': {
-          'title': title,
-          'body': body,
-          'sound': 'default',
-          'android_channel_id': 'pclink_server_channel',
-        },
-        'data': {
-          'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-          'title': title,
-          'body': body,
-          'hostName': hostName,
-          'type': 'server_live',
-          'timestamp': DateTime.now().toIso8601String(),
-        },
-      };
+      // 1. Primary: Google FCM HTTP v1 using Firebase Admin Service Account
+      if (!kIsWeb) {
+        try {
+          final saFile = File('firebase_service_account.json');
+          if (saFile.existsSync()) {
+            final saJson = saFile.readAsStringSync().trim();
+            if (saJson.isNotEmpty) {
+              debugPrint('DatabaseService: Dispatching push via Google FCM v1 Service Account...');
+              final v1Success = await _sendFcmV1Push(
+                fcmToken: fcmToken,
+                title: title,
+                body: body,
+                hostName: hostName,
+                serviceAccountJson: saJson,
+              );
+              if (v1Success) {
+                debugPrint('DatabaseService: FCM v1 push delivered successfully to phone!');
+                return true;
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('DatabaseService FCM v1 attempt error: $e');
+        }
+      }
 
-      final fcmUri = Uri.parse('https://fcm.googleapis.com/fcm/send');
-      final fcmResponse = await _client.post(
-        fcmUri,
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'key=$fcmServerKey',
-        },
-        body: jsonEncode(payload),
+      // 2. Secondary Fallback: Legacy FCM Server Key
+      if (fcmServerKey.isEmpty && !kIsWeb) {
+        try {
+          final keyFile = File('fcm_server_key.txt');
+          if (keyFile.existsSync()) {
+            final content = keyFile.readAsStringSync().trim();
+            if (content.isNotEmpty) {
+              fcmServerKey = content;
+              debugPrint('DatabaseService: Loaded FCM Server Key from fcm_server_key.txt');
+            }
+          }
+        } catch (e) {
+          debugPrint('DatabaseService: Could not read fcm_server_key.txt: $e');
+        }
+      }
+
+      if (fcmServerKey.isNotEmpty) {
+        final payload = {
+          'to': fcmToken,
+          'priority': 'high',
+          'notification': {
+            'title': title,
+            'body': body,
+            'sound': 'default',
+            'android_channel_id': 'pclink_server_channel',
+          },
+          'data': {
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            'title': title,
+            'body': body,
+            'hostName': hostName,
+            'type': 'server_live',
+            'timestamp': DateTime.now().toIso8601String(),
+          },
+        };
+
+        final fcmUri = Uri.parse('https://fcm.googleapis.com/fcm/send');
+        final fcmResponse = await _client.post(
+          fcmUri,
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'key=$fcmServerKey',
+          },
+          body: jsonEncode(payload),
+        );
+
+        debugPrint('DatabaseService legacy FCM response: ${fcmResponse.statusCode}');
+        return fcmResponse.statusCode == 200;
+      }
+
+      debugPrint(
+        'DatabaseService: Neither firebase_service_account.json nor FCM server key found.\n'
+        'Direct wake-up push skipped.',
       );
-
-      debugPrint('DatabaseService sendDirectFcmPush response code: ${fcmResponse.statusCode}');
-      return fcmResponse.statusCode == 200;
+      return false;
     } catch (e) {
       debugPrint('DatabaseService sendDirectFcmPush error: $e');
       return false;
+    }
+  }
+
+  /// Sends a push notification using Google's modern FCM HTTP v1 REST API.
+  Future<bool> _sendFcmV1Push({
+    required String fcmToken,
+    required String title,
+    required String body,
+    required String hostName,
+    required String serviceAccountJson,
+  }) async {
+    AutoRefreshingAuthClient? authClient;
+    try {
+      final credentials = ServiceAccountCredentials.fromJson(serviceAccountJson);
+      authClient = await clientViaServiceAccount(
+        credentials,
+        ['https://www.googleapis.com/auth/firebase.messaging'],
+      );
+
+      final projectId = credentials.projectId;
+      final fcmV1Uri = Uri.parse('https://fcm.googleapis.com/v1/projects/$projectId/messages:send');
+
+      final payload = {
+        'message': {
+          'token': fcmToken,
+          'notification': {
+            'title': title,
+            'body': body,
+          },
+          'data': {
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            'title': title,
+            'body': body,
+            'hostName': hostName,
+            'type': 'server_live',
+            'timestamp': DateTime.now().toIso8601String(),
+          },
+          'android': {
+            'priority': 'high',
+            'notification': {
+              'channel_id': 'pclink_server_channel',
+              'notification_priority': 'PRIORITY_MAX',
+              'sound': 'default',
+              'default_vibrate_timings': true,
+              'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+            },
+          },
+        },
+      };
+
+      final response = await authClient.post(
+        fcmV1Uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload),
+      );
+
+      debugPrint('DatabaseService: FCM v1 response status: ${response.statusCode}');
+      if (response.statusCode != 200) {
+        debugPrint('DatabaseService: FCM v1 error body: ${response.body}');
+      }
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService _sendFcmV1Push exception: $e');
+      return false;
+    } finally {
+      authClient?.close();
     }
   }
 }

@@ -46,3 +46,7 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 PCLink/
+.vscode
+tunnel_url.txt
+fcm_server_key.txt
+firebase_service_account.json

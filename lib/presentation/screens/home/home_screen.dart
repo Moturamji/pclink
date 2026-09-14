@@ -55,9 +55,12 @@ class _HomeScreenState extends State<HomeScreen> {
   ServerInfo? _currentServerInfo;
   StreamSubscription<dynamic>? _serverSub;
   StreamSubscription<Map<String, dynamic>?>? _cloudHandshakeSub;
+  StreamSubscription<Map<String, dynamic>?>? _notificationSub;
   Timer? _tunnelWatcherTimer;
   StreamSubscription<String?>? _tunnelUrlSub;
   bool _isRefreshing = false;
+  bool _wasServerLive = false;
+  String? _lastAlertedNotificationId;
 
   @override
   void initState() {
@@ -106,20 +109,54 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       }
     } else if (user != null) {
-      // Android: Listen for Windows server host info
+      // Android: Listen for Windows server host info & trigger professional alert
       _serverSub = _databaseService.watchUserServer(user).listen((info) {
         if (mounted) {
+          final isLiveNow = info != null && info.isLive;
+          final becameLive = isLiveNow && !_wasServerLive;
+
           setState(() {
             _currentServerInfo = info;
+            _wasServerLive = isLiveNow;
           });
-          if (info == null || !info.isLive) {
+
+          if (!isLiveNow) {
             _stopAndroidServices();
+            NotificationService.cancelServerLiveNotification();
           } else {
+            if (becameLive) {
+              NotificationService.showServerLiveNotification(
+                hostName: 'Windows PC',
+                ipAddress: info.url,
+                publicUrl: info.publicUrl,
+              );
+            }
+
             if (!_clipboardService.isListening && _cachedDeviceDetails != null) {
               _startAndroidServices(_cachedDeviceDetails!);
             } else if (_clipboardService.isListening) {
               _clipboardService.onServerInfoPublished();
             }
+          }
+        }
+      });
+
+      // Android: Also listen for real-time notification events queued by Windows
+      _notificationSub = _databaseService.watchLatestNotification(user).listen((notif) {
+        if (!mounted || notif == null) return;
+        final notifId = notif['id']?.toString();
+        final type = notif['type']?.toString();
+        if (notifId != null && notifId != _lastAlertedNotificationId) {
+          _lastAlertedNotificationId = notifId;
+          if (type == 'server_live') {
+            final hostName = notif['hostName']?.toString() ?? 'Windows PC';
+            final ipAddress = notif['ipAddress']?.toString();
+            final publicUrl = notif['publicUrl']?.toString();
+            NotificationService.showServerLiveNotification(
+              hostName: hostName,
+              ipAddress: ipAddress,
+              publicUrl: publicUrl,
+            );
           }
         }
       });
@@ -169,6 +206,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _serverSub?.cancel();
     _cloudHandshakeSub?.cancel();
+    _notificationSub?.cancel();
     _tunnelWatcherTimer?.cancel();
     _tunnelUrlSub?.cancel();
     _tunnelService.dispose();
@@ -223,6 +261,8 @@ class _HomeScreenState extends State<HomeScreen> {
             await _databaseService.queueServerLiveNotification(
               user: user,
               pcHostName: details.deviceName,
+              ipAddress: serverInfo.url,
+              publicUrl: serverInfo.publicUrl,
             );
           }
 
@@ -254,8 +294,14 @@ class _HomeScreenState extends State<HomeScreen> {
           deviceName: details.deviceName,
         );
 
-        if (!kIsWeb && !details.isWindows && (_currentServerInfo?.isLive ?? false)) {
-          _startAndroidServices(details);
+        if (!kIsWeb && !details.isWindows) {
+          NotificationService.initialize(
+            user: user,
+            databaseService: _databaseService,
+          );
+          if (_currentServerInfo?.isLive ?? false) {
+            _startAndroidServices(details);
+          }
         }
       } catch (_) {
         // Handled silently for offline scenarios
@@ -292,6 +338,8 @@ class _HomeScreenState extends State<HomeScreen> {
         await _databaseService.queueServerLiveNotification(
           user: user,
           pcHostName: details.deviceName,
+          ipAddress: serverInfo.url,
+          publicUrl: serverInfo.publicUrl,
         );
       }
     }
