@@ -15,6 +15,14 @@ abstract final class ServerConstants {
   static const String filesEndpoint = '/api/files';
   static const String filesUploadEndpoint = '/api/files/upload';
   static const String filesDownloadEndpoint = '/api/files/download';
+  static const String powerEndpoint = '/api/system/power';
+
+  // System Power Actions
+  static const String actionSleep = 'sleep';
+  static const String actionShutdown = 'shutdown';
+  static const String actionRestart = 'restart';
+  static const String actionLock = 'lock';
+  static const String actionAbort = 'abort';
 
   // Handshake Messages
   static const String msgServerRunning =

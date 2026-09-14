@@ -11,6 +11,7 @@ import '../../features/file_share/models/shared_file.dart';
 import '../../features/file_share/models/transfer_progress.dart';
 import '../models/server_info.dart';
 import 'database_service.dart';
+import 'system_power_service.dart';
 
 /// Manages the lightweight server on Windows and client-side handshake on Android across local and public networks.
 class ServerService {
@@ -382,6 +383,10 @@ class ServerService {
 
           case ServerConstants.filesDownloadEndpoint:
             await _handleFileDownload(request);
+            break;
+
+          case ServerConstants.powerEndpoint:
+            await _handleSystemPower(request);
             break;
 
           default:
@@ -1135,6 +1140,91 @@ class ServerService {
     await request.response.close();
   }
 
+  Future<void> _handleSystemPower(HttpRequest request) async {
+    request.response.headers.contentType = ContentType.json;
+
+    if (request.method != 'POST') {
+      request.response.statusCode = HttpStatus.methodNotAllowed;
+      request.response.write(
+        jsonEncode({'error': 'Method not allowed. Use POST.'}),
+      );
+      await request.response.close();
+      return;
+    }
+
+    final deviceId = request.headers.value(ServerConstants.authHeader);
+    final startTime = request.headers.value(ServerConstants.startTimeHeader);
+
+    if (!_verifyDeviceId(deviceId)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'success': false,
+          'error': ServerConstants.msgAuthFailed,
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    if (!_isValidServerStartTime(startTime)) {
+      request.response.statusCode = HttpStatus.unauthorized;
+      request.response.write(
+        jsonEncode({
+          'success': false,
+          'error': ServerConstants.msgStartTimeMismatch,
+        }),
+      );
+      await request.response.close();
+      return;
+    }
+
+    try {
+      final bodyStr = await utf8.decodeStream(request);
+      final dynamic bodyData = jsonDecode(bodyStr);
+      if (bodyData is! Map) {
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.write(jsonEncode({'error': 'Invalid JSON body.'}));
+        await request.response.close();
+        return;
+      }
+
+      final action = bodyData['action'] as String?;
+      final timeoutSeconds = (bodyData['timeoutSeconds'] as num?)?.toInt() ?? 0;
+      final comment = bodyData['comment'] as String?;
+
+      if (action == null || action.trim().isEmpty) {
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.write(
+          jsonEncode({'error': 'Missing power action parameter.'}),
+        );
+        await request.response.close();
+        return;
+      }
+
+      final result = await SystemPowerService.executeAction(
+        action: action,
+        timeoutSeconds: timeoutSeconds,
+        comment: comment,
+      );
+
+      request.response.statusCode =
+          result.success ? HttpStatus.ok : HttpStatus.badRequest;
+      request.response.write(jsonEncode(result.toMap()));
+      await request.response.close();
+      debugPrint(
+        'ServerService: System power action [$action] executed with success=${result.success}',
+      );
+    } catch (e) {
+      debugPrint('ServerService: _handleSystemPower error: $e');
+      request.response.statusCode = HttpStatus.internalServerError;
+      request.response.write(
+        jsonEncode({'success': false, 'error': e.toString()}),
+      );
+      await request.response.close();
+    }
+  }
+
   bool _verifyDeviceId(String? candidate) {
     if (candidate == null || candidate.trim().isEmpty) return false;
 
@@ -1412,6 +1502,84 @@ class ServerService {
     if (user != null && databaseService != null) {
       await databaseService.disconnectClient(user: user);
     }
+  }
+
+  /// Dispatches a remote system power action (sleep, shutdown, restart, lock, abort)
+  /// from Android to the Windows server, prioritizing the Cloudflare Tunnel URL.
+  static Future<Map<String, dynamic>> sendSystemPowerAction({
+    required String serverUrl,
+    String? publicUrl,
+    required String androidDeviceId,
+    required String serverStartTime,
+    required String action,
+    int timeoutSeconds = 0,
+    String? comment,
+    Duration timeout = const Duration(seconds: 6),
+  }) async {
+    final candidateUrls = [
+      if (publicUrl != null && publicUrl.isNotEmpty) publicUrl,
+      serverUrl,
+    ];
+
+    for (final targetUrl in candidateUrls) {
+      try {
+        final sanitizedUrl = targetUrl.endsWith('/')
+            ? targetUrl.substring(0, targetUrl.length - 1)
+            : targetUrl;
+        final uri = Uri.parse('$sanitizedUrl${ServerConstants.powerEndpoint}');
+
+        final response = await http
+            .post(
+              uri,
+              headers: {
+                'Content-Type': 'application/json',
+                ServerConstants.authHeader: androidDeviceId,
+                ServerConstants.startTimeHeader: serverStartTime,
+              },
+              body: jsonEncode({
+                'action': action,
+                'timeoutSeconds': timeoutSeconds,
+                'comment': comment ?? 'Triggered remotely via PCLink Android',
+                'deviceId': androidDeviceId,
+                'timestamp': DateTime.now().toIso8601String(),
+              }),
+            )
+            .timeout(timeout);
+
+        if (response.statusCode == 200) {
+          final dynamic data = jsonDecode(response.body);
+          if (data is Map) {
+            return Map<String, dynamic>.from(data);
+          }
+          return {
+            'success': true,
+            'action': action,
+            'message': 'Command dispatched successfully.',
+          };
+        } else if (response.statusCode == 401) {
+          return {
+            'success': false,
+            'error': 'Unauthorized: PC session credentials mismatched.',
+          };
+        } else {
+          final dynamic data = jsonDecode(response.body);
+          return {
+            'success': false,
+            'error': data is Map && data['message'] != null
+                ? data['message']
+                : 'Server responded with status ${response.statusCode}',
+          };
+        }
+      } catch (e) {
+        debugPrint('ServerService sendSystemPowerAction ($targetUrl) error: $e');
+        // Continue to next candidate URL
+      }
+    }
+
+    return {
+      'success': false,
+      'error': 'Could not reach Windows PC over Cloudflare Tunnel or local network.',
+    };
   }
 
   void dispose() {

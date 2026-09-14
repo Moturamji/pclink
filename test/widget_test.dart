@@ -14,10 +14,12 @@ import 'package:pclink/core/widgets/universal/status_badge.dart';
 import 'package:pclink/core/widgets/universal/theme_toggle_button.dart';
 import 'package:pclink/data/services/auth_service.dart';
 import 'package:pclink/data/services/server_service.dart';
+import 'package:pclink/data/services/system_power_service.dart';
 import 'package:pclink/features/clipboard/models/clipboard_item.dart';
 import 'package:pclink/presentation/screens/home/desktop/desktop_command_bar.dart';
 import 'package:pclink/presentation/screens/home/desktop/desktop_sidebar.dart';
 import 'package:pclink/presentation/screens/home/widgets/server_control_card.dart';
+import 'package:pclink/presentation/screens/home/widgets/system_power_card.dart';
 
 void main() {
   group('Validators Unit Tests', () {
@@ -480,6 +482,112 @@ void main() {
       expect(find.byType(ThemeToggleButton), findsOneWidget);
       await tester.tap(find.byType(ThemeToggleButton));
       await tester.pumpAndSettle();
+    });
+  });
+
+  group('SystemPowerService Unit Tests', () {
+    test('PowerActionResult serializes to map correctly', () {
+      const result = PowerActionResult(
+        success: true,
+        action: ServerConstants.actionSleep,
+        message: 'Entering sleep',
+        exitCode: 0,
+      );
+
+      final map = result.toMap();
+      expect(map['success'], isTrue);
+      expect(map['action'], ServerConstants.actionSleep);
+      expect(map['message'], 'Entering sleep');
+      expect(map['exitCode'], 0);
+    });
+
+    test('executeAction rejects invalid power actions', () async {
+      final result = await SystemPowerService.executeAction(action: 'invalid_action');
+      expect(result.success, isFalse);
+      expect(result.message, contains('Unknown power action'));
+    });
+  });
+
+  group('SystemPowerCard Widget Tests', () {
+    testWidgets('Renders header and 4 cute power action tiles', (tester) async {
+      const liveInfo = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.10',
+        port: 8088,
+        url: 'http://192.168.1.10:8088',
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SystemPowerCard(
+              isWindows: false,
+              currentServerInfo: liveInfo,
+              localDeviceId: 'test-phone',
+              isConnected: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('SYSTEM CONTROLS'), findsOneWidget);
+      expect(find.text('Ready'), findsOneWidget);
+      expect(find.text('Sleep'), findsOneWidget);
+      expect(find.text('Lock'), findsOneWidget);
+      expect(find.text('Restart'), findsOneWidget);
+      expect(find.text('Shut Down'), findsOneWidget);
+    });
+
+    testWidgets('Tapping Shut Down displays cute confirmation modal bottom sheet', (tester) async {
+      const liveInfo = ServerInfo(
+        isLive: true,
+        ipAddress: '192.168.1.10',
+        port: 8088,
+        url: 'http://192.168.1.10:8088',
+      );
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SystemPowerCard(
+              isWindows: false,
+              currentServerInfo: liveInfo,
+              localDeviceId: 'test-phone',
+              isConnected: true,
+            ),
+          ),
+        ),
+      );
+
+      // Tap Shut Down button
+      await tester.tap(find.text('Shut Down'));
+      await tester.pumpAndSettle();
+
+      // Check confirmation sheet contents
+      expect(find.text('Shut Down Windows PC?'), findsOneWidget);
+      expect(find.text('30s Countdown (Allows Cancel)'), findsOneWidget);
+      expect(find.text('Execute Immediately'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+
+      // Tap Cancel to dismiss
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shut Down Windows PC?'), findsNothing);
+    });
+
+    testWidgets('SystemPowerCard renders nothing when isWindows is true', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: SystemPowerCard(
+              isWindows: true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('SYSTEM CONTROLS'), findsNothing);
     });
   });
 }

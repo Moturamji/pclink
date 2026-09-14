@@ -6,6 +6,7 @@ import '../../../../data/services/database_service.dart';
 import '../widgets/platform_header.dart';
 import '../widgets/server_control_card.dart';
 import '../widgets/specs_card.dart';
+import '../widgets/system_power_card.dart';
 
 class MobileConnectTab extends StatelessWidget {
   final DeviceDetails details;
@@ -49,6 +50,19 @@ class MobileConnectTab extends StatelessWidget {
           databaseService: databaseService,
           onConnectionStateChanged: onConnectionStateChanged,
           onDisconnectRequested: onDisconnectRequested,
+        ),
+        const SizedBox(height: 14),
+        StreamBuilder<ServerInfo?>(
+          stream: user != null ? databaseService.watchUserServer(user!) : null,
+          builder: (context, snapshot) {
+            final server = snapshot.data ?? currentServerInfo;
+            return SystemPowerCard(
+              isWindows: details.isWindows,
+              currentServerInfo: server,
+              localDeviceId: details.deviceId,
+              isConnected: details.isConnected,
+            );
+          },
         ),
         const SizedBox(height: 14),
         SpecsCard(details: details),
