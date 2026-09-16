@@ -424,7 +424,9 @@ class _AuthScreenState extends State<AuthScreen> {
                 curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
-                  color: !_isSignUp ? colors.cardSurface : Colors.transparent,
+                  color: !_isSignUp
+                      ? colors.cardSurface
+                      : colors.cardSurface.withValues(alpha: 0.0),
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: !_isSignUp
                       ? [
@@ -463,7 +465,9 @@ class _AuthScreenState extends State<AuthScreen> {
                 curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 decoration: BoxDecoration(
-                  color: _isSignUp ? colors.cardSurface : Colors.transparent,
+                  color: _isSignUp
+                      ? colors.cardSurface
+                      : colors.cardSurface.withValues(alpha: 0.0),
                   borderRadius: BorderRadius.circular(10),
                   boxShadow: _isSignUp
                       ? [

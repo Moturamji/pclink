@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/widgets/universal/hoverable.dart';
 
 /// Card displaying a primary metric (e.g. Device ID or Primary IP) with copy action.
 class MetricCard extends StatelessWidget {
@@ -59,7 +60,10 @@ class MetricCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
                   decoration: BoxDecoration(
                     color: effectiveBadgeColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(20),
@@ -104,18 +108,23 @@ class MetricCard extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(10),
-                      onTap: onCopy,
-                      child: Container(
+                  Hoverable(
+                    onTap: onCopy,
+                    borderRadius: BorderRadius.circular(10),
+                    builder: (context, isHovered) {
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        curve: Curves.easeOutCubic,
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: accentColor.withValues(alpha: 0.12),
+                          color: isHovered
+                              ? accentColor.withValues(alpha: 0.2)
+                              : accentColor.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: accentColor.withValues(alpha: 0.25),
+                            color: isHovered
+                                ? accentColor.withValues(alpha: 0.4)
+                                : accentColor.withValues(alpha: 0.25),
                           ),
                         ),
                         child: Icon(
@@ -123,8 +132,8 @@ class MetricCard extends StatelessWidget {
                           size: 15,
                           color: accentColor,
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -135,4 +144,3 @@ class MetricCard extends StatelessWidget {
     );
   }
 }
-

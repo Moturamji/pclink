@@ -6,12 +6,7 @@ import '../../../../core/widgets/universal/bounceable.dart';
 import '../../../../core/widgets/universal/hoverable.dart';
 import '../../../../core/widgets/universal/theme_toggle_button.dart';
 
-enum DesktopNavTab {
-  overview,
-  fileStudio,
-  clipboard,
-  devices,
-}
+enum DesktopNavTab { overview, fileStudio, clipboard, devices }
 
 /// Polished Desktop Sidebar Navigation Rail with tactile micro-interactions,
 /// spring indicators, and borderless surface elevation.
@@ -43,12 +38,7 @@ class DesktopSidebar extends StatelessWidget {
       width: 260,
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        border: Border(
-          right: BorderSide(
-            color: colors.cardBorder,
-            width: 0.8,
-          ),
-        ),
+        border: Border(right: BorderSide(color: colors.cardBorder, width: 0.8)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -96,7 +86,9 @@ class DesktopSidebar extends StatelessWidget {
                           const SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              isServerLive ? 'Live & Connected' : 'Standby Mode',
+                              isServerLive
+                                  ? 'Live & Connected'
+                                  : 'Standby Mode',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -122,7 +114,10 @@ class DesktopSidebar extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: colors.surfaceSubtle,
                   borderRadius: BorderRadius.circular(12),
@@ -253,42 +248,61 @@ class DesktopSidebar extends StatelessWidget {
                     Expanded(
                       child: Hoverable(
                         onTap: isRefreshing ? null : onRefresh,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: colors.cardSurface,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: colors.cardBorder, width: 0.8),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              if (isRefreshing)
-                                const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2),
-                                )
-                              else
-                                Icon(
-                                  Icons.refresh_rounded,
-                                  size: 16,
-                                  color: colors.textSecondary,
-                                ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Sync',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: colors.textSecondary,
-                                ),
+                        borderRadius: BorderRadius.circular(10),
+                        builder: (context, isHovered) {
+                          return AnimatedContainer(
+                            duration: const Duration(milliseconds: 160),
+                            curve: Curves.easeOutCubic,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isHovered
+                                  ? colors.surfaceSubtle
+                                  : colors.cardSurface,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isHovered
+                                    ? colors.primary.withValues(alpha: 0.3)
+                                    : colors.cardBorder,
+                                width: 0.8,
                               ),
-                            ],
-                          ),
-                        ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                if (isRefreshing)
+                                  const SizedBox(
+                                    width: 14,
+                                    height: 14,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                    ),
+                                  )
+                                else
+                                  Icon(
+                                    Icons.refresh_rounded,
+                                    size: 16,
+                                    color: isHovered
+                                        ? colors.primaryLight
+                                        : colors.textSecondary,
+                                  ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Sync',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: isHovered
+                                        ? colors.textPrimary
+                                        : colors.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],
@@ -299,8 +313,10 @@ class DesktopSidebar extends StatelessWidget {
                   scaleFactor: 0.98,
                   child: Container(
                     width: double.infinity,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.error.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(10),
@@ -349,50 +365,72 @@ class DesktopSidebar extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 4),
       child: Hoverable(
         onTap: () => onTabChanged(tab),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected
-                ? accentColor.withValues(alpha: 0.12)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Row(
-            children: [
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 180),
-                child: Icon(
-                  isSelected ? activeIcon : icon,
-                  key: ValueKey<bool>(isSelected),
-                  size: 20,
-                  color: isSelected ? accentColor : colors.textMuted,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected ? colors.textPrimary : colors.textSecondary,
+        borderRadius: BorderRadius.circular(10),
+        builder: (context, isHovered) {
+          final effectiveBgColor = isSelected
+              ? (isHovered
+                    ? accentColor.withValues(alpha: 0.16)
+                    : accentColor.withValues(alpha: 0.12))
+              : (isHovered
+                    ? colors.surfaceSubtle
+                    : colors.surfaceSubtle.withValues(alpha: 0.0));
+
+          final effectiveBorderColor = isSelected
+              ? accentColor.withValues(alpha: isHovered ? 0.35 : 0.25)
+              : accentColor.withValues(alpha: 0.0);
+
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOutCubic,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            decoration: BoxDecoration(
+              color: effectiveBgColor,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: effectiveBorderColor, width: 0.8),
+            ),
+            child: Row(
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 160),
+                  child: Icon(
+                    isSelected ? activeIcon : icon,
+                    key: ValueKey<bool>(isSelected),
+                    size: 18,
+                    color: isSelected
+                        ? accentColor
+                        : (isHovered ? colors.textPrimary : colors.textMuted),
                   ),
                 ),
-              ),
-              if (isSelected)
-                Container(
-                  width: 5,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: accentColor,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: isSelected
+                          ? FontWeight.w700
+                          : (isHovered ? FontWeight.w600 : FontWeight.w500),
+                      color: isSelected
+                          ? colors.textPrimary
+                          : (isHovered
+                                ? colors.textPrimary
+                                : colors.textSecondary),
+                    ),
                   ),
                 ),
-            ],
-          ),
-        ),
+                if (isSelected)
+                  Container(
+                    width: 5,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: accentColor,
+                    ),
+                  ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }

@@ -9,6 +9,11 @@ abstract final class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
+      // ── Global Material ink/splash suppression ──
+      splashFactory: NoSplash.splashFactory,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
       fontFamily: 'Segoe UI',
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -35,7 +40,10 @@ abstract final class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         iconTheme: IconThemeData(color: AppColors.darkTextPrimary, size: 22),
-        actionsIconTheme: IconThemeData(color: AppColors.darkTextPrimary, size: 22),
+        actionsIconTheme: IconThemeData(
+          color: AppColors.darkTextPrimary,
+          size: 22,
+        ),
         titleTextStyle: TextStyle(
           color: AppColors.darkTextPrimary,
           fontSize: 18,
@@ -87,22 +95,40 @@ abstract final class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.darkSurfaceSubtle,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        labelStyle: const TextStyle(color: AppColors.darkTextSecondary, fontSize: 14),
-        hintStyle: const TextStyle(color: AppColors.darkTextMuted, fontSize: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 16,
+        ),
+        labelStyle: const TextStyle(
+          color: AppColors.darkTextSecondary,
+          fontSize: 14,
+        ),
+        hintStyle: const TextStyle(
+          color: AppColors.darkTextMuted,
+          fontSize: 14,
+        ),
         prefixIconColor: AppColors.primaryLight,
         suffixIconColor: AppColors.darkTextMuted,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.darkCardBorder, width: 0.8),
+          borderSide: const BorderSide(
+            color: AppColors.darkCardBorder,
+            width: 0.8,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.darkCardBorder, width: 0.8),
+          borderSide: const BorderSide(
+            color: AppColors.darkCardBorder,
+            width: 0.8,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.primaryLight, width: 1.5),
+          borderSide: const BorderSide(
+            color: AppColors.primaryLight,
+            width: 1.5,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -139,10 +165,7 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -152,10 +175,7 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       dividerTheme: const DividerThemeData(
@@ -171,6 +191,11 @@ abstract final class AppTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
+      // ── Global Material ink/splash suppression ──
+      splashFactory: NoSplash.splashFactory,
+      splashColor: Colors.transparent,
+      highlightColor: Colors.transparent,
+      hoverColor: Colors.transparent,
       fontFamily: 'Segoe UI',
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -197,7 +222,10 @@ abstract final class AppTheme {
         scrolledUnderElevation: 0,
         centerTitle: false,
         iconTheme: IconThemeData(color: AppColors.lightTextPrimary, size: 22),
-        actionsIconTheme: IconThemeData(color: AppColors.lightTextPrimary, size: 22),
+        actionsIconTheme: IconThemeData(
+          color: AppColors.lightTextPrimary,
+          size: 22,
+        ),
         titleTextStyle: TextStyle(
           color: AppColors.lightTextPrimary,
           fontSize: 18,
@@ -249,18 +277,33 @@ abstract final class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.lightSurfaceSubtle,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-        labelStyle: const TextStyle(color: AppColors.lightTextSecondary, fontSize: 14),
-        hintStyle: const TextStyle(color: AppColors.lightTextMuted, fontSize: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 16,
+        ),
+        labelStyle: const TextStyle(
+          color: AppColors.lightTextSecondary,
+          fontSize: 14,
+        ),
+        hintStyle: const TextStyle(
+          color: AppColors.lightTextMuted,
+          fontSize: 14,
+        ),
         prefixIconColor: AppColors.primaryDark,
         suffixIconColor: AppColors.lightTextMuted,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.lightCardBorder, width: 0.8),
+          borderSide: const BorderSide(
+            color: AppColors.lightCardBorder,
+            width: 0.8,
+          ),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: AppColors.lightCardBorder, width: 0.8),
+          borderSide: const BorderSide(
+            color: AppColors.lightCardBorder,
+            width: 0.8,
+          ),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
@@ -301,10 +344,7 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
           ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -314,10 +354,7 @@ abstract final class AppTheme {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(10),
           ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
+          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
         ),
       ),
       dividerTheme: const DividerThemeData(

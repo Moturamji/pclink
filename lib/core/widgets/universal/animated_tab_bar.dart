@@ -70,7 +70,7 @@ class AnimatedTabBar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSelected
                       ? activeColor.withValues(alpha: colors.isDark ? 0.2 : 0.12)
-                      : Colors.transparent,
+                      : activeColor.withValues(alpha: 0.0),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Column(

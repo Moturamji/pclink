@@ -72,10 +72,7 @@ class DesktopCommandBar extends StatelessWidget {
       decoration: BoxDecoration(
         color: colors.cardSurface,
         border: Border(
-          bottom: BorderSide(
-            color: colors.cardBorder,
-            width: 0.8,
-          ),
+          bottom: BorderSide(color: colors.cardBorder, width: 0.8),
         ),
       ),
       child: Row(
@@ -115,7 +112,9 @@ class DesktopCommandBar extends StatelessWidget {
                 Clipboard.setData(ClipboardData(text: publicUrl));
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
-                    content: const Text('Public Tunnel URL copied to clipboard!'),
+                    content: const Text(
+                      'Public Tunnel URL copied to clipboard!',
+                    ),
                     backgroundColor: colors.surface,
                     behavior: SnackBarBehavior.floating,
                   ),
@@ -123,8 +122,10 @@ class DesktopCommandBar extends StatelessWidget {
               },
               scaleFactor: 0.96,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: colors.primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(9999),
@@ -147,11 +148,7 @@ class DesktopCommandBar extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Icon(
-                      Icons.copy_rounded,
-                      size: 11,
-                      color: colors.textMuted,
-                    ),
+                    Icon(Icons.copy_rounded, size: 11, color: colors.textMuted),
                   ],
                 ),
               ),
