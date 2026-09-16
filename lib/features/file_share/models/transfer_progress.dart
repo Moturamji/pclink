@@ -3,10 +3,94 @@ import 'package:flutter/foundation.dart';
 enum TransferStatus {
   idle,
   preparing,
-  inProgress,
+  connecting,
+  transferring,
+  inProgress, // retained for backward compatibility (equivalent to transferring)
+  finalizing,
+  verifying,
   completed,
   failed,
   cancelled,
+  paused,
+  resuming,
+}
+
+/// Enforces valid state transitions and protects terminal transfer states.
+class TransferStateMachine {
+  static const Map<TransferStatus, Set<TransferStatus>> _validTransitions = {
+    TransferStatus.idle: {
+      TransferStatus.preparing,
+      TransferStatus.connecting,
+      TransferStatus.cancelled,
+    },
+    TransferStatus.preparing: {
+      TransferStatus.connecting,
+      TransferStatus.resuming,
+      TransferStatus.transferring,
+      TransferStatus.inProgress,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+    },
+    TransferStatus.connecting: {
+      TransferStatus.resuming,
+      TransferStatus.transferring,
+      TransferStatus.inProgress,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+    },
+    TransferStatus.resuming: {
+      TransferStatus.transferring,
+      TransferStatus.inProgress,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+    },
+    TransferStatus.transferring: {
+      TransferStatus.inProgress,
+      TransferStatus.verifying,
+      TransferStatus.finalizing,
+      TransferStatus.completed,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+      TransferStatus.paused,
+    },
+    TransferStatus.inProgress: {
+      TransferStatus.transferring,
+      TransferStatus.verifying,
+      TransferStatus.finalizing,
+      TransferStatus.completed,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+      TransferStatus.paused,
+    },
+    TransferStatus.paused: {
+      TransferStatus.resuming,
+      TransferStatus.transferring,
+      TransferStatus.inProgress,
+      TransferStatus.cancelled,
+      TransferStatus.failed,
+    },
+    TransferStatus.verifying: {
+      TransferStatus.finalizing,
+      TransferStatus.completed,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+    },
+    TransferStatus.finalizing: {
+      TransferStatus.completed,
+      TransferStatus.failed,
+      TransferStatus.cancelled,
+    },
+    // Terminal states: once terminal, no further transitions
+    TransferStatus.completed: {},
+    TransferStatus.failed: {},
+    TransferStatus.cancelled: {},
+  };
+
+  static bool isValidTransition(TransferStatus from, TransferStatus to) {
+    if (from == to) return true;
+    final allowed = _validTransitions[from];
+    return allowed != null && allowed.contains(to);
+  }
 }
 
 /// Reactive model representing real-time file transfer progress, throughput, and status.
@@ -34,15 +118,44 @@ class TransferProgress {
     required this.timestamp,
   });
 
+  /// True if the transfer is currently running (not terminal or paused).
+  bool get isActive =>
+      status == TransferStatus.preparing ||
+      status == TransferStatus.connecting ||
+      status == TransferStatus.transferring ||
+      status == TransferStatus.inProgress ||
+      status == TransferStatus.finalizing ||
+      status == TransferStatus.verifying ||
+      status == TransferStatus.resuming;
+
+  /// True if the transfer has reached a terminal state.
+  bool get isTerminal =>
+      status == TransferStatus.completed ||
+      status == TransferStatus.failed ||
+      status == TransferStatus.cancelled;
+
   /// Real-time progress fraction from 0.0 to 1.0.
+  /// Strictly clamped to 0.99 prior to `completed` so 100% is never faked.
   double get fraction {
     if (totalBytes <= 0) return 0.0;
-    return (bytesTransferred / totalBytes).clamp(0.0, 1.0);
+    if (status == TransferStatus.completed) return 1.0;
+    final raw = bytesTransferred / totalBytes;
+    return raw.clamp(0.0, 0.99);
   }
 
-  /// Percentage string (e.g., "45.2%").
+  /// Percentage or status string. Displays 100% only when truly completed.
   String get percentageLabel {
-    return '${(fraction * 100).toStringAsFixed(1)}%';
+    if (status == TransferStatus.completed) return '100%';
+    if (status == TransferStatus.verifying) return 'Verifying...';
+    if (status == TransferStatus.finalizing) return 'Finalizing...';
+    if (status == TransferStatus.connecting) return 'Connecting...';
+    if (status == TransferStatus.preparing) return 'Preparing...';
+    if (status == TransferStatus.resuming) return 'Resuming...';
+    if (status == TransferStatus.paused) return 'Paused';
+    if (status == TransferStatus.failed) return 'Failed';
+    if (status == TransferStatus.cancelled) return 'Cancelled';
+    final pct = (fraction * 100).clamp(0.0, 99.0);
+    return '${pct.toStringAsFixed(1)}%';
   }
 
   /// Remaining bytes to transfer.
@@ -58,7 +171,10 @@ class TransferProgress {
 
   /// Human-readable transfer speed (e.g., "2.4 MB/s" or "320 KB/s").
   String get speedLabel {
-    if (speedBytesPerSec <= 0 || status != TransferStatus.inProgress) {
+    final active = status == TransferStatus.inProgress ||
+        status == TransferStatus.transferring ||
+        status == TransferStatus.resuming;
+    if (speedBytesPerSec <= 0 || !active) {
       return '-- KB/s';
     }
     if (speedBytesPerSec >= 1024 * 1024) {
@@ -73,8 +189,14 @@ class TransferProgress {
   /// Estimated time remaining or remaining bytes label.
   String get remainingLabel {
     if (status == TransferStatus.completed) return 'Completed';
-    if (status == TransferStatus.failed) return 'Failed';
+    if (status == TransferStatus.finalizing) return 'Finalizing file...';
+    if (status == TransferStatus.verifying) return 'Verifying integrity...';
+    if (status == TransferStatus.connecting) return 'Connecting...';
+    if (status == TransferStatus.preparing) return 'Preparing...';
+    if (status == TransferStatus.resuming) return 'Resuming...';
+    if (status == TransferStatus.failed) return errorMessage ?? 'Failed';
     if (status == TransferStatus.cancelled) return 'Cancelled';
+    if (status == TransferStatus.paused) return 'Paused';
     if (speedBytesPerSec > 0 && remainingBytes > 0) {
       final secondsLeft = (remainingBytes / speedBytesPerSec).round();
       if (secondsLeft < 60) {

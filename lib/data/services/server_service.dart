@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import '../../core/constants/server_constants.dart';
+import '../../core/utils/cancellation_token.dart';
+import '../../core/utils/stream_backpressure.dart';
+import '../../core/utils/transfer_fingerprint.dart';
+import '../../core/utils/transfer_integrity.dart';
 import '../../features/clipboard/models/clipboard_item.dart';
 import '../../features/file_share/models/shared_file.dart';
 import '../../features/file_share/models/transfer_progress.dart';
@@ -25,6 +30,31 @@ class ServerService {
   TransferProgress? _currentTransferProgress;
   final StreamController<TransferProgress?> _transferProgressController =
       StreamController<TransferProgress?>.broadcast();
+
+  final Map<String, CancellationToken> _activeTokens = {};
+  final Map<String, TransferProgress> _activeTransfers = {};
+  final StreamController<Map<String, TransferProgress>> _allTransfersController =
+      StreamController<Map<String, TransferProgress>>.broadcast();
+
+  Stream<Map<String, TransferProgress>> get allTransfersStream =>
+      _allTransfersController.stream;
+  Map<String, TransferProgress> get activeTransfers =>
+      Map.unmodifiable(_activeTransfers);
+
+  /// Cancels an individual active transfer by its transfer ID on the server.
+  void cancelTransfer(String transferId) {
+    _activeTokens[transferId]?.cancel();
+    final existing = _activeTransfers[transferId];
+    if (existing != null && existing.isActive) {
+      _emitTransferProgress(
+        existing.copyWith(
+          status: TransferStatus.cancelled,
+          errorMessage: 'Transfer cancelled by user',
+          timestamp: DateTime.now(),
+        ),
+      );
+    }
+  }
 
   // File sharing store: file bytes live on disk in the shared folder while the
   // metadata list stays in RAM (mirrors how the server keeps clipboard history).
@@ -58,9 +88,46 @@ class ServerService {
   TransferProgress? get currentTransferProgress => _currentTransferProgress;
 
   void _emitTransferProgress(TransferProgress? progress) {
+    if (progress != null) {
+      final existing = _activeTransfers[progress.fileId];
+      if (existing != null &&
+          !TransferStateMachine.isValidTransition(
+            existing.status,
+            progress.status,
+          )) {
+        debugPrint(
+          'ServerService: Rejected invalid state transition: ${existing.status} -> ${progress.status}',
+        );
+        return;
+      }
+      _activeTransfers[progress.fileId] = progress;
+      if (progress.status == TransferStatus.completed ||
+          progress.status == TransferStatus.failed ||
+          progress.status == TransferStatus.cancelled) {
+        _activeTokens.remove(progress.fileId);
+        Timer(const Duration(seconds: 4), () {
+          _activeTransfers.remove(progress.fileId);
+          if (!_allTransfersController.isClosed) {
+            _allTransfersController.add(Map.from(_activeTransfers));
+          }
+          if (_currentTransferProgress?.fileId == progress.fileId) {
+            _currentTransferProgress = _activeTransfers.values.isNotEmpty
+                ? _activeTransfers.values.last
+                : null;
+            if (!_transferProgressController.isClosed) {
+              _transferProgressController.add(_currentTransferProgress);
+            }
+          }
+        });
+      }
+    }
+
     _currentTransferProgress = progress;
     if (!_transferProgressController.isClosed) {
       _transferProgressController.add(progress);
+    }
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.add(Map.from(_activeTransfers));
     }
   }
 
@@ -185,6 +252,7 @@ class ServerService {
       await targetDir.create(recursive: true);
     }
     _sharedDir = targetDir;
+    TransferFingerprint.purgeStalePartFiles(targetDir);
     return targetDir;
   }
 
@@ -578,6 +646,7 @@ class ServerService {
         (request.contentLength > 0 ? request.contentLength : 0);
     final offsetParam =
         int.tryParse(request.uri.queryParameters['offset'] ?? '') ?? 0;
+    final fingerprint = request.uri.queryParameters['fingerprint'] ?? '';
     final fileKey = request.uri.queryParameters['fileKey'] ??
         '${originalName}_$totalBytes';
 
@@ -586,8 +655,18 @@ class ServerService {
         request.uri.queryParameters['checkOffset'] == 'true') {
       final dir = await _getSharedDir();
       final partFile = File('${dir.path}\\.part_$fileKey.tmp');
-      final currentBytes =
-          (await partFile.exists()) ? await partFile.length() : 0;
+      final metaFile = File('${dir.path}\\.part_$fileKey.meta');
+      var currentBytes = 0;
+      if (fingerprint.isNotEmpty) {
+        currentBytes = await TransferFingerprint.readVerifiedOffset(
+          partFile: partFile,
+          metaFile: metaFile,
+          expectedFingerprint: fingerprint,
+          expectedTotalBytes: totalBytes,
+        );
+      } else if (await partFile.exists()) {
+        currentBytes = await partFile.length();
+      }
       request.response.statusCode = HttpStatus.ok;
       request.response.headers.contentType = ContentType.json;
       request.response.write(
@@ -597,7 +676,10 @@ class ServerService {
       return;
     }
 
-    final transferId = 'rx_${DateTime.now().millisecondsSinceEpoch}';
+    final transferId = request.uri.queryParameters['transferId'] ??
+        'rx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+    final token = CancellationToken();
+    _activeTokens[transferId] = token;
     final stopwatch = Stopwatch()..start();
     var bytesReceivedThisSession = 0;
     var lastProgressTime = DateTime.now();
@@ -605,17 +687,29 @@ class ServerService {
     try {
       final dir = await _getSharedDir();
       final partFile = File('${dir.path}\\.part_$fileKey.tmp');
+      final metaFile = File('${dir.path}\\.part_$fileKey.meta');
 
       var effectiveOffset = 0;
       if (offsetParam > 0 && await partFile.exists()) {
-        final existingLen = await partFile.length();
-        if (existingLen == offsetParam) {
-          effectiveOffset = existingLen;
-        } else if (existingLen > offsetParam) {
-          effectiveOffset = offsetParam;
+        if (fingerprint.isNotEmpty) {
+          effectiveOffset = await TransferFingerprint.readVerifiedOffset(
+            partFile: partFile,
+            metaFile: metaFile,
+            expectedFingerprint: fingerprint,
+            expectedTotalBytes: totalBytes,
+          );
+        } else {
+          final existingLen = await partFile.length();
+          if (existingLen == offsetParam) {
+            effectiveOffset = existingLen;
+          } else if (existingLen > offsetParam) {
+            effectiveOffset = offsetParam;
+          }
         }
-      } else if (offsetParam == 0 && await partFile.exists()) {
+      }
+      if (effectiveOffset == 0 && await partFile.exists()) {
         await partFile.delete();
+        if (await metaFile.exists()) await metaFile.delete();
       }
 
       final sink = partFile.openWrite(
@@ -635,10 +729,35 @@ class ServerService {
         ),
       );
 
+      final crcCalculator = TransferCrc32();
+      final watchdog = InactivityWatchdog(
+        timeoutDuration: const Duration(seconds: 30),
+        onTimeout: () {
+          debugPrint(
+            'ServerService: Inactivity timeout reached on upload $transferId',
+          );
+          token.cancel();
+        },
+      );
+
       try {
+        var unwrittenBytes = 0;
         await for (final chunk in request) {
+          if (token.isCancelled) {
+            throw Exception('Upload cancelled by user');
+          }
+          watchdog.notifyProgress();
           sink.add(chunk);
+          crcCalculator.update(chunk);
           bytesReceivedThisSession += chunk.length;
+          unwrittenBytes += chunk.length;
+
+          // Apply disk backpressure every 2MB to prevent unbounded memory usage on slow disks
+          if (unwrittenBytes >= 2 * 1024 * 1024) {
+            await sink.flush();
+            unwrittenBytes = 0;
+          }
+
           final currentTotalTransferred =
               effectiveOffset + bytesReceivedThisSession;
           final now = DateTime.now();
@@ -658,7 +777,7 @@ class ServerService {
                     : currentTotalTransferred,
                 speedBytesPerSec: speed,
                 isUpload: false,
-                status: TransferStatus.inProgress,
+                status: TransferStatus.transferring,
                 timestamp: now,
               ),
             );
@@ -671,6 +790,15 @@ class ServerService {
         await sink.close();
         final currentLen =
             await partFile.exists() ? await partFile.length() : 0;
+        if (fingerprint.isNotEmpty && currentLen > 0) {
+          await TransferFingerprint.writeMetaFile(
+            metaFile: metaFile,
+            fingerprint: fingerprint,
+            originalName: originalName,
+            totalBytes: totalBytes,
+            verifiedOffset: currentLen,
+          );
+        }
         _emitTransferProgress(
           TransferProgress(
             fileId: transferId,
@@ -689,18 +817,29 @@ class ServerService {
         request.response.write(
           jsonEncode({
             'success': false,
-            'error': 'Upload interrupted',
+            'error': e.toString(),
             'offset': currentLen,
           }),
         );
         await request.response.close();
         return;
+      } finally {
+        watchdog.cancel();
       }
 
       final totalOnDisk = await partFile.length();
 
       // Verify whether the entire payload was received completely
       if (totalBytes > 0 && totalOnDisk < totalBytes) {
+        if (fingerprint.isNotEmpty && totalOnDisk > 0) {
+          await TransferFingerprint.writeMetaFile(
+            metaFile: metaFile,
+            fingerprint: fingerprint,
+            originalName: originalName,
+            totalBytes: totalBytes,
+            verifiedOffset: totalOnDisk,
+          );
+        }
         _emitTransferProgress(
           TransferProgress(
             fileId: transferId,
@@ -727,17 +866,86 @@ class ServerService {
         return;
       }
 
-      // Verify integrity and atomically rename from .part file to final destination
-      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
-      final finalDest = File('${dir.path}\\${id}_$originalName');
-      if (await finalDest.exists()) await finalDest.delete();
-      await partFile.rename(finalDest.path);
+      // Verify checksum if provided by client (for fresh uninterrupted uploads)
+      final clientChecksum = request.headers.value('x-transfer-checksum') ??
+          request.uri.queryParameters['checksum'];
+      if (effectiveOffset == 0 &&
+          clientChecksum != null &&
+          clientChecksum.isNotEmpty) {
+        if (crcCalculator.hexString.toLowerCase() != clientChecksum.toLowerCase()) {
+          debugPrint(
+            'ServerService: Checksum mismatch! Client=$clientChecksum, Computed=${crcCalculator.hexString}',
+          );
+          if (await partFile.exists()) await partFile.delete();
+          if (await metaFile.exists()) await metaFile.delete();
+          _emitTransferProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: originalName,
+              bytesTransferred: totalOnDisk,
+              totalBytes: totalBytes,
+              speedBytesPerSec: 0,
+              isUpload: false,
+              status: TransferStatus.failed,
+              errorMessage: 'Checksum verification failed',
+              timestamp: DateTime.now(),
+            ),
+          );
+          request.response.statusCode = HttpStatus.badRequest;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({
+              'success': false,
+              'error': 'Checksum verification failed',
+            }),
+          );
+          await request.response.close();
+          return;
+        }
+      }
 
-      final actualSize = await finalDest.length();
+      // Emit verifying state while checking content
       _emitTransferProgress(
         TransferProgress(
           fileId: transferId,
           fileName: originalName,
+          bytesTransferred: totalOnDisk,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: false,
+          status: TransferStatus.verifying,
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      // Emit finalizing state while renaming and registering
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: originalName,
+          bytesTransferred: totalOnDisk,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: false,
+          status: TransferStatus.finalizing,
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      // Verify integrity and atomically rename from .part file to final destination
+      // Using non-destructive naming (never overwriting user files) and robust Windows finalization
+      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
+      final finalDest =
+          await FileSystemUtil.getUniqueDestinationFile(dir, originalName);
+      await FileSystemUtil.robustRenameOrCopy(partFile, finalDest);
+      if (await metaFile.exists()) await metaFile.delete();
+
+      final actualSize = await finalDest.length();
+      final finalSavedName = finalDest.path.split(RegExp(r'[\\/]')).last;
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: finalSavedName,
           bytesTransferred: actualSize,
           totalBytes: actualSize,
           speedBytesPerSec: 0,
@@ -747,6 +955,7 @@ class ServerService {
         ),
       );
 
+
       Timer(const Duration(seconds: 3), () {
         if (_currentTransferProgress?.fileId == transferId) {
           _emitTransferProgress(null);
@@ -755,7 +964,7 @@ class ServerService {
 
       final item = SharedFile(
         id: id,
-        name: originalName,
+        name: finalSavedName,
         size: actualSize,
         sourcePlatform: 'android',
         sourceDeviceName: deviceName,
@@ -768,9 +977,17 @@ class ServerService {
 
       request.response.statusCode = HttpStatus.ok;
       request.response.headers.contentType = ContentType.json;
-      request.response.write(jsonEncode({'success': true, 'id': item.id}));
+      request.response.write(
+        jsonEncode({
+          'success': true,
+          'id': item.id,
+          'crc32': crcCalculator.hexString,
+          'fileName': finalSavedName,
+          'bytesReceived': actualSize,
+        }),
+      );
       await request.response.close();
-      debugPrint('ServerService: Received upload from phone: $originalName ($actualSize bytes)');
+      debugPrint('ServerService: Received upload from phone: $finalSavedName ($actualSize bytes)');
     } catch (e) {
       debugPrint('ServerService: _handleFileUpload error: $e');
       request.response.statusCode = HttpStatus.internalServerError;
@@ -803,7 +1020,8 @@ class ServerService {
       return;
     }
 
-    final file = File(match.filePath!);
+    final targetFile = match;
+    final file = File(targetFile.filePath!);
     final totalLength = await file.length();
 
     // Check for HTTP Range header (e.g. "bytes=1048576-")
@@ -843,7 +1061,7 @@ class ServerService {
     request.response.headers.set('Accept-Ranges', 'bytes');
     request.response.headers.set(
       'Content-Disposition',
-      'attachment; filename="${match.name}"',
+      'attachment; filename="${targetFile.name}"',
     );
     if (isRangeRequest) {
       request.response.headers.set(
@@ -853,7 +1071,10 @@ class ServerService {
     }
     request.response.contentLength = contentLength;
 
-    final transferId = 'tx_${DateTime.now().millisecondsSinceEpoch}';
+    final transferId = request.uri.queryParameters['transferId'] ??
+        'tx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+    final token = CancellationToken();
+    _activeTokens[transferId] = token;
     final stopwatch = Stopwatch()..start();
     var bytesSent = 0;
     var lastProgressTime = DateTime.now();
@@ -861,20 +1082,37 @@ class ServerService {
     _emitTransferProgress(
       TransferProgress(
         fileId: transferId,
-        fileName: match.name,
+        fileName: targetFile.name,
         bytesTransferred: startByte,
         totalBytes: totalLength,
         speedBytesPerSec: 0,
         isUpload: true,
-        status: TransferStatus.inProgress,
+        status: TransferStatus.transferring,
         timestamp: DateTime.now(),
       ),
     );
 
-    try {
-      final fileStream = file.openRead(startByte, endByte + 1);
-      await for (final chunk in fileStream) {
-        request.response.add(chunk);
+    final watchdog = InactivityWatchdog(
+      timeoutDuration: const Duration(seconds: 30),
+      onTimeout: () {
+        debugPrint(
+          'ServerService: Inactivity timeout reached on download $transferId',
+        );
+        token.cancel();
+      },
+    );
+
+    Stream<List<int>> createDownloadStream() async* {
+      await for (final chunk in StreamBackpressure.openReadOptimized(
+        file,
+        start: startByte,
+        end: endByte + 1,
+        chunkSize: StreamBackpressure.defaultChunkSize,
+      )) {
+        if (token.isCancelled) {
+          break;
+        }
+        watchdog.notifyProgress();
         bytesSent += chunk.length;
         final currentTotalSent = startByte + bytesSent;
         final now = DateTime.now();
@@ -886,22 +1124,54 @@ class ServerService {
           _emitTransferProgress(
             TransferProgress(
               fileId: transferId,
-              fileName: match.name,
+              fileName: targetFile.name,
               bytesTransferred: currentTotalSent,
               totalBytes: totalLength,
               speedBytesPerSec: speed,
               isUpload: true,
-              status: currentTotalSent >= totalLength
-                  ? TransferStatus.completed
-                  : TransferStatus.inProgress,
+              status: TransferStatus.transferring,
               timestamp: now,
             ),
           );
         }
+        yield chunk;
       }
-      await request.response.flush();
+    }
+
+    try {
+      await request.response.addStream(createDownloadStream());
       await request.response.close();
-      debugPrint('ServerService: Served file to phone: ${match.name} ($bytesSent bytes)');
+      debugPrint(
+        'ServerService: Served file to phone: ${targetFile.name} ($bytesSent bytes)',
+      );
+
+      if (token.isCancelled) {
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: transferId,
+            fileName: targetFile.name,
+            bytesTransferred: startByte + bytesSent,
+            totalBytes: totalLength,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.cancelled,
+            timestamp: DateTime.now(),
+          ),
+        );
+      } else {
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: transferId,
+            fileName: targetFile.name,
+            bytesTransferred: totalLength,
+            totalBytes: totalLength,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.completed,
+            timestamp: DateTime.now(),
+          ),
+        );
+      }
 
       Timer(const Duration(seconds: 3), () {
         if (_currentTransferProgress?.fileId == transferId) {
@@ -913,7 +1183,7 @@ class ServerService {
       _emitTransferProgress(
         TransferProgress(
           fileId: transferId,
-          fileName: match.name,
+          fileName: targetFile.name,
           bytesTransferred: startByte + bytesSent,
           totalBytes: totalLength,
           speedBytesPerSec: 0,
@@ -923,7 +1193,11 @@ class ServerService {
           timestamp: DateTime.now(),
         ),
       );
+    } finally {
+      watchdog.cancel();
     }
+
+
   }
 
   /// Shared auth gate used by file mutation endpoints. Writes a 401 JSON body

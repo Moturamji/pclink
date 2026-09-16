@@ -270,8 +270,7 @@ class _FileShareCardState extends State<FileShareCard> {
     final isDone = progress.status == TransferStatus.completed;
     final isFailed = progress.status == TransferStatus.failed;
     final isCancelled = progress.status == TransferStatus.cancelled;
-    final inProgress = progress.status == TransferStatus.inProgress ||
-        progress.status == TransferStatus.preparing;
+    final inProgress = progress.isActive;
 
     final themeColor = isDone
         ? colors.success
@@ -462,14 +461,21 @@ class _FileShareCardState extends State<FileShareCard> {
             ],
           ),
 
-          // Cancel Button for Android sender/receiver
-          if (inProgress && !widget.isWindows && widget.fileShareService != null) ...[
+          // Cancel Button for active transfer (isolated per-transfer cancellation)
+          if (inProgress &&
+              ((!widget.isWindows && widget.fileShareService != null) ||
+                  (widget.isWindows && widget.serverService != null))) ...[
             const SizedBox(height: 8),
             Align(
               alignment: Alignment.centerRight,
               child: TextButton.icon(
-                onPressed: () =>
-                    widget.fileShareService?.cancelActiveTransfers(),
+                onPressed: () {
+                  if (widget.isWindows) {
+                    widget.serverService?.cancelTransfer(progress.fileId);
+                  } else {
+                    widget.fileShareService?.cancelTransfer(progress.fileId);
+                  }
+                },
                 icon: const Icon(Icons.close_rounded, size: 14),
                 label: const Text('Cancel Transfer'),
                 style: TextButton.styleFrom(

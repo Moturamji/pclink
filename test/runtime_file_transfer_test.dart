@@ -84,7 +84,9 @@ void main() {
 
       final sharedFiles = serverService.sharedFiles;
       expect(sharedFiles.isNotEmpty, isTrue);
-      final uploadedItem = sharedFiles.firstWhere((f) => f.name == 'test_1mb.dat');
+      final uploadedItem = sharedFiles.firstWhere(
+        (f) => f.name.startsWith('test_1mb'),
+      );
       expect(uploadedItem.size, equals(file1Mb.lengthSync()));
 
       final uploadedFile = File(uploadedItem.filePath!);
@@ -150,7 +152,9 @@ void main() {
       expect(resumeSuccess, isTrue);
 
       final sharedFiles = serverService.sharedFiles;
-      final uploadedItem = sharedFiles.firstWhere((f) => f.name == 'test_10mb_resumable.dat');
+      final uploadedItem = sharedFiles.firstWhere(
+        (f) => f.name.startsWith('test_10mb_resumable'),
+      );
       expect(uploadedItem.size, equals(totalBytes));
 
       final uploadedFile = File(uploadedItem.filePath!);
@@ -223,7 +227,7 @@ void main() {
       expect(resumeSuccess, isTrue);
 
       final uploadedItem = serverService.sharedFiles.firstWhere(
-        (f) => f.name == 'test_50mb_multi_resume.dat',
+        (f) => f.name.startsWith('test_50mb_multi_resume'),
       );
       expect(uploadedItem.size, equals(totalBytes));
       final uploadedFile = File(uploadedItem.filePath!);

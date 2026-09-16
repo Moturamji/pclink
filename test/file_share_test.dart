@@ -130,7 +130,7 @@ void main() {
         timestamp: DateTime.now(),
       );
       expect(completed.fraction, 1.0);
-      expect(completed.percentageLabel, '100.0%');
+      expect(completed.percentageLabel, '100%');
       expect(completed.remainingLabel, 'Completed');
 
       final failed = completed.copyWith(status: TransferStatus.failed);
@@ -164,7 +164,7 @@ void main() {
         timestamp: DateTime.now(),
       );
       expect(exact.fraction, 1.0);
-      expect(exact.percentageLabel, '100.0%');
+      expect(exact.percentageLabel, '100%');
       expect(exact.remainingBytes, 0);
     });
   });
