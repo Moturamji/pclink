@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/universal/app_logo.dart';
+import '../../../../core/widgets/universal/bounceable.dart';
 import '../../../../core/widgets/universal/hoverable.dart';
 import '../../../../core/widgets/universal/theme_toggle_button.dart';
 
@@ -12,6 +13,8 @@ enum DesktopNavTab {
   devices,
 }
 
+/// Polished Desktop Sidebar Navigation Rail with tactile micro-interactions,
+/// spring indicators, and borderless surface elevation.
 class DesktopSidebar extends StatelessWidget {
   final DesktopNavTab currentTab;
   final ValueChanged<DesktopNavTab> onTabChanged;
@@ -43,7 +46,7 @@ class DesktopSidebar extends StatelessWidget {
         border: Border(
           right: BorderSide(
             color: colors.cardBorder,
-            width: 1,
+            width: 0.8,
           ),
         ),
       ),
@@ -67,21 +70,13 @@ class DesktopSidebar extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      ShaderMask(
-                        shaderCallback: (bounds) => LinearGradient(
-                          colors: [
-                            colors.textPrimary,
-                            colors.primaryLight,
-                          ],
-                        ).createShader(bounds),
-                        child: const Text(
-                          AppStrings.appName,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.8,
-                            fontSize: 18,
-                            color: Colors.white,
-                          ),
+                      Text(
+                        AppStrings.appName,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.4,
+                          fontSize: 18,
+                          color: colors.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -89,23 +84,13 @@ class DesktopSidebar extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            width: 7,
-                            height: 7,
+                            width: 6,
+                            height: 6,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: isServerLive
                                   ? AppColors.success
                                   : colors.textMuted,
-                              boxShadow: isServerLive
-                                  ? [
-                                      BoxShadow(
-                                        color: AppColors.success
-                                            .withValues(alpha: 0.5),
-                                        blurRadius: 6,
-                                        spreadRadius: 1,
-                                      ),
-                                    ]
-                                  : null,
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -116,7 +101,7 @@ class DesktopSidebar extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 11,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.w500,
                                 color: isServerLive
                                     ? AppColors.success
                                     : colors.textMuted,
@@ -139,9 +124,8 @@ class DesktopSidebar extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: colors.surface,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: colors.cardBorder),
+                  color: colors.surfaceSubtle,
+                  borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
@@ -149,12 +133,7 @@ class DesktopSidebar extends StatelessWidget {
                       width: 28,
                       height: 28,
                       decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            colors.primary,
-                            colors.accentPurple,
-                          ],
-                        ),
+                        color: colors.primary.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Center(
@@ -162,10 +141,10 @@ class DesktopSidebar extends StatelessWidget {
                           userEmail!.isNotEmpty
                               ? userEmail![0].toUpperCase()
                               : 'U',
-                          style: const TextStyle(
-                            color: Colors.white,
+                          style: TextStyle(
+                            color: colors.primaryLight,
                             fontSize: 13,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ),
@@ -181,14 +160,14 @@ class DesktopSidebar extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                              fontWeight: FontWeight.w600,
                               color: colors.textPrimary,
                             ),
                           ),
                           Text(
                             'Authenticated User',
                             style: TextStyle(
-                              fontSize: 10,
+                              fontSize: 11,
                               color: colors.textMuted,
                             ),
                           ),
@@ -202,15 +181,15 @@ class DesktopSidebar extends StatelessWidget {
             const SizedBox(height: 16),
           ],
 
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             child: Text(
               'WORKSPACES',
               style: TextStyle(
                 fontSize: 10,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1.2,
-                color: Color(0xFF64748B),
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.0,
+                color: colors.textMuted,
               ),
             ),
           ),
@@ -260,9 +239,9 @@ class DesktopSidebar extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: colors.surface.withValues(alpha: 0.5),
+              color: colors.surfaceSubtle.withValues(alpha: 0.5),
               border: Border(
-                top: BorderSide(color: colors.cardBorder),
+                top: BorderSide(color: colors.cardBorder, width: 0.8),
               ),
             ),
             child: Column(
@@ -279,8 +258,8 @@ class DesktopSidebar extends StatelessWidget {
                               horizontal: 10, vertical: 8),
                           decoration: BoxDecoration(
                             color: colors.cardSurface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: colors.cardBorder),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: colors.cardBorder, width: 0.8),
                           ),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -315,19 +294,16 @@ class DesktopSidebar extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 10),
-                Hoverable(
+                Bounceable(
                   onTap: onSignOut,
-                  hoverBorderColor: AppColors.error,
+                  scaleFactor: 0.98,
                   child: Container(
                     width: double.infinity,
                     padding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: AppColors.error.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: AppColors.error.withValues(alpha: 0.25),
-                      ),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Row(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -370,31 +346,29 @@ class DesktopSidebar extends StatelessWidget {
     final colors = context.colors;
 
     return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.only(bottom: 4),
       child: Hoverable(
         onTap: () => onTabChanged(tab),
         child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
+          duration: const Duration(milliseconds: 180),
           curve: Curves.easeOutCubic,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             color: isSelected
-                ? accentColor.withValues(alpha: colors.isDark ? 0.16 : 0.1)
+                ? accentColor.withValues(alpha: 0.12)
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isSelected
-                  ? accentColor.withValues(alpha: colors.isDark ? 0.4 : 0.3)
-                  : Colors.transparent,
-              width: 1,
-            ),
+            borderRadius: BorderRadius.circular(12),
           ),
           child: Row(
             children: [
-              Icon(
-                isSelected ? activeIcon : icon,
-                size: 20,
-                color: isSelected ? accentColor : colors.textMuted,
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 180),
+                child: Icon(
+                  isSelected ? activeIcon : icon,
+                  key: ValueKey<bool>(isSelected),
+                  size: 20,
+                  color: isSelected ? accentColor : colors.textMuted,
+                ),
               ),
               const SizedBox(width: 12),
               Expanded(

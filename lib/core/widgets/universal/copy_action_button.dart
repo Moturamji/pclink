@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import '../../constants/app_colors.dart';
 import 'bounceable.dart';
 
-/// Universal 1-tap copy action button with haptic feedback and feedback badge.
+/// Universal 1-tap copy action button with tactile spring feedback and animated morph.
 class CopyActionButton extends StatefulWidget {
   final String textToCopy;
   final String label;
@@ -33,7 +33,7 @@ class _CopyActionButtonState extends State<CopyActionButton> {
     setState(() => _justCopied = true);
     widget.onCopied?.call();
 
-    Future.delayed(const Duration(milliseconds: 1500), () {
+    Future.delayed(const Duration(milliseconds: 1400), () {
       if (mounted) {
         setState(() => _justCopied = false);
       }
@@ -42,32 +42,37 @@ class _CopyActionButtonState extends State<CopyActionButton> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
+    final activeBg = _justCopied
+        ? AppColors.success.withValues(alpha: 0.16)
+        : colors.surfaceSubtle;
+    final activeFg = _justCopied ? AppColors.success : colors.primaryLight;
+
     return Bounceable(
       onTap: _handleCopy,
+      scaleFactor: 0.96,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: _justCopied
-              ? AppColors.success.withValues(alpha: 0.18)
-              : AppColors.primary.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: _justCopied
-                ? AppColors.success.withValues(alpha: 0.4)
-                : AppColors.primary.withValues(alpha: 0.3),
-            width: 1.1,
-          ),
+          color: activeBg,
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Icon(
-              _justCopied ? Icons.check_rounded : Icons.copy_rounded,
-              size: 13,
-              color: _justCopied
-                  ? AppColors.successLight
-                  : AppColors.primaryLight,
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              transitionBuilder: (child, anim) =>
+                  ScaleTransition(scale: anim, child: child),
+              child: Icon(
+                _justCopied ? Icons.check_rounded : Icons.copy_rounded,
+                key: ValueKey<bool>(_justCopied),
+                size: 13,
+                color: activeFg,
+              ),
             ),
             const SizedBox(width: 5),
             Text(
@@ -75,9 +80,8 @@ class _CopyActionButtonState extends State<CopyActionButton> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: _justCopied
-                    ? AppColors.successLight
-                    : AppColors.primaryLight,
+                color: activeFg,
+                letterSpacing: 0.1,
               ),
             ),
           ],

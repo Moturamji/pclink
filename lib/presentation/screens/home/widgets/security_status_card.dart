@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/widgets/universal/app_card_header.dart';
+import '../../../../core/widgets/universal/status_badge.dart';
 
-/// Card showing high-level security, encryption, and sync health without exposing confidential IPs or hardware GUIDs.
+/// Card showing high-level security, encryption, and sync health in a clean, borderless container layout.
 class SecurityStatusCard extends StatelessWidget {
   final bool isConnected;
   final bool isWindows;
@@ -16,106 +18,59 @@ class SecurityStatusCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: colors.primaryLight.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(
-                    Icons.shield_outlined,
-                    size: 18,
-                    color: colors.primaryLight,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'SECURITY & DATA PRIVACY',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.0,
-                      color: colors.textSecondary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: colors.success.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: colors.success.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.lock_rounded, size: 10, color: colors.success),
-                      const SizedBox(width: 4),
-                      Text(
-                        'E2EE Protected',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: colors.success,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+    return Container(
+      padding: const EdgeInsets.all(20.0),
+      decoration: BoxDecoration(
+        color: colors.cardSurface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.cardBorder, width: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppCardHeader(
+            icon: Icons.shield_outlined,
+            iconColor: colors.primaryLight,
+            title: 'Security & Data Privacy',
+            subtitle: 'End-to-End Encrypted Peer Tunnel',
+            trailing: const StatusBadge(
+              label: 'E2EE Protected',
+              isActive: true,
+              activeColor: AppColors.successLight,
             ),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: colors.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: colors.cardBorder),
-              ),
-              child: Column(
-                children: [
-                  _buildSecurityRow(
-                    context: context,
-                    icon: Icons.vpn_key_rounded,
-                    title: 'Transport Encryption',
-                    subtitle: 'TLS 1.3 / HTTPS Cloud Relay',
-                    color: colors.primaryLight,
-                  ),
-                  Divider(color: colors.cardBorder, height: 18),
-                  _buildSecurityRow(
-                    context: context,
-                    icon: Icons.fingerprint_rounded,
-                    title: 'Device Authorization',
-                    subtitle: 'Paired Hardware Token Verification',
-                    color: colors.secondary,
-                  ),
-                  Divider(color: colors.cardBorder, height: 18),
-                  _buildSecurityRow(
-                    context: context,
-                    icon: Icons.wifi_protected_setup_rounded,
-                    title: 'Network Privacy',
-                    subtitle: 'Confidential IPs & Ports Masked',
-                    color: colors.success,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 18),
+          _buildSecurityRow(
+            context: context,
+            icon: Icons.vpn_key_rounded,
+            title: 'Transport Encryption',
+            subtitle: 'TLS 1.3 / HTTPS Cloud Relay',
+            color: colors.primaryLight,
+          ),
+          Divider(color: colors.cardBorder, height: 20, thickness: 0.8),
+          _buildSecurityRow(
+            context: context,
+            icon: Icons.fingerprint_rounded,
+            title: 'Device Authorization',
+            subtitle: 'Paired Hardware Token Verification',
+            color: colors.secondary,
+          ),
+          Divider(color: colors.cardBorder, height: 20, thickness: 0.8),
+          _buildSecurityRow(
+            context: context,
+            icon: Icons.wifi_protected_setup_rounded,
+            title: 'Network Isolation',
+            subtitle: 'Local subnet routing with zero cloud leak',
+            color: colors.accentWarm,
+          ),
+        ],
       ),
     );
   }
@@ -131,14 +86,17 @@ class SecurityStatusCard extends StatelessWidget {
     return Row(
       children: [
         Container(
-          padding: const EdgeInsets.all(6),
+          width: 32,
+          height: 32,
           decoration: BoxDecoration(
             color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(9),
           ),
-          child: Icon(icon, size: 16, color: color),
+          child: Center(
+            child: Icon(icon, size: 16, color: color),
+          ),
         ),
-        const SizedBox(width: 10),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,7 +104,7 @@ class SecurityStatusCard extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w600,
                   color: colors.textPrimary,
                 ),
@@ -155,7 +113,7 @@ class SecurityStatusCard extends StatelessWidget {
               Text(
                 subtitle,
                 style: TextStyle(
-                  fontSize: 11,
+                  fontSize: 12,
                   color: colors.textMuted,
                 ),
               ),

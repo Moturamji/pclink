@@ -18,6 +18,12 @@
       "sourceType": "github",
       "skillPath": "skills/improve-ui/SKILL.md",
       "computedHash": "31c09b79a1c196adccb1637a225cef54f537da87430fda0ba309ef83e78f10e5"
+    },
+    "ui-ux-kit": {
+      "source": "arham777/ui-ux-kit",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "e03f214a8a6260ff0385a198b4d27778cdf5150f033e4a7fba2ce8fb5d537597"
     }
   }
 }

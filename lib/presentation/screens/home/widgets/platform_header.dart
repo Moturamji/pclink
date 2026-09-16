@@ -3,7 +3,7 @@ import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../data/models/device_details.dart';
 
-/// Top banner showing platform target, device model, and OS version.
+/// Top banner showing platform target, device model, and OS version with clean telemetry styling.
 class PlatformHeader extends StatelessWidget {
   final DeviceDetails details;
 
@@ -19,30 +19,19 @@ class PlatformHeader extends StatelessWidget {
     final isAndroid = details.isAndroid;
 
     final badgeColor = isWindows ? colors.primary : colors.secondary;
-    final iconColor =
-        isWindows ? colors.primaryLight : colors.secondary;
+    final iconColor = isWindows ? colors.primaryLight : colors.secondary;
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            badgeColor.withValues(alpha: 0.14),
-            colors.cardSurface,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: badgeColor.withValues(alpha: 0.28),
-          width: 1.2,
-        ),
+        color: colors.cardSurface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(
-            color: badgeColor.withValues(alpha: 0.1),
+            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
             blurRadius: 18,
-            offset: const Offset(0, 4),
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -50,20 +39,11 @@ class PlatformHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Container(
-            padding: const EdgeInsets.all(13),
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
-              color: badgeColor.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: badgeColor.withValues(alpha: 0.35),
-                width: 1.1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: badgeColor.withValues(alpha: 0.15),
-                  blurRadius: 10,
-                ),
-              ],
+              color: badgeColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(14),
             ),
             child: Icon(
               isWindows
@@ -71,7 +51,7 @@ class PlatformHeader extends StatelessWidget {
                   : (isAndroid
                       ? Icons.phone_android_rounded
                       : Icons.devices_rounded),
-              size: 28,
+              size: 24,
               color: iconColor,
             ),
           ),
@@ -82,49 +62,35 @@ class PlatformHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Wrap(
-                  spacing: 6,
+                  spacing: 8,
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
-                        vertical: 2.5,
+                        vertical: 3,
                       ),
                       decoration: BoxDecoration(
-                        color: badgeColor.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: badgeColor.withValues(alpha: 0.35),
-                        ),
+                        color: badgeColor.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(9999),
                       ),
                       child: Text(
                         details.platform.toUpperCase(),
                         style: TextStyle(
                           fontSize: 10,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 1.1,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.6,
                           color: iconColor,
                         ),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2.5,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.surface,
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(color: colors.cardBorder),
-                      ),
-                      child: Text(
-                        AppStrings.targetPlatform,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textSecondary,
-                        ),
+                    Text(
+                      AppStrings.targetPlatform,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: colors.textMuted,
                       ),
                     ),
                   ],
@@ -133,9 +99,9 @@ class PlatformHeader extends StatelessWidget {
                 Text(
                   details.deviceName,
                   style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.2,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
                     color: colors.textPrimary,
                   ),
                   maxLines: 2,
@@ -145,8 +111,8 @@ class PlatformHeader extends StatelessWidget {
                 Text(
                   details.osVersion,
                   style: TextStyle(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w500,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
                     color: colors.textSecondary,
                   ),
                   maxLines: 1,
@@ -160,4 +126,3 @@ class PlatformHeader extends StatelessWidget {
     );
   }
 }
-

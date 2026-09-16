@@ -101,21 +101,13 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
               isAnimated: false,
             ),
             const SizedBox(width: 10),
-            ShaderMask(
-              shaderCallback: (bounds) => LinearGradient(
-                colors: [
-                  colors.textPrimary,
-                  colors.primaryLight,
-                ],
-              ).createShader(bounds),
-              child: const Text(
-                AppStrings.appName,
-                style: TextStyle(
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0.8,
-                  fontSize: 18,
-                  color: Colors.white,
-                ),
+            Text(
+              AppStrings.appName,
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.3,
+                fontSize: 18,
+                color: colors.textPrimary,
               ),
             ),
           ],

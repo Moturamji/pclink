@@ -3,6 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/universal/app_card_header.dart';
+import '../../../core/widgets/universal/status_badge.dart';
 import '../../../data/services/file_share_service.dart';
 import '../../../data/services/server_service.dart';
 import '../models/shared_file.dart';
@@ -214,60 +215,51 @@ class _FileShareCardState extends State<FileShareCard> {
   Widget build(BuildContext context) {
     final colors = context.colors;
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(18.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppCardHeader(
-              icon: Icons.folder_shared_rounded,
-              iconColor: colors.secondary,
-              title: 'SHARE FILES',
-              trailing: _busy
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 3,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.secondary.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(20),
-                        border: Border.all(
-                          color: colors.secondary.withValues(alpha: 0.35),
-                        ),
-                      ),
-                      child: Text(
-                        '${_files.length}',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: colors.success,
-                        ),
-                      ),
-                    ),
-            ),
-            const SizedBox(height: 12),
+    return Container(
+      padding: const EdgeInsets.all(20.0),
+      decoration: BoxDecoration(
+        color: colors.cardSurface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.cardBorder, width: 0.8),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AppCardHeader(
+            icon: Icons.folder_open_rounded,
+            iconColor: colors.accentPurple,
+            title: 'FILE TRANSFER STUDIO',
+            subtitle: 'Direct local P2P streaming with HTTP 206 chunking',
+            trailing: _files.isEmpty
+                ? null
+                : StatusBadge(
+                    label: '${_files.length} Shared',
+                    isActive: true,
+                    activeColor: colors.accentPurple,
+                  ),
+          ),
+          const SizedBox(height: 16),
 
-            // Live Real-Time Transfer Indicator Panel
-            if (_transferProgress != null) ...[
-              _buildLiveTransferPanel(_transferProgress!, colors),
-              const SizedBox(height: 14),
-            ],
-
-            if (widget.isWindows)
-              _buildWindowsPanel(colors)
-            else
-              _buildAndroidPanel(colors),
-            const SizedBox(height: 12),
-            _buildFooter(colors),
+          // Live Real-Time Transfer Indicator Panel
+          if (_transferProgress != null) ...[
+            _buildLiveTransferPanel(_transferProgress!, colors),
+            const SizedBox(height: 16),
           ],
-        ),
+
+          if (widget.isWindows)
+            _buildWindowsPanel(colors)
+          else
+            _buildAndroidPanel(colors),
+          const SizedBox(height: 16),
+          _buildFooter(colors),
+        ],
       ),
     );
   }
@@ -292,21 +284,14 @@ class _FileShareCardState extends State<FileShareCard> {
         : (widget.isWindows ? 'Receiving from Phone' : 'Receiving from PC');
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(14),
+        color: colors.surfaceSubtle,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: themeColor.withValues(alpha: 0.35),
-          width: 1.5,
+          color: themeColor.withValues(alpha: 0.3),
+          width: 1.0,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: themeColor.withValues(alpha: 0.08),
-            blurRadius: 10,
-            spreadRadius: 1,
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -364,7 +349,6 @@ class _FileShareCardState extends State<FileShareCard> {
                 decoration: BoxDecoration(
                   color: themeColor.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: themeColor.withValues(alpha: 0.3)),
                 ),
                 child: Text(
                   isDone
@@ -390,8 +374,8 @@ class _FileShareCardState extends State<FileShareCard> {
               value: inProgress
                   ? progress.fraction
                   : (isDone ? 1.0 : 0.0),
-              minHeight: 8,
-              backgroundColor: colors.background,
+              minHeight: 6,
+              backgroundColor: colors.surface,
               valueColor: AlwaysStoppedAnimation<Color>(themeColor),
             ),
           ),
@@ -531,13 +515,17 @@ class _FileShareCardState extends State<FileShareCard> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: colors.secondary,
                   foregroundColor: Colors.white,
-                  elevation: 2,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         Text(
           _files.isEmpty
               ? 'Nothing is being shared yet.'
@@ -591,7 +579,11 @@ class _FileShareCardState extends State<FileShareCard> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: colors.secondary,
                   foregroundColor: Colors.white,
-                  elevation: 2,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
               ),
             ),
@@ -602,13 +594,13 @@ class _FileShareCardState extends State<FileShareCard> {
               icon: const Icon(Icons.refresh_rounded, size: 20),
               color: colors.textSecondary,
               style: IconButton.styleFrom(
-                backgroundColor: colors.surface,
-                side: BorderSide(color: colors.cardBorder),
+                backgroundColor: colors.surfaceSubtle,
+                side: BorderSide(color: colors.cardBorder, width: 0.8),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 16),
         Text(
           _files.isEmpty
               ? 'Shared files from your PC'
@@ -641,11 +633,10 @@ class _FileShareCardState extends State<FileShareCard> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: colors.surfaceSubtle,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colors.cardBorder),
       ),
       child: Row(
         children: [
@@ -665,7 +656,7 @@ class _FileShareCardState extends State<FileShareCard> {
                   : colors.success,
             ),
           ),
-          const SizedBox(width: 10),
+          const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -716,9 +707,10 @@ class _FileShareCardState extends State<FileShareCard> {
                 foregroundColor: colors.success,
                 side: BorderSide(
                   color: colors.success.withValues(alpha: 0.4),
+                  width: 0.8,
                 ),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
+                  horizontal: 12,
                   vertical: 6,
                 ),
                 minimumSize: Size.zero,
@@ -741,15 +733,14 @@ class _FileShareCardState extends State<FileShareCard> {
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: colors.surface,
+        color: colors.surfaceSubtle,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colors.cardBorder),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 26, color: colors.textMuted),
+          Icon(icon, size: 28, color: colors.textMuted),
           const SizedBox(height: 8),
           Text(
             title,

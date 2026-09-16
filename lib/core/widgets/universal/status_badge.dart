@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../constants/app_colors.dart';
 
-/// Universal status badge with an animated glowing indicator dot.
+/// Universal status badge with a refined breathing indicator dot and clean pill background.
 class StatusBadge extends StatefulWidget {
   final String label;
   final bool isActive;
@@ -30,13 +30,13 @@ class _StatusBadgeState extends State<StatusBadge>
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1600),
+      duration: const Duration(milliseconds: 1800),
     );
 
-    _pulseAnimation = Tween<double>(begin: 0.35, end: 0.9).animate(
+    _pulseAnimation = Tween<double>(begin: 0.3, end: 0.85).animate(
       CurvedAnimation(
         parent: _pulseController,
-        curve: Curves.easeInOut,
+        curve: Curves.easeInOutCubic,
       ),
     );
 
@@ -68,57 +68,53 @@ class _StatusBadgeState extends State<StatusBadge>
     final color = widget.isActive ? widget.activeColor : widget.inactiveColor;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: color.withValues(alpha: 0.3),
-          width: 1.1,
-        ),
+        borderRadius: BorderRadius.circular(9999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          widget.isActive
-              ? AnimatedBuilder(
-                  animation: _pulseAnimation,
-                  builder: (context, child) {
-                    return Container(
-                      width: 7,
-                      height: 7,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: color,
-                        boxShadow: [
-                          BoxShadow(
-                            color: color.withValues(
-                              alpha: _pulseAnimation.value,
-                            ),
-                            blurRadius: 8,
-                            spreadRadius: 1.5,
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                )
-              : Container(
-                  width: 7,
-                  height: 7,
+          if (widget.isActive)
+            AnimatedBuilder(
+              animation: _pulseAnimation,
+              builder: (context, child) {
+                return Container(
+                  width: 6,
+                  height: 6,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: color,
+                    boxShadow: [
+                      BoxShadow(
+                        color: color.withValues(alpha: _pulseAnimation.value),
+                        blurRadius: 6,
+                        spreadRadius: 1,
+                      ),
+                    ],
                   ),
-                ),
+                );
+              },
+            )
+          else
+            Container(
+              width: 6,
+              height: 6,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: color.withValues(alpha: 0.5),
+              ),
+            ),
           const SizedBox(width: 6),
           Text(
             widget.label,
             style: TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 0.6,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
               color: color,
+              letterSpacing: 0.1,
             ),
           ),
         ],
