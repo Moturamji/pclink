@@ -1147,6 +1147,12 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                         gaplessPlayback: true,
                         filterQuality: FilterQuality.medium,
                         fit: BoxFit.contain,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Center(
+                            child: Icon(Icons.broken_image_rounded,
+                                color: Colors.white38, size: 48),
+                          );
+                        },
                       ),
                     ),
                   )
