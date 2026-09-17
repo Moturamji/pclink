@@ -187,6 +187,9 @@ void main() {
         customTransferId: 'tx_cancel_test',
       );
 
+      // The cancelled event is delivered on the next event-loop turn (broadcast
+      // stream), so drain before asserting.
+      await Future<void>.delayed(const Duration(milliseconds: 100));
       expect(success, isFalse);
       expect(lastProgress?.status, equals(TransferStatus.cancelled));
       await sub.cancel();

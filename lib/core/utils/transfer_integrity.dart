@@ -45,6 +45,17 @@ class TransferCrc32 {
     _crc = 0xFFFFFFFF;
     _bytesProcessed = 0;
   }
+
+  /// Calculates a checksum without loading a large file into memory.  The
+  /// asynchronous file stream yields between chunks, so verification remains
+  /// visible and does not freeze the interface.
+  static Future<String> checksumFile(File file) async {
+    final crc = TransferCrc32();
+    await for (final chunk in file.openRead()) {
+      crc.update(chunk);
+    }
+    return crc.hexString;
+  }
 }
 
 /// File system utilities for safe, non-destructive destination file handling

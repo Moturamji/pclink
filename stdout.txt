@@ -1,0 +1,56 @@
+The Dart VM service is listening on http://127.0.0.1:57195/2KF7yNTvc0Q=/
+DatabaseService: Updated server info with status 200
+DatabaseService: Synced windows device node with status 200
+ServerService: Windows server listening on http://192.168.20.18:8088 (Public address: http://110.226.96.156:8088)
+ServerService: Restored 4 shared file(s).
+DatabaseService: Updated server info with status 200
+TunnelService: PCLink Relay binary ready at C:\Users\Admin\AppData\Roaming\pclink\pclink-relay.exe
+TunnelService: Launching PCLink Relay tunnel on port 8088...
+DatabaseService: Queued server live notification alert
+ServerService: ✅ Firewall rule for port 8088 already exists
+DatabaseService: Neither firebase_service_account.json nor FCM server key found.
+Direct wake-up push skipped.
+ClipboardService: Started direct server clipboard sync for windows (DESKTOP-2JQP186)
+ClipboardService: Transferred local clip directly (9823 chars)
+TunnelService: Public tunnel ready: https://met-acquire-cindy-trade.trycloudflare.com
+HomeScreen: Published automated tunnel URL: https://met-acquire-cindy-trade.trycloudflare.com
+DatabaseService: Updated server info with status 200
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService: Transferred local clip directly (46987 chars)
+ClipboardService: Transferred local clip directly (9823 chars)
+DatabaseService listenCloudHandshakeRequests error: HandshakeException: Connection terminated during handshake
+ClipboardService: Transferred local clip directly (134 chars)
+ClipboardService: Transferred local clip directly (69 chars)
+ClipboardService: Transferred local clip directly (134 chars)
+ClipboardService: Transferred local clip directly (59 chars)
+ClipboardService: Transferred local clip directly (237 chars)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService check error: PlatformException(Clipboard error, Unable to open clipboard, 5, null)
+ClipboardService: Transferred local clip directly (31 chars)
+ClipboardService: Transferred local clip directly (24 chars)
+ClipboardService: Transferred local clip directly (31 chars)

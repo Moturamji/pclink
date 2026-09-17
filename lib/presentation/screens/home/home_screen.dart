@@ -199,10 +199,12 @@ class _HomeScreenState extends State<HomeScreen> {
       getTargetServerUrls: () {
         final info = _currentServerInfo;
         if (info == null) return <String>[];
+        // LAN first: clipboard payloads include full-screen screenshots, and
+        // the WAN tunnel is only a fallback when the LAN is unreachable.
         return <String>[
+          if (info.url.isNotEmpty) info.url,
           if (info.publicUrl != null && info.publicUrl!.isNotEmpty)
             info.publicUrl!,
-          if (info.url.isNotEmpty) info.url,
         ];
       },
       getServerStartTime: () {
@@ -369,15 +371,18 @@ class _HomeScreenState extends State<HomeScreen> {
           );
         }
 
-        // Configure the file-sharing client
+        // Configure the file-sharing client. Candidate order is LAN first:
+        // the phone and PC are usually on the same network, and routing a
+        // multi-megabyte transfer through the WAN tunnel (cloudflared) is
+        // dramatically slower. The tunnel stays as the automatic fallback.
         _fileShareService.configure(
           getTargetServerUrls: () {
             final info = _currentServerInfo;
             if (info == null) return <String>[];
             return <String>[
+              if (info.url.isNotEmpty) info.url,
               if (info.publicUrl != null && info.publicUrl!.isNotEmpty)
                 info.publicUrl!,
-              if (info.url.isNotEmpty) info.url,
             ];
           },
           getServerStartTime: () {

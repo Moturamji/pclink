@@ -15,6 +15,7 @@ abstract final class ServerConstants {
   static const String filesEndpoint = '/api/files';
   static const String filesUploadEndpoint = '/api/files/upload';
   static const String filesDownloadEndpoint = '/api/files/download';
+  static const String transfersEndpoint = '/api/transfers';
   static const String powerEndpoint = '/api/system/power';
 
   // System Power Actions

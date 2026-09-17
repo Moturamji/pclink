@@ -70,6 +70,11 @@ class TransferStateMachine {
       TransferStatus.failed,
     },
     TransferStatus.verifying: {
+      // A retry on another route restarts the byte stream after a lost
+      // confirmation, so these are legal forward/restart transitions.
+      TransferStatus.transferring,
+      TransferStatus.inProgress,
+      TransferStatus.resuming,
       TransferStatus.finalizing,
       TransferStatus.completed,
       TransferStatus.failed,
@@ -242,6 +247,53 @@ class TransferProgress {
       status: status ?? this.status,
       errorMessage: errorMessage ?? this.errorMessage,
       timestamp: timestamp ?? this.timestamp,
+    );
+  }
+
+  /// Wire representation used by the authenticated PC progress feed.  Keeping
+  /// this model conversion here prevents the phone and PC from drifting on
+  /// status names or numeric fields.
+  Map<String, Object?> toMap() => {
+        'fileId': fileId,
+        'fileName': fileName,
+        'bytesTransferred': bytesTransferred,
+        'totalBytes': totalBytes,
+        'speedBytesPerSec': speedBytesPerSec,
+        'isUpload': isUpload,
+        'status': status.name,
+        'errorMessage': errorMessage,
+        'timestamp': timestamp.toIso8601String(),
+      };
+
+  static TransferProgress? tryFromMap(Map<dynamic, dynamic> map) {
+    final statusName = map['status'];
+    if (statusName is! String) return null;
+    final status = TransferStatus.values.where((value) => value.name == statusName);
+    if (status.isEmpty) return null;
+    final fileId = map['fileId'];
+    final fileName = map['fileName'];
+    final bytesTransferred = map['bytesTransferred'];
+    final totalBytes = map['totalBytes'];
+    final timestamp = map['timestamp'];
+    if (fileId is! String ||
+        fileName is! String ||
+        bytesTransferred is! num ||
+        totalBytes is! num ||
+        timestamp is! String) {
+      return null;
+    }
+    final parsedTimestamp = DateTime.tryParse(timestamp);
+    if (parsedTimestamp == null) return null;
+    return TransferProgress(
+      fileId: fileId,
+      fileName: fileName,
+      bytesTransferred: bytesTransferred.toInt(),
+      totalBytes: totalBytes.toInt(),
+      speedBytesPerSec: (map['speedBytesPerSec'] as num?)?.toDouble() ?? 0,
+      isUpload: map['isUpload'] == true,
+      status: status.first,
+      errorMessage: map['errorMessage'] as String?,
+      timestamp: parsedTimestamp,
     );
   }
 }
