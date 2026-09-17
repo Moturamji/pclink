@@ -150,6 +150,7 @@ class _DesktopDashboardViewState extends State<DesktopDashboardView> {
           user: widget.user,
           currentServerInfo: widget.currentServerInfo,
           databaseService: widget.databaseService,
+          serverService: widget.serverService,
           onToggleServer: widget.onToggleServer,
           onConnectionStateChanged: widget.onConnectionStateChanged,
           onDisconnectRequested: widget.onDisconnectRequested,

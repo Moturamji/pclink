@@ -13,6 +13,7 @@ import 'package:pclink/presentation/screens/home/desktop/desktop_overview_tab.da
 import 'package:pclink/presentation/screens/home/desktop/desktop_sidebar.dart';
 import 'package:pclink/presentation/screens/home/mobile/mobile_connect_tab.dart';
 import 'package:pclink/data/services/database_service.dart';
+import 'package:pclink/data/services/server_service.dart';
 
 class MockDatabaseService extends Fake implements DatabaseService {
   @override
@@ -150,6 +151,7 @@ void main() {
                         details: dummyDetails,
                         currentServerInfo: dummyServer,
                         databaseService: MockDatabaseService(),
+                        serverService: ServerService(),
                         onToggleServer: () {},
                         onConnectionStateChanged: (_) {},
                         onDisconnectRequested: () {},

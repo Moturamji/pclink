@@ -16,6 +16,7 @@ import 'mobile_clipboard_tab.dart';
 import 'mobile_connect_tab.dart';
 import 'mobile_devices_tab.dart';
 import 'mobile_files_tab.dart';
+import 'mobile_live_share_tab.dart';
 
 /// Complete Mobile Dashboard Shell with hero top bar, floating squircle
 /// bottom tab bar, and spring micro-interactions.
@@ -82,6 +83,12 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
       activeIcon: Icons.devices_rounded,
       label: 'Devices',
       activeColor: AppColors.accentWarm,
+    ),
+    TabItemData(
+      icon: Icons.desktop_windows_outlined,
+      activeIcon: Icons.desktop_windows_rounded,
+      label: 'Live Share',
+      activeColor: AppColors.success,
     ),
   ];
 
@@ -217,11 +224,18 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
           clipboardService: widget.clipboardService,
         );
       case 3:
-      default:
         return MobileDevicesTab(
           details: widget.details,
           user: widget.user,
           databaseService: widget.databaseService,
+        );
+      case 4:
+      default:
+        return MobileLiveShareTab(
+          fileShareService: widget.fileShareService,
+          currentServerInfo: widget.currentServerInfo,
+          localDeviceId: widget.details.deviceId,
+          isConnected: widget.details.isConnected,
         );
     }
   }

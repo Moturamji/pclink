@@ -13,6 +13,7 @@ import '../../core/utils/transfer_fingerprint.dart';
 import '../../core/utils/transfer_integrity.dart';
 import '../../features/file_share/models/shared_file.dart';
 import '../../features/file_share/models/transfer_progress.dart';
+import 'screen_share_start_result.dart';
 
 /// Android client for the Windows temporary server's file-sharing API.
 ///
@@ -319,6 +320,64 @@ class FileShareService {
       debugPrint('FileShareService listRemoteTransfers decode error: $e');
       return const <TransferProgress>[];
     }
+  }
+
+  /// Requests a view-only session from the paired Windows PC. The PC remains
+  /// the authority: it can deny the request or stop the session at any time.
+  Future<ScreenShareStartResult> startScreenShare() async {
+    final deviceName = Uri.encodeQueryComponent(_currentDeviceName ?? 'Linked phone');
+    final response = await _tryUrlFallback(
+      (url) => _client.post(
+        Uri.parse('$url${ServerConstants.screenShareStartEndpoint}?deviceName=$deviceName'),
+        headers: _authHeaders(),
+      ),
+    );
+    if (response == null) {
+      return const ScreenShareStartResult(
+        started: false,
+        message: 'PC Link is unavailable. Check that your PC is online.',
+      );
+    }
+    try {
+      final body = jsonDecode(response.body);
+      final message = body is Map ? body['error'] as String? : null;
+      return ScreenShareStartResult(
+        started: response.statusCode == HttpStatus.ok,
+        message: message ??
+            (response.statusCode == HttpStatus.ok
+                ? 'Live view started.'
+                : 'Screen sharing could not start.'),
+      );
+    } catch (_) {
+      return ScreenShareStartResult(
+        started: response.statusCode == HttpStatus.ok,
+        message: response.statusCode == HttpStatus.ok
+            ? 'Live view started.'
+            : 'Screen sharing could not start.',
+      );
+    }
+  }
+
+  Future<void> stopScreenShare() async {
+    await _tryUrlFallback(
+      (url) => _client.post(
+        Uri.parse('$url${ServerConstants.screenShareStopEndpoint}'),
+        headers: _authHeaders(),
+      ),
+    );
+  }
+
+  /// Gets the most recent in-memory JPEG frame. No frame is written to phone
+  /// storage, and a null result simply means the next frame is not ready yet.
+  Future<Uint8List?> getScreenShareFrame() async {
+    final response = await _tryUrlFallback(
+      (url) => _client.get(
+        Uri.parse('$url${ServerConstants.screenShareFrameEndpoint}'),
+        headers: _authHeaders(),
+      ),
+    );
+    if (response == null || response.statusCode != HttpStatus.ok) return null;
+    return response.bodyBytes;
   }
 
   /// Industry-style acknowledged upload: a bounded segment is confirmed by the

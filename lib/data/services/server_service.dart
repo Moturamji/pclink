@@ -17,6 +17,7 @@ import '../../features/file_share/models/transfer_progress.dart';
 import '../models/server_info.dart';
 import 'database_service.dart';
 import 'system_power_service.dart';
+import 'screen_share_service.dart';
 
 class _TransferCancelledException implements Exception {
   const _TransferCancelledException();
@@ -29,6 +30,9 @@ class ServerService {
   String? _connectedClientId;
   final List<ClipboardItem> _clipboardHistory = [];
   Function(ClipboardItem item)? onClipboardReceived;
+  final ScreenShareService _screenShareService = ScreenShareService();
+
+  ScreenShareService get screenShareService => _screenShareService;
 
   // Real-time file transfer progress broadcast stream (active uploads/downloads)
   TransferProgress? _currentTransferProgress;
@@ -603,6 +607,22 @@ class ServerService {
             await _handleTransfers(request);
             break;
 
+          case ServerConstants.screenShareStartEndpoint:
+            await _handleScreenShareStart(request);
+            break;
+
+          case ServerConstants.screenShareStopEndpoint:
+            await _handleScreenShareStop(request);
+            break;
+
+          case ServerConstants.screenShareStatusEndpoint:
+            await _handleScreenShareStatus(request);
+            break;
+
+          case ServerConstants.screenShareFrameEndpoint:
+            await _handleScreenShareFrame(request);
+            break;
+
           case ServerConstants.powerEndpoint:
             await _handleSystemPower(request);
             break;
@@ -778,6 +798,77 @@ class ServerService {
     request.response.write(
       jsonEncode(_activeTransfers.values.map((transfer) => transfer.toMap()).toList()),
     );
+    await request.response.close();
+  }
+
+  Future<void> _handleScreenShareStart(HttpRequest request) async {
+    if (request.method != 'POST' || !await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    final viewerName = _sanitizeFileName(
+      request.uri.queryParameters['deviceName'] ?? 'Linked phone',
+    );
+    final started = await _screenShareService.start(viewerName: viewerName);
+    request.response.headers.contentType = ContentType.json;
+    if (!started) {
+      request.response.statusCode = HttpStatus.forbidden;
+      request.response.write(jsonEncode({
+        'success': false,
+        'error': 'Screen sharing is disabled on this PC. Enable it from the PCLink dashboard.',
+      }));
+    } else {
+      request.response.statusCode = HttpStatus.ok;
+      request.response.write(jsonEncode({
+        'success': true,
+        'viewerName': viewerName,
+        'viewOnly': true,
+      }));
+    }
+    await request.response.close();
+  }
+
+  Future<void> _handleScreenShareStop(HttpRequest request) async {
+    if (request.method != 'POST' || !await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    await _screenShareService.stop();
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType.json;
+    request.response.write(jsonEncode({'success': true}));
+    await request.response.close();
+  }
+
+  Future<void> _handleScreenShareStatus(HttpRequest request) async {
+    if (request.method != 'GET' || !await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    final state = _screenShareService.status;
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType.json;
+    request.response.headers.set('Cache-Control', 'no-store');
+    request.response.write(jsonEncode({
+      'enabled': state.enabled,
+      'viewerName': state.viewerName,
+      'viewOnly': true,
+    }));
+    await request.response.close();
+  }
+
+  Future<void> _handleScreenShareFrame(HttpRequest request) async {
+    if (request.method != 'GET' || !await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    final frame = _screenShareService.takeLatestFrame();
+    if (frame == null) {
+      request.response.statusCode = HttpStatus.noContent;
+      await request.response.close();
+      return;
+    }
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType('image', 'jpeg');
+    request.response.headers.set('Cache-Control', 'no-store');
+    request.response.contentLength = frame.length;
+    request.response.add(frame);
     await request.response.close();
   }
 
@@ -1810,6 +1901,7 @@ class ServerService {
 
   /// Stops the local Windows server.
   Future<void> stopServer() async {
+    await _screenShareService.stop();
     if (_server != null) {
       await _server!.close(force: true);
       _server = null;
@@ -1828,7 +1920,9 @@ class ServerService {
       lastHeartbeat: null,
       connectedClientId: null,
     );
-    _stateController.add(_currentInfo);
+    if (!_stateController.isClosed) {
+      _stateController.add(_currentInfo);
+    }
   }
 
   // -------------------------------------------------------------
@@ -2061,12 +2155,18 @@ class ServerService {
 
   void dispose() {
     stopServer();
-    _stateController.close();
+    _screenShareService.dispose();
+    if (!_stateController.isClosed) {
+      _stateController.close();
+    }
     if (!_sharedFilesController.isClosed) {
       _sharedFilesController.close();
     }
     if (!_transferProgressController.isClosed) {
       _transferProgressController.close();
+    }
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.close();
     }
   }
 }
