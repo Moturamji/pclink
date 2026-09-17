@@ -18,6 +18,10 @@ import '../models/server_info.dart';
 import 'database_service.dart';
 import 'system_power_service.dart';
 
+class _TransferCancelledException implements Exception {
+  const _TransferCancelledException();
+}
+
 /// Manages the lightweight server on Windows and client-side handshake on Android across local and public networks.
 class ServerService {
   HttpServer? _server;
@@ -173,12 +177,142 @@ class ServerService {
         sourcePath.split(RegExp(r'[\\/]')).last,
       );
       final dest = File('${dir.path}\\${id}_$originalName');
-      await src.copy(dest.path);
+      final temp = File('${dir.path}\\.part_$id.tmp');
+      final totalBytes = await src.length();
+      final token = CancellationToken();
+      _activeTokens[id] = token;
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: id,
+          fileName: originalName,
+          bytesTransferred: 0,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: true,
+          status: TransferStatus.preparing,
+          timestamp: DateTime.now(),
+        ),
+      );
+
+      // Let the state event reach Flutter before opening/reading a large file.
+      // A streamed temp copy preserves the original file and makes every byte
+      // visible in the transfer panel instead of freezing on `File.copy`.
+      await Future<void>.delayed(Duration.zero);
+      // Await each write instead of feeding an unbounded IOSink buffer.  The
+      // displayed byte count therefore tracks data safely accepted by disk.
+      final raf = await temp.open(mode: FileMode.write);
+      final checksum = TransferCrc32();
+      final stopwatch = Stopwatch()..start();
+      var copiedBytes = 0;
+      var lastProgressAt = DateTime.fromMillisecondsSinceEpoch(0);
+      try {
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: id,
+            fileName: originalName,
+            bytesTransferred: 0,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.transferring,
+            timestamp: DateTime.now(),
+          ),
+        );
+        await for (final chunk in src.openRead()) {
+          if (token.isCancelled) throw const _TransferCancelledException();
+          checksum.update(chunk);
+          await raf.writeFrom(chunk);
+          copiedBytes += chunk.length;
+          final now = DateTime.now();
+          if (now.difference(lastProgressAt).inMilliseconds >= 50 ||
+              copiedBytes == totalBytes) {
+            lastProgressAt = now;
+            final seconds = stopwatch.elapsedMilliseconds / 1000;
+            _emitTransferProgress(
+              TransferProgress(
+                fileId: id,
+                fileName: originalName,
+                bytesTransferred: copiedBytes,
+                totalBytes: totalBytes,
+                speedBytesPerSec: seconds > 0 ? copiedBytes / seconds : 0,
+                isUpload: true,
+                status: TransferStatus.transferring,
+                timestamp: now,
+              ),
+            );
+          }
+        }
+        await raf.close();
+
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: id,
+            fileName: originalName,
+            bytesTransferred: copiedBytes,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.verifying,
+            timestamp: DateTime.now(),
+          ),
+        );
+        final savedChecksum = await TransferCrc32.checksumFile(temp);
+        if (copiedBytes != totalBytes || savedChecksum != checksum.hexString) {
+          throw const FileSystemException('Shared-file integrity check failed');
+        }
+
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: id,
+            fileName: originalName,
+            bytesTransferred: copiedBytes,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.finalizing,
+            timestamp: DateTime.now(),
+          ),
+        );
+        await FileSystemUtil.robustRenameOrCopy(temp, dest);
+      } on _TransferCancelledException {
+        await raf.close();
+        if (await temp.exists()) await temp.delete();
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: id,
+            fileName: originalName,
+            bytesTransferred: copiedBytes,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.cancelled,
+            timestamp: DateTime.now(),
+          ),
+        );
+        return null;
+      } catch (e) {
+        await raf.close();
+        if (await temp.exists()) await temp.delete();
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: id,
+            fileName: originalName,
+            bytesTransferred: copiedBytes,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: true,
+            status: TransferStatus.failed,
+            errorMessage: e.toString(),
+            timestamp: DateTime.now(),
+          ),
+        );
+        rethrow;
+      }
 
       final item = SharedFile(
         id: id,
         name: originalName,
-        size: await dest.length(),
+        size: totalBytes,
         sourcePlatform: 'windows',
         sourceDeviceName: deviceName,
         timestamp: DateTime.now(),
@@ -187,6 +321,18 @@ class ServerService {
       _sharedFiles.insert(0, item);
       if (_sharedFiles.length > 100) _sharedFiles.removeLast();
       _sharedFilesController.add(List.from(_sharedFiles));
+      _emitTransferProgress(
+        TransferProgress(
+          fileId: id,
+          fileName: originalName,
+          bytesTransferred: totalBytes,
+          totalBytes: totalBytes,
+          speedBytesPerSec: 0,
+          isUpload: true,
+          status: TransferStatus.completed,
+          timestamp: DateTime.now(),
+        ),
+      );
       debugPrint(
         'ServerService: Registered PC file for sharing: $originalName',
       );
@@ -453,6 +599,10 @@ class ServerService {
             await _handleFileDownload(request);
             break;
 
+          case ServerConstants.transfersEndpoint:
+            await _handleTransfers(request);
+            break;
+
           case ServerConstants.powerEndpoint:
             await _handleSystemPower(request);
             break;
@@ -610,6 +760,27 @@ class ServerService {
     await request.response.close();
   }
 
+  /// Returns the server-side view of every recent transfer.  The phone polls
+  /// this small authenticated payload while its Files screen is open, giving it
+  /// a live view of PC-originated sends as well as the receiver's actual byte
+  /// count for phone uploads.
+  Future<void> _handleTransfers(HttpRequest request) async {
+    if (request.method != 'GET') {
+      request.response.statusCode = HttpStatus.methodNotAllowed;
+      await request.response.close();
+      return;
+    }
+    if (!await _verifyAuthorizedMutation(request)) return;
+
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType.json;
+    request.response.headers.set('Cache-Control', 'no-store');
+    request.response.write(
+      jsonEncode(_activeTransfers.values.map((transfer) => transfer.toMap()).toList()),
+    );
+    await request.response.close();
+  }
+
   /// `POST /api/files/upload?name=<file>&deviceName=<name>&size=<bytes>&offset=<bytes>&fileKey=<key>`
   /// Receives a file pushed from the phone and saves it into the shared folder with resumable streaming progress.
   Future<void> _handleFileUpload(HttpRequest request) async {
@@ -649,6 +820,7 @@ class ServerService {
     final fingerprint = request.uri.queryParameters['fingerprint'] ?? '';
     final fileKey = request.uri.queryParameters['fileKey'] ??
         '${originalName}_$totalBytes';
+    final isChunkedUpload = request.uri.queryParameters['chunked'] == 'true';
 
     // Support offset check endpoint
     if (request.method == 'GET' &&
@@ -712,7 +884,10 @@ class ServerService {
         if (await metaFile.exists()) await metaFile.delete();
       }
 
-      final sink = partFile.openWrite(
+      // Awaiting each write gives real disk backpressure without an fsync per
+      // chunk (IOSink.flush() forces FlushFileBuffers, which serializes the
+      // whole receive loop against disk latency/antivirus scanning).
+      final raf = await partFile.open(
         mode: effectiveOffset > 0 ? FileMode.append : FileMode.write,
       );
 
@@ -729,7 +904,7 @@ class ServerService {
         ),
       );
 
-      final crcCalculator = TransferCrc32();
+      var lastSpeedBytesPerSec = 0.0;
       final watchdog = InactivityWatchdog(
         timeoutDuration: const Duration(seconds: 30),
         onTimeout: () {
@@ -741,22 +916,13 @@ class ServerService {
       );
 
       try {
-        var unwrittenBytes = 0;
         await for (final chunk in request) {
           if (token.isCancelled) {
             throw Exception('Upload cancelled by user');
           }
           watchdog.notifyProgress();
-          sink.add(chunk);
-          crcCalculator.update(chunk);
+          await raf.writeFrom(chunk);
           bytesReceivedThisSession += chunk.length;
-          unwrittenBytes += chunk.length;
-
-          // Apply disk backpressure every 2MB to prevent unbounded memory usage on slow disks
-          if (unwrittenBytes >= 2 * 1024 * 1024) {
-            await sink.flush();
-            unwrittenBytes = 0;
-          }
 
           final currentTotalTransferred =
               effectiveOffset + bytesReceivedThisSession;
@@ -767,6 +933,7 @@ class ServerService {
             final elapsedSec = stopwatch.elapsedMilliseconds / 1000.0;
             final speed =
                 elapsedSec > 0 ? bytesReceivedThisSession / elapsedSec : 0.0;
+            lastSpeedBytesPerSec = speed;
             _emitTransferProgress(
               TransferProgress(
                 fileId: transferId,
@@ -783,11 +950,11 @@ class ServerService {
             );
           }
         }
-        await sink.flush();
-        await sink.close();
+        await raf.flush();
+        await raf.close();
       } catch (e) {
         debugPrint('ServerService: upload pipe error: $e');
-        await sink.close();
+        await raf.close();
         final currentLen =
             await partFile.exists() ? await partFile.length() : 0;
         if (fingerprint.isNotEmpty && currentLen > 0) {
@@ -807,8 +974,13 @@ class ServerService {
             totalBytes: totalBytes > 0 ? totalBytes : currentLen,
             speedBytesPerSec: 0,
             isUpload: false,
-            status: TransferStatus.failed,
-            errorMessage: e.toString(),
+            // A dropped acknowledged segment is resumable, not a failed
+            // file. Keeping it paused permits the next route to continue with
+            // the same transfer id and visible receiver progress.
+            status: isChunkedUpload
+                ? TransferStatus.paused
+                : TransferStatus.failed,
+            errorMessage: isChunkedUpload ? 'Reconnecting…' : e.toString(),
             timestamp: DateTime.now(),
           ),
         );
@@ -829,6 +1001,12 @@ class ServerService {
 
       final totalOnDisk = await partFile.length();
 
+      if (totalBytes > 0 && totalOnDisk > totalBytes) {
+        await partFile.delete();
+        if (await metaFile.exists()) await metaFile.delete();
+        throw const HttpException('Upload exceeded the advertised file size');
+      }
+
       // Verify whether the entire payload was received completely
       if (totalBytes > 0 && totalOnDisk < totalBytes) {
         if (fingerprint.isNotEmpty && totalOnDisk > 0) {
@@ -839,6 +1017,29 @@ class ServerService {
             totalBytes: totalBytes,
             verifiedOffset: totalOnDisk,
           );
+        }
+        if (isChunkedUpload) {
+          // Acknowledged upload segment: preserve the verified offset and keep
+          // the transfer alive.  The next small request starts exactly here.
+          _emitTransferProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: originalName,
+              bytesTransferred: totalOnDisk,
+              totalBytes: totalBytes,
+              speedBytesPerSec: lastSpeedBytesPerSec,
+              isUpload: false,
+              status: TransferStatus.transferring,
+              timestamp: DateTime.now(),
+            ),
+          );
+          request.response.statusCode = HttpStatus.accepted;
+          request.response.headers.contentType = ContentType.json;
+          request.response.write(
+            jsonEncode({'success': true, 'offset': totalOnDisk}),
+          );
+          await request.response.close();
+          return;
         }
         _emitTransferProgress(
           TransferProgress(
@@ -866,57 +1067,59 @@ class ServerService {
         return;
       }
 
-      // Verify checksum if provided by client (for fresh uninterrupted uploads)
-      final clientChecksum = request.headers.value('x-transfer-checksum') ??
-          request.uri.queryParameters['checksum'];
-      if (effectiveOffset == 0 &&
-          clientChecksum != null &&
-          clientChecksum.isNotEmpty) {
-        if (crcCalculator.hexString.toLowerCase() != clientChecksum.toLowerCase()) {
-          debugPrint(
-            'ServerService: Checksum mismatch! Client=$clientChecksum, Computed=${crcCalculator.hexString}',
-          );
-          if (await partFile.exists()) await partFile.delete();
-          if (await metaFile.exists()) await metaFile.delete();
-          _emitTransferProgress(
-            TransferProgress(
-              fileId: transferId,
-              fileName: originalName,
-              bytesTransferred: totalOnDisk,
-              totalBytes: totalBytes,
-              speedBytesPerSec: 0,
-              isUpload: false,
-              status: TransferStatus.failed,
-              errorMessage: 'Checksum verification failed',
-              timestamp: DateTime.now(),
-            ),
-          );
-          request.response.statusCode = HttpStatus.badRequest;
-          request.response.headers.contentType = ContentType.json;
-          request.response.write(
-            jsonEncode({
-              'success': false,
-              'error': 'Checksum verification failed',
-            }),
-          );
-          await request.response.close();
-          return;
-        }
-      }
-
-      // Emit verifying state while checking content
+      // Re-read the completed temporary file before exposing it to the user.
+      // This is deliberately a streamed checksum: large files stay responsive,
+      // and a resumed upload is verified as one complete file rather than only
+      // the final resumed segment.
       _emitTransferProgress(
         TransferProgress(
           fileId: transferId,
           fileName: originalName,
           bytesTransferred: totalOnDisk,
           totalBytes: totalBytes,
-          speedBytesPerSec: 0,
+          // Keep the last measured speed visible instead of dropping to
+          // '--' the moment the payload is fully received.
+          speedBytesPerSec: lastSpeedBytesPerSec,
           isUpload: false,
           status: TransferStatus.verifying,
           timestamp: DateTime.now(),
         ),
       );
+      final fullChecksum = await TransferCrc32.checksumFile(partFile);
+
+      // Optional checksum support remains compatible with older clients, but
+      // is now compared to the full on-disk payload (not just this request).
+      final clientChecksum = request.headers.value('x-transfer-checksum') ??
+          request.uri.queryParameters['checksum'];
+      if (clientChecksum != null &&
+          clientChecksum.isNotEmpty &&
+          fullChecksum.toLowerCase() != clientChecksum.toLowerCase()) {
+        debugPrint(
+          'ServerService: Checksum mismatch! Client=$clientChecksum, Computed=$fullChecksum',
+        );
+        if (await partFile.exists()) await partFile.delete();
+        if (await metaFile.exists()) await metaFile.delete();
+        _emitTransferProgress(
+          TransferProgress(
+            fileId: transferId,
+            fileName: originalName,
+            bytesTransferred: totalOnDisk,
+            totalBytes: totalBytes,
+            speedBytesPerSec: 0,
+            isUpload: false,
+            status: TransferStatus.failed,
+            errorMessage: 'Checksum verification failed',
+            timestamp: DateTime.now(),
+          ),
+        );
+        request.response.statusCode = HttpStatus.badRequest;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({'success': false, 'error': 'Checksum verification failed'}),
+        );
+        await request.response.close();
+        return;
+      }
 
       // Emit finalizing state while renaming and registering
       _emitTransferProgress(
@@ -925,7 +1128,7 @@ class ServerService {
           fileName: originalName,
           bytesTransferred: totalOnDisk,
           totalBytes: totalBytes,
-          speedBytesPerSec: 0,
+          speedBytesPerSec: lastSpeedBytesPerSec,
           isUpload: false,
           status: TransferStatus.finalizing,
           timestamp: DateTime.now(),
@@ -981,7 +1184,7 @@ class ServerService {
         jsonEncode({
           'success': true,
           'id': item.id,
-          'crc32': crcCalculator.hexString,
+          'crc32': fullChecksum,
           'fileName': finalSavedName,
           'bytesReceived': actualSize,
         }),
