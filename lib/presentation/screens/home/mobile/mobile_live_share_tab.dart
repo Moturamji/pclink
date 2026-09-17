@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -70,8 +71,12 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) =>
-            LiveShareViewer(fileShareService: widget.fileShareService),
+        builder: (_) => LiveShareViewer(
+          fileShareService: widget.fileShareService,
+          currentServerInfo: widget.currentServerInfo,
+          localDeviceId: widget.localDeviceId,
+          onPowerAction: _executePowerAction,
+        ),
       ),
     );
   }
@@ -751,13 +756,22 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  Full-Screen Live Viewer with landscape lock and connection indicator
+//  Full-Screen Live Viewer with WebSocket stream, high clarity, zoom & HUD
 // ═══════════════════════════════════════════════════════════════════════════
 
 class LiveShareViewer extends StatefulWidget {
   final FileShareService fileShareService;
+  final ServerInfo? currentServerInfo;
+  final String? localDeviceId;
+  final Future<void> Function(String action, {int timeoutSeconds})? onPowerAction;
 
-  const LiveShareViewer({super.key, required this.fileShareService});
+  const LiveShareViewer({
+    super.key,
+    required this.fileShareService,
+    this.currentServerInfo,
+    this.localDeviceId,
+    this.onPowerAction,
+  });
 
   @override
   State<LiveShareViewer> createState() => _LiveShareViewerState();
@@ -765,12 +779,28 @@ class LiveShareViewer extends StatefulWidget {
 
 class _LiveShareViewerState extends State<LiveShareViewer>
     with SingleTickerProviderStateMixin {
-  Timer? _frameTimer;
-  bool _loading = false;
+  WebSocket? _socket;
+  StreamSubscription? _wsSubscription;
+  Timer? _fpsTimer;
+  Timer? _fallbackPollTimer;
+  Timer? _hudTimer;
+
   Uint8List? _frame;
   bool _isStreaming = false;
+  bool _isConnecting = true;
+  bool _showHud = true;
   int _consecutiveNulls = 0;
+
+  // Real-time telemetry
+  int _framesInLastSecond = 0;
+  int _currentFps = 0;
+  int _currentLatencyMs = 0;
+  DateTime? _lastFrameReceivedAt;
+  String _currentQuality = 'ultra'; // 'ultra' (1080p, Q85), 'high', 'fast'
+
   late AnimationController _pulseController;
+  final TransformationController _transformController = TransformationController();
+  bool _isZoomed = false;
 
   @override
   void initState() {
@@ -780,54 +810,310 @@ class _LiveShareViewerState extends State<LiveShareViewer>
       duration: const Duration(milliseconds: 1200),
     )..repeat(reverse: true);
 
-    // Force landscape orientation for the viewer
+    _transformController.addListener(() {
+      final zoomed = _transformController.value.getMaxScaleOnAxis() > 1.05;
+      if (zoomed != _isZoomed) {
+        setState(() => _isZoomed = zoomed);
+      }
+    });
+
+    // Force landscape orientation for true desktop aspect ratio
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    // Hide system UI for true fullscreen
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
 
-    _frameTimer = Timer.periodic(
-      const Duration(milliseconds: 500),
-      (_) => _loadFrame(),
-    );
-    _loadFrame();
-  }
-
-  Future<void> _loadFrame() async {
-    if (_loading) return;
-    _loading = true;
-    try {
-      final frame = await widget.fileShareService.getScreenShareFrame();
+    // FPS calculation ticker
+    _fpsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) {
         setState(() {
-          if (frame != null) {
-            _frame = frame;
-            _isStreaming = true;
-            _consecutiveNulls = 0;
-          } else {
-            _consecutiveNulls++;
-            if (_consecutiveNulls > 6) {
-              _isStreaming = false;
-            }
-          }
+          _currentFps = _framesInLastSecond;
+          _framesInLastSecond = 0;
         });
       }
-    } finally {
-      _loading = false;
+    });
+
+    _startStream();
+    _resetHudTimer();
+  }
+
+  void _resetHudTimer() {
+    _hudTimer?.cancel();
+    _hudTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted && _showHud) {
+        setState(() => _showHud = false);
+      }
+    });
+  }
+
+  void _toggleHud() {
+    setState(() => _showHud = !_showHud);
+    if (_showHud) _resetHudTimer();
+  }
+
+  Future<void> _startStream() async {
+    setState(() => _isConnecting = true);
+
+    try {
+      final socket = await widget.fileShareService.connectScreenShareWebSocket(
+        localDeviceId: widget.localDeviceId ?? 'AndroidClient',
+        serverStartTime: widget.currentServerInfo?.startedAt?.toIso8601String() ?? '',
+        quality: _currentQuality,
+        deviceName: 'Mobile App',
+      );
+
+      if (socket != null && mounted) {
+        _socket = socket;
+        _listenToWebSocket(socket);
+        return;
+      }
+    } catch (e) {
+      debugPrint('LiveShareViewer: WebSocket direct connect failed: $e');
+    }
+
+    if (mounted) {
+      _startRapidPolling();
     }
   }
 
+  void _listenToWebSocket(WebSocket socket) {
+    _wsSubscription?.cancel();
+    _wsSubscription = socket.listen(
+      (data) {
+        if (data is List<int>) {
+          final now = DateTime.now();
+          if (_lastFrameReceivedAt != null) {
+            final diff = now.difference(_lastFrameReceivedAt!).inMilliseconds;
+            if (diff > 0 && diff < 1500) {
+              _currentLatencyMs = diff;
+            }
+          }
+          _lastFrameReceivedAt = now;
+          _framesInLastSecond++;
+
+          final bytes = data is Uint8List ? data : Uint8List.fromList(data);
+          if (mounted) {
+            setState(() {
+              _frame = bytes;
+              _isStreaming = true;
+              _isConnecting = false;
+              _consecutiveNulls = 0;
+            });
+          }
+
+          // Crucial ACK backpressure: signals PC to send next frame
+          try {
+            socket.add('ack');
+          } catch (_) {}
+        }
+      },
+      onError: (e) {
+        debugPrint('LiveShareViewer: WS stream error: $e');
+        _startRapidPolling();
+      },
+      onDone: () {
+        debugPrint('LiveShareViewer: WS stream finished');
+        _startRapidPolling();
+      },
+      cancelOnError: true,
+    );
+  }
+
+  void _startRapidPolling() {
+    if (_fallbackPollTimer != null) return;
+    debugPrint('LiveShareViewer: Falling back to rapid frame polling');
+    _fallbackPollTimer = Timer.periodic(
+      const Duration(milliseconds: 66), // ~15 FPS
+      (_) => _pollFrame(),
+    );
+    _pollFrame();
+  }
+
+  bool _pollInFlight = false;
+  Future<void> _pollFrame() async {
+    if (_pollInFlight || !mounted) return;
+    _pollInFlight = true;
+    try {
+      final frame = await widget.fileShareService.getScreenShareFrame();
+      if (mounted) {
+        if (frame != null) {
+          _framesInLastSecond++;
+          setState(() {
+            _frame = frame;
+            _isStreaming = true;
+            _isConnecting = false;
+            _consecutiveNulls = 0;
+          });
+        } else {
+          _consecutiveNulls++;
+          if (_consecutiveNulls > 10) {
+            setState(() => _isStreaming = false);
+          }
+        }
+      }
+    } finally {
+      _pollInFlight = false;
+    }
+  }
+
+  void _setQuality(String quality) {
+    if (_currentQuality == quality) return;
+    setState(() => _currentQuality = quality);
+    if (_socket != null) {
+      try {
+        _socket!.add('quality:$quality');
+      } catch (_) {}
+    }
+    _resetHudTimer();
+  }
+
+  void _resetZoom() {
+    _transformController.value = Matrix4.identity();
+    _resetHudTimer();
+  }
+
   Future<void> _stopAndClose() async {
+    _wsSubscription?.cancel();
+    try {
+      _socket?.close();
+    } catch (_) {}
     await widget.fileShareService.stopScreenShare();
     if (mounted) Navigator.of(context).pop();
   }
 
+  void _showPowerControlsSheet() {
+    _hudTimer?.cancel();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E2128),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const Text(
+                  'Quick PC Power Controls',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _powerButton(
+                      icon: Icons.nightlight_round,
+                      label: 'Sleep',
+                      color: AppColors.primary,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onPowerAction?.call(ServerConstants.actionSleep);
+                      },
+                    ),
+                    _powerButton(
+                      icon: Icons.lock_outline_rounded,
+                      label: 'Lock',
+                      color: AppColors.primaryLight,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onPowerAction?.call(ServerConstants.actionLock);
+                      },
+                    ),
+                    _powerButton(
+                      icon: Icons.restart_alt_rounded,
+                      label: 'Restart',
+                      color: AppColors.accentWarm,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onPowerAction
+                            ?.call(ServerConstants.actionRestart, timeoutSeconds: 30);
+                      },
+                    ),
+                    _powerButton(
+                      icon: Icons.power_settings_new_rounded,
+                      label: 'Shutdown',
+                      color: AppColors.error,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        widget.onPowerAction
+                            ?.call(ServerConstants.actionShutdown, timeoutSeconds: 30);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    ).then((_) => _resetHudTimer());
+  }
+
+  Widget _powerButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.18),
+                shape: BoxShape.circle,
+                border: Border.all(color: color.withValues(alpha: 0.4)),
+              ),
+              child: Icon(icon, color: color, size: 22),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
-    _frameTimer?.cancel();
+    _fpsTimer?.cancel();
+    _fallbackPollTimer?.cancel();
+    _hudTimer?.cancel();
+    _wsSubscription?.cancel();
+    try {
+      _socket?.close();
+    } catch (_) {}
     _pulseController.dispose();
+    _transformController.dispose();
+
     // Restore portrait orientation and system UI
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -841,98 +1127,344 @@ class _LiveShareViewerState extends State<LiveShareViewer>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black.withValues(alpha: 0.7),
-        foregroundColor: Colors.white,
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Pulsing connection indicator
-            AnimatedBuilder(
-              animation: _pulseController,
-              builder: (context, child) {
-                return Container(
-                  width: 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: _isStreaming
-                        ? AppColors.success.withValues(
-                            alpha: 0.5 + (_pulseController.value * 0.5))
-                        : AppColors.accentWarm.withValues(
-                            alpha: 0.5 + (_pulseController.value * 0.5)),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (_isStreaming
-                                ? AppColors.success
-                                : AppColors.accentWarm)
-                            .withValues(
-                                alpha: 0.4 * _pulseController.value),
-                        blurRadius: 6,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            const SizedBox(width: 8),
-            Text(
-              _isStreaming ? 'PC Live View' : 'Connecting…',
-              style: const TextStyle(fontSize: 16),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: _stopAndClose,
-            icon: const Icon(Icons.stop_circle_outlined, color: Colors.white),
-            label:
-                const Text('Stop', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
       body: Stack(
         fit: StackFit.expand,
         children: [
-          if (_frame != null)
-            InteractiveViewer(
-              child: Center(
-                  child: Image.memory(_frame!, gaplessPlayback: true)),
-            )
-          else
-            Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(color: Colors.white),
-                  const SizedBox(height: 16),
-                  Text(
-                    _consecutiveNulls > 6
-                        ? 'Reconnecting to your PC…'
-                        : 'Waiting for your PC screen…',
-                    style: const TextStyle(color: Colors.white70),
+          // 1. Gesture detector for screen tap & pinch-to-zoom viewer
+          GestureDetector(
+            onTap: _toggleHud,
+            behavior: HitTestBehavior.opaque,
+            child: _frame != null
+                ? InteractiveViewer(
+                    transformationController: _transformController,
+                    minScale: 1.0,
+                    maxScale: 5.0,
+                    panAxis: PanAxis.free,
+                    clipBehavior: Clip.none,
+                    child: Center(
+                      child: Image.memory(
+                        _frame!,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.medium,
+                        fit: BoxFit.contain,
+                      ),
+                    ),
+                  )
+                : Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          _isConnecting
+                              ? 'Connecting to real-time stream (1080p)…'
+                              : (_consecutiveNulls > 6
+                                  ? 'Reconnecting to your PC…'
+                                  : 'Waiting for screen frames…'),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'View-only • Ultra low latency pipeline',
+                          style: TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+          ),
+
+          // 2. Animated HUD Overlay (Top & Bottom bars)
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeInOut,
+            top: _showHud ? 0 : -90,
+            left: 0,
+            right: 0,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: 0.85),
+                    Colors.black.withValues(alpha: 0.4),
+                    Colors.transparent,
+                  ],
+                ),
               ),
-            ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 20,
-            child: SafeArea(
-              top: false,
-              child: Text(
-                _isStreaming
-                    ? 'View only • The PC dashboard shows this session'
-                    : 'Establishing secure connection…',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white38, fontSize: 13),
+              child: SafeArea(
+                bottom: false,
+                child: Row(
+                  children: [
+                    // Back / Stop Button
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white),
+                      tooltip: 'Exit full screen',
+                      onPressed: _stopAndClose,
+                    ),
+                    const SizedBox(width: 4),
+
+                    // Connection Dot & Title
+                    AnimatedBuilder(
+                      animation: _pulseController,
+                      builder: (context, child) {
+                        return Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _isStreaming
+                                ? AppColors.success.withValues(
+                                    alpha: 0.5 + (_pulseController.value * 0.5))
+                                : AppColors.accentWarm.withValues(
+                                    alpha: 0.5 + (_pulseController.value * 0.5)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: (_isStreaming
+                                        ? AppColors.success
+                                        : AppColors.accentWarm)
+                                    .withValues(
+                                        alpha: 0.4 * _pulseController.value),
+                                blurRadius: 6,
+                                spreadRadius: 2,
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'PC Live Screen',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Telemetry Pill (FPS & Latency)
+                    if (_isStreaming) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.18),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '$_currentFps FPS',
+                              style: const TextStyle(
+                                color: AppColors.success,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (_currentLatencyMs > 0) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                width: 3,
+                                height: 3,
+                                decoration: const BoxDecoration(
+                                  color: Colors.white38,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '${_currentLatencyMs}ms',
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+
+                    const Spacer(),
+
+                    // Reset Zoom Button (when zoomed)
+                    if (_isZoomed)
+                      IconButton(
+                        icon: const Icon(Icons.zoom_out_map_rounded,
+                            color: Colors.white70, size: 20),
+                        tooltip: 'Reset Zoom (1:1)',
+                        onPressed: _resetZoom,
+                      ),
+
+                    // Quality Selector Popup Menu
+                    PopupMenuButton<String>(
+                      initialValue: _currentQuality,
+                      tooltip: 'Stream Quality',
+                      onSelected: _setQuality,
+                      color: const Color(0xFF222630),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      icon: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              _currentQuality == 'ultra'
+                                  ? '1080p'
+                                  : (_currentQuality == 'high' ? '720p' : 'Fast'),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Icon(Icons.arrow_drop_down,
+                                color: Colors.white70, size: 16),
+                          ],
+                        ),
+                      ),
+                      itemBuilder: (context) => [
+                        const PopupMenuItem(
+                          value: 'ultra',
+                          child: Row(
+                            children: [
+                              Icon(Icons.hd_rounded,
+                                  color: AppColors.primary, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Ultra Sharp (1080p • 85% Q)',
+                                style: TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'high',
+                          child: Row(
+                            children: [
+                              Icon(Icons.high_quality_rounded,
+                                  color: AppColors.primaryLight, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Balanced (1440px • 78% Q)',
+                                style: TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'fast',
+                          child: Row(
+                            children: [
+                              Icon(Icons.speed_rounded,
+                                  color: AppColors.accentWarm, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Fast Motion (Smooth • 70% Q)',
+                                style: TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(width: 6),
+
+                    // Quick Power Actions Button
+                    if (widget.onPowerAction != null)
+                      IconButton(
+                        icon: const Icon(Icons.power_settings_new_rounded,
+                            color: Colors.white, size: 22),
+                        tooltip: 'PC Power Actions',
+                        onPressed: _showPowerControlsSheet,
+                      ),
+
+                    const SizedBox(width: 4),
+
+                    // Stop Button
+                    TextButton.icon(
+                      onPressed: _stopAndClose,
+                      icon: const Icon(Icons.stop_circle_outlined,
+                          color: AppColors.error, size: 18),
+                      label: const Text(
+                        'Stop',
+                        style: TextStyle(
+                            color: AppColors.error, fontWeight: FontWeight.bold),
+                      ),
+                      style: TextButton.styleFrom(
+                        backgroundColor: AppColors.error.withValues(alpha: 0.15),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
+
+          // 3. Hint overlay at bottom (tap to hide/show controls, pinch to zoom)
+          if (_showHud && _isStreaming)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 12,
+              child: SafeArea(
+                top: false,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.1),
+                      ),
+                    ),
+                    child: const Text(
+                      'Pinch to zoom in • Tap screen to hide controls',
+                      style: TextStyle(color: Colors.white54, fontSize: 11),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 }
+

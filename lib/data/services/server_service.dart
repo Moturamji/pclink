@@ -623,6 +623,10 @@ class ServerService {
             await _handleScreenShareFrame(request);
             break;
 
+          case ServerConstants.screenShareLiveWsEndpoint:
+            await _handleScreenShareWs(request);
+            break;
+
           case ServerConstants.powerEndpoint:
             await _handleSystemPower(request);
             break;
@@ -870,6 +874,46 @@ class ServerService {
     request.response.contentLength = frame.length;
     request.response.add(frame);
     await request.response.close();
+  }
+
+  Future<void> _handleScreenShareWs(HttpRequest request) async {
+    if (!await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    if (!WebSocketTransformer.isUpgradeRequest(request)) {
+      request.response.statusCode = HttpStatus.badRequest;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'error': 'Expected WebSocket upgrade request'}));
+      await request.response.close();
+      return;
+    }
+
+    final viewerName = _sanitizeFileName(
+      request.uri.queryParameters['deviceName'] ?? 'Linked phone',
+    );
+    final initialQuality = request.uri.queryParameters['quality'] ?? 'ultra';
+
+    final allowed = await ScreenShareService.isConsentGranted();
+    if (!allowed) {
+      request.response.statusCode = HttpStatus.forbidden;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({
+        'error': 'Screen sharing is disabled on this PC. Enable it from the PCLink dashboard.',
+      }));
+      await request.response.close();
+      return;
+    }
+
+    try {
+      final socket = await WebSocketTransformer.upgrade(request);
+      _screenShareService.registerWebSocketClient(
+        socket: socket,
+        viewerName: viewerName,
+        initialQuality: initialQuality,
+      );
+    } catch (e) {
+      debugPrint('ServerService: Screen share WebSocket upgrade error: $e');
+    }
   }
 
   /// `POST /api/files/upload?name=<file>&deviceName=<name>&size=<bytes>&offset=<bytes>&fileKey=<key>`
@@ -1498,8 +1542,10 @@ class ServerService {
   /// and returns false when the caller isn't the authorized phone of this
   /// server session.
   Future<bool> _verifyAuthorizedMutation(HttpRequest request) async {
-    final deviceId = request.headers.value(ServerConstants.authHeader);
-    final startTime = request.headers.value(ServerConstants.startTimeHeader);
+    final deviceId = request.headers.value(ServerConstants.authHeader) ??
+        request.uri.queryParameters['auth'];
+    final startTime = request.headers.value(ServerConstants.startTimeHeader) ??
+        request.uri.queryParameters['startTime'];
     if (!_verifyDeviceId(deviceId) || !_isValidServerStartTime(startTime)) {
       request.response.statusCode = HttpStatus.unauthorized;
       request.response.headers.contentType = ContentType.json;

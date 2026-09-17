@@ -20,6 +20,7 @@ abstract final class ServerConstants {
   static const String screenShareStopEndpoint = '/api/screen-share/stop';
   static const String screenShareStatusEndpoint = '/api/screen-share/status';
   static const String screenShareFrameEndpoint = '/api/screen-share/frame';
+  static const String screenShareLiveWsEndpoint = '/api/screen-share/live';
   static const String powerEndpoint = '/api/system/power';
 
   // System Power Actions

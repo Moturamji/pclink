@@ -380,6 +380,45 @@ class FileShareService {
     return response.bodyBytes;
   }
 
+  /// Connects to the real-time WebSocket live screen share stream.
+  /// Automatically negotiates ws:// or wss:// across candidate URLs with auth.
+  Future<WebSocket?> connectScreenShareWebSocket({
+    required String localDeviceId,
+    required String serverStartTime,
+    String quality = 'ultra',
+    String? deviceName,
+  }) async {
+    final urls = _candidateUrls();
+    for (final baseUrl in urls) {
+      try {
+        final parsed = Uri.parse(baseUrl);
+        final wsScheme = parsed.scheme == 'https' ? 'wss' : 'ws';
+        final qParams = <String, String>{
+          'auth': localDeviceId,
+          'startTime': serverStartTime,
+          'quality': quality,
+        };
+        if (deviceName != null) {
+          qParams['deviceName'] = deviceName;
+        }
+        final wsUri = Uri(
+          scheme: wsScheme,
+          host: parsed.host,
+          port: parsed.hasPort ? parsed.port : null,
+          path: ServerConstants.screenShareLiveWsEndpoint,
+          queryParameters: qParams,
+        );
+        final socket = await WebSocket.connect(
+          wsUri.toString(),
+        ).timeout(const Duration(seconds: 4));
+        return socket;
+      } catch (e) {
+        debugPrint('FileShareService: WS connect error on $baseUrl: $e');
+      }
+    }
+    return null;
+  }
+
   /// Industry-style acknowledged upload: a bounded segment is confirmed by the
   /// PC before the next is read.  This avoids one long tunnel request being the
   /// single point of failure for videos, while keeping memory pressure bounded.
@@ -579,6 +618,7 @@ class FileShareService {
 
   /// Previous single-request implementation retained temporarily for reference
   /// while rolling out chunked uploads.
+  // ignore: unused_element
   Future<bool> _uploadFileLegacy(
     String filePath, {
     CancellationToken? cancelToken,
