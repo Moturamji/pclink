@@ -9,6 +9,7 @@
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "user32.lib")
 
 namespace pclink {
 
@@ -87,9 +88,35 @@ std::vector<uint8_t> NativeScreenShare::CaptureScreenJpeg(int max_width, int qua
   HGDIOBJ hOldBitmap = SelectObject(hMemDC, hBitmap);
 
   // High-performance hardware/SIMD bilinear downsampling
+  // Using SRCCOPY instead of CAPTUREBLT eliminates physical mouse cursor blinking/flickering
   SetStretchBltMode(hMemDC, HALFTONE);
   SetBrushOrgEx(hMemDC, 0, 0, NULL);
-  StretchBlt(hMemDC, 0, 0, target_w, target_h, hScreenDC, 0, 0, screen_w, screen_h, SRCCOPY | CAPTUREBLT);
+  StretchBlt(hMemDC, 0, 0, target_w, target_h, hScreenDC, 0, 0, screen_w, screen_h, SRCCOPY);
+
+  // Draw mouse cursor directly onto the in-memory frame so the phone viewer
+  // sees the cursor, while keeping the physical hardware cursor on the PC monitor
+  // 100% steady with zero blinking or stuttering.
+  CURSORINFO cursor_info = {0};
+  cursor_info.cbSize = sizeof(CURSORINFO);
+  if (GetCursorInfo(&cursor_info) && cursor_info.flags == CURSOR_SHOWING) {
+    ICONINFO icon_info = {0};
+    if (GetIconInfo(cursor_info.hCursor, &icon_info)) {
+      int cursor_x = cursor_info.ptScreenPos.x - icon_info.xHotspot;
+      int cursor_y = cursor_info.ptScreenPos.y - icon_info.yHotspot;
+
+      if (target_w != screen_w && screen_w > 0 && screen_h > 0) {
+        cursor_x = static_cast<int>(
+            static_cast<double>(cursor_x) * (static_cast<double>(target_w) / static_cast<double>(screen_w)));
+        cursor_y = static_cast<int>(
+            static_cast<double>(cursor_y) * (static_cast<double>(target_h) / static_cast<double>(screen_h)));
+      }
+
+      DrawIconEx(hMemDC, cursor_x, cursor_y, cursor_info.hCursor, 0, 0, 0, NULL, DI_NORMAL);
+
+      if (icon_info.hbmMask) DeleteObject(icon_info.hbmMask);
+      if (icon_info.hbmColor) DeleteObject(icon_info.hbmColor);
+    }
+  }
 
   // Cleanly deselect bitmap before giving handle to GDI+
   SelectObject(hMemDC, hOldBitmap);
