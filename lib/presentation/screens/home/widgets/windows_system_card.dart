@@ -27,7 +27,30 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> {
   @override
   void initState() {
     super.initState();
+    _isAutostartEnabled = WindowsAutostartService.autostartNotifier.value;
+    _isScreenMirrorEnabled = ScreenShareService.consentNotifier.value;
+    WindowsAutostartService.autostartNotifier.addListener(_onAutostartChanged);
+    ScreenShareService.consentNotifier.addListener(_onScreenMirrorChanged);
     _loadStatus();
+  }
+
+  void _onAutostartChanged() {
+    if (mounted) {
+      setState(() => _isAutostartEnabled = WindowsAutostartService.autostartNotifier.value);
+    }
+  }
+
+  void _onScreenMirrorChanged() {
+    if (mounted) {
+      setState(() => _isScreenMirrorEnabled = ScreenShareService.consentNotifier.value);
+    }
+  }
+
+  @override
+  void dispose() {
+    WindowsAutostartService.autostartNotifier.removeListener(_onAutostartChanged);
+    ScreenShareService.consentNotifier.removeListener(_onScreenMirrorChanged);
+    super.dispose();
   }
 
   Future<void> _loadStatus() async {
@@ -49,14 +72,9 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> {
   Future<void> _toggleAutostart(bool value) async {
     setState(() => _isTogglingAutostart = true);
     HapticFeedback.selectionClick();
-    final success = await WindowsAutostartService.setAutostartEnabled(value);
+    await WindowsAutostartService.setAutostartEnabled(value);
     if (mounted) {
-      setState(() {
-        if (success) {
-          _isAutostartEnabled = value;
-        }
-        _isTogglingAutostart = false;
-      });
+      setState(() => _isTogglingAutostart = false);
     }
   }
 
@@ -65,10 +83,7 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> {
     HapticFeedback.selectionClick();
     await ScreenShareService.setConsentGranted(value);
     if (mounted) {
-      setState(() {
-        _isScreenMirrorEnabled = value;
-        _isTogglingScreenMirror = false;
-      });
+      setState(() => _isTogglingScreenMirror = false);
     }
   }
 

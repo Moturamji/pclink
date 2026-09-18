@@ -846,12 +846,14 @@ class ServerService {
     if (request.method != 'GET' || !await _verifyAuthorizedMutation(request)) {
       return;
     }
+    final isAllowed = await ScreenShareService.isConsentGranted();
     final state = _screenShareService.status;
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
     request.response.headers.set('Cache-Control', 'no-store');
     request.response.write(jsonEncode({
-      'enabled': state.enabled,
+      'enabled': isAllowed,
+      'isStreaming': state.isStreaming,
       'viewerName': state.viewerName,
       'viewOnly': true,
     }));
@@ -860,6 +862,15 @@ class ServerService {
 
   Future<void> _handleScreenShareFrame(HttpRequest request) async {
     if (request.method != 'GET' || !await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    if (!await ScreenShareService.isConsentGranted()) {
+      request.response.statusCode = HttpStatus.forbidden;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({
+        'error': 'Screen sharing is disabled on this PC. Enable it from the PCLink dashboard.',
+      }));
+      await request.response.close();
       return;
     }
     final frame = _screenShareService.takeLatestFrame();

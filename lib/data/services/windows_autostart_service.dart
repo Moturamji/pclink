@@ -9,10 +9,13 @@ class WindowsAutostartService {
       r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';
   static const String _valueName = 'PCLink';
 
+  /// Live reactive notifier for Windows autostart status
+  static final ValueNotifier<bool> autostartNotifier = ValueNotifier<bool>(false);
+
   /// Resolves the actual executable path for PCLink.
   static String get _executablePath => Platform.resolvedExecutable;
 
-  /// Checks if PCLink is registered to start with Windows.
+  /// Checks if PCLink is registered to start with Windows directly in HKCU\...\Run.
   static Future<bool> isAutostartEnabled() async {
     if (kIsWeb || !Platform.isWindows) return false;
 
@@ -26,15 +29,18 @@ class WindowsAutostartService {
 
       if (result.exitCode == 0) {
         final stdout = result.stdout.toString().toLowerCase();
-        return stdout.contains('pclink') && stdout.contains('--autostart');
+        final isEnabled = stdout.contains('pclink') && stdout.contains('--autostart');
+        autostartNotifier.value = isEnabled;
+        return isEnabled;
       }
     } catch (e) {
       debugPrint('WindowsAutostartService: Query error: $e');
     }
+    autostartNotifier.value = false;
     return false;
   }
 
-  /// Enables or disables PCLink autostart on Windows startup.
+  /// Enables or disables PCLink autostart on Windows startup directly in registry.
   /// When enabled, registers: `"<executablePath>" --autostart`
   static Future<bool> setAutostartEnabled(bool enabled) async {
     if (kIsWeb || !Platform.isWindows) return false;
@@ -58,6 +64,9 @@ class WindowsAutostartService {
         ]);
 
         final success = result.exitCode == 0;
+        if (success) {
+          autostartNotifier.value = true;
+        }
         debugPrint(
           'WindowsAutostartService: Enable autostart result (code ${result.exitCode}): $cmdValue',
         );
@@ -72,6 +81,9 @@ class WindowsAutostartService {
         ]);
 
         final success = result.exitCode == 0;
+        if (success) {
+          autostartNotifier.value = false;
+        }
         debugPrint(
           'WindowsAutostartService: Disable autostart result (code ${result.exitCode})',
         );

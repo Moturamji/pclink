@@ -28,12 +28,31 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
   bool _isSuccess = false;
   String? _errorMessage;
 
-  // Options enabled by default
+  // Options enabled by default on fresh setup, detected from system
   bool _autoStartOnBoot = true;
   bool _screenMirrorEnabled = true;
   bool _firewallRulesEnabled = true;
-  bool _clipboardSyncEnabled = true;
-  bool _fileSharingEnabled = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _detectSystemState();
+  }
+
+  Future<void> _detectSystemState() async {
+    final completed = await WindowsPermissionService.hasCompletedPermissionSetup();
+    if (completed) {
+      // If setup was completed before, detect true live system values
+      final autostart = await WindowsAutostartService.isAutostartEnabled();
+      final screenMirror = await ScreenShareService.isConsentGranted();
+      if (mounted) {
+        setState(() {
+          _autoStartOnBoot = autostart;
+          _screenMirrorEnabled = screenMirror;
+        });
+      }
+    }
+  }
 
   Future<void> _handleGrantPermissions() async {
     HapticFeedback.mediumImpact();
@@ -46,7 +65,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
       // 1. Configure system autostart directly in Windows Registry
       await WindowsAutostartService.setAutostartEnabled(_autoStartOnBoot);
 
-      // 2. Configure screen mirror consent in system persistence
+      // 2. Configure screen mirror consent in system persistence & engine
       await ScreenShareService.setConsentGranted(_screenMirrorEnabled);
 
       // 3. Configure Windows firewall rules if selected
@@ -194,28 +213,6 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
                           accentColor: const Color(0xFFF59E0B),
                           value: _firewallRulesEnabled,
                           onChanged: (val) => setState(() => _firewallRulesEnabled = val),
-                          colors: colors,
-                        ),
-                        const SizedBox(height: 10),
-                        _buildOptionTile(
-                          icon: Icons.content_paste_rounded,
-                          title: 'Instant Clipboard Synchronization',
-                          description:
-                              'Automatically syncs copied text between Windows PC and phone in real time.',
-                          accentColor: const Color(0xFF3B82F6),
-                          value: _clipboardSyncEnabled,
-                          onChanged: (val) => setState(() => _clipboardSyncEnabled = val),
-                          colors: colors,
-                        ),
-                        const SizedBox(height: 10),
-                        _buildOptionTile(
-                          icon: Icons.folder_shared_rounded,
-                          title: 'High-Speed File Sharing Server',
-                          description:
-                              'Hosts local high-bandwidth resumable file transfers and downloads directly with your phone.',
-                          accentColor: const Color(0xFF8B5CF6),
-                          value: _fileSharingEnabled,
-                          onChanged: (val) => setState(() => _fileSharingEnabled = val),
                           colors: colors,
                         ),
                       ],

@@ -132,6 +132,9 @@ class ScreenShareService {
   static const MethodChannel _nativeChannel =
       MethodChannel('pclink/native_screen_share');
 
+  static ScreenShareService? _activeInstance;
+  static final ValueNotifier<bool> consentNotifier = ValueNotifier<bool>(false);
+
   final List<_ScreenShareWsClient> _wsClients = [];
   Timer? _fallbackPollTimer;
   Uint8List? _latestFrame;
@@ -144,9 +147,16 @@ class ScreenShareService {
   final StreamController<ScreenShareStatus> _statusController =
       StreamController<ScreenShareStatus>.broadcast();
 
+  ScreenShareService() {
+    _activeInstance = this;
+    // Asynchronously synchronize notifier with system consent file
+    isConsentGranted();
+  }
+
   Stream<ScreenShareStatus> get statusStream => _statusController.stream;
   ScreenShareStatus get status => ScreenShareStatus(
-        enabled: _isCapturing || _wsClients.isNotEmpty,
+        isStreaming: _isCapturing || _wsClients.isNotEmpty,
+        isAuthorized: consentNotifier.value,
         viewerName: _viewerName,
         lastFrameAt: _lastFrameAt,
         clientCount: _wsClients.length,
@@ -163,8 +173,10 @@ class ScreenShareService {
   static Future<bool> isConsentGranted() async {
     if (kIsWeb || !Platform.isWindows) return false;
     try {
-      return await _preferenceFile.exists() &&
+      final granted = await _preferenceFile.exists() &&
           (await _preferenceFile.readAsString()).trim() == 'enabled';
+      consentNotifier.value = granted;
+      return granted;
     } catch (_) {
       return false;
     }
@@ -175,6 +187,10 @@ class ScreenShareService {
     final dir = Directory(_appDataDir);
     if (!await dir.exists()) await dir.create(recursive: true);
     await _preferenceFile.writeAsString(granted ? 'enabled' : 'disabled');
+    consentNotifier.value = granted;
+    if (!granted) {
+      await _activeInstance?.stop();
+    }
   }
 
   /// Register an active WebSocket stream client.
@@ -422,13 +438,18 @@ class ScreenShareService {
 }
 
 class ScreenShareStatus {
-  final bool enabled;
+  final bool isStreaming;
+  final bool isAuthorized;
   final String? viewerName;
   final DateTime? lastFrameAt;
   final int clientCount;
 
+  // Backward compatibility getter for existing UI referencing .enabled
+  bool get enabled => isStreaming;
+
   const ScreenShareStatus({
-    required this.enabled,
+    required this.isStreaming,
+    required this.isAuthorized,
     required this.viewerName,
     required this.lastFrameAt,
     this.clientCount = 0,
