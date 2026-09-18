@@ -18,7 +18,7 @@ class WindowsSystemCard extends StatefulWidget {
   State<WindowsSystemCard> createState() => _WindowsSystemCardState();
 }
 
-class _WindowsSystemCardState extends State<WindowsSystemCard> {
+class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindingObserver {
   bool _isAutostartEnabled = false;
   bool _isScreenMirrorEnabled = false;
   bool _isTogglingAutostart = false;
@@ -27,11 +27,19 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _isAutostartEnabled = WindowsAutostartService.autostartNotifier.value;
     _isScreenMirrorEnabled = ScreenShareService.consentNotifier.value;
     WindowsAutostartService.autostartNotifier.addListener(_onAutostartChanged);
     ScreenShareService.consentNotifier.addListener(_onScreenMirrorChanged);
     _loadStatus();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadStatus();
+    }
   }
 
   void _onAutostartChanged() {
@@ -48,6 +56,7 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     WindowsAutostartService.autostartNotifier.removeListener(_onAutostartChanged);
     ScreenShareService.consentNotifier.removeListener(_onScreenMirrorChanged);
     super.dispose();

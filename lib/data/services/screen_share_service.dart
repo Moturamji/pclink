@@ -170,13 +170,26 @@ class ScreenShareService {
   static File get _preferenceFile =>
       File('$_appDataDir\\$_preferenceFileName');
 
+  static Future<bool> hasConsentPreference() async {
+    if (kIsWeb || !Platform.isWindows) return false;
+    try {
+      return await _preferenceFile.exists();
+    } catch (_) {
+      return false;
+    }
+  }
+
   static Future<bool> isConsentGranted() async {
     if (kIsWeb || !Platform.isWindows) return false;
     try {
-      final granted = await _preferenceFile.exists() &&
-          (await _preferenceFile.readAsString()).trim() == 'enabled';
-      consentNotifier.value = granted;
-      return granted;
+      if (await _preferenceFile.exists()) {
+        final content = (await _preferenceFile.readAsString()).trim().toLowerCase();
+        final granted = content == 'enabled';
+        consentNotifier.value = granted;
+        return granted;
+      }
+      consentNotifier.value = false;
+      return false;
     } catch (_) {
       return false;
     }

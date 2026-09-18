@@ -7,8 +7,8 @@ import '../../../../data/services/windows_autostart_service.dart';
 import '../../../../data/services/windows_permission_service.dart';
 
 /// Clean, cute, and premium one-time permission setup dialog for Windows.
-/// Asks upfront permission with all options enabled by default (Autostart, Screen Mirror,
-/// Firewall, Clipboard, File Share) and applies them directly to the Windows system.
+/// Asks upfront permission with recommended options enabled by default (Autostart, Screen Mirror,
+/// and Windows Firewall rules) and applies them directly to the Windows system.
 class WindowsPermissionDialog extends StatefulWidget {
   final VoidCallback onDismiss;
   final VoidCallback onPermissionsGranted;
@@ -40,17 +40,21 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
   }
 
   Future<void> _detectSystemState() async {
+    final autostartRegistered = await WindowsAutostartService.isAutostartEnabled();
+    final hasScreenConsent = await ScreenShareService.hasConsentPreference();
+    final screenConsent = await ScreenShareService.isConsentGranted();
     final completed = await WindowsPermissionService.hasCompletedPermissionSetup();
-    if (completed) {
-      // If setup was completed before, detect true live system values
-      final autostart = await WindowsAutostartService.isAutostartEnabled();
-      final screenMirror = await ScreenShareService.isConsentGranted();
-      if (mounted) {
-        setState(() {
-          _autoStartOnBoot = autostart;
-          _screenMirrorEnabled = screenMirror;
-        });
-      }
+
+    if (mounted) {
+      setState(() {
+        if (completed || hasScreenConsent) {
+          _autoStartOnBoot = autostartRegistered;
+          _screenMirrorEnabled = screenConsent;
+        } else {
+          _autoStartOnBoot = true;
+          _screenMirrorEnabled = true;
+        }
+      });
     }
   }
 

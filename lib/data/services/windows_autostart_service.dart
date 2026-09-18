@@ -15,7 +15,8 @@ class WindowsAutostartService {
   /// Resolves the actual executable path for PCLink.
   static String get _executablePath => Platform.resolvedExecutable;
 
-  /// Checks if PCLink is registered to start with Windows directly in HKCU\...\Run.
+  /// Checks if PCLink is registered to start with Windows directly in HKCU\...\Run
+  /// and not marked as disabled in Windows Task Manager / Explorer StartupApproved.
   static Future<bool> isAutostartEnabled() async {
     if (kIsWeb || !Platform.isWindows) return false;
 
@@ -28,10 +29,32 @@ class WindowsAutostartService {
       ]);
 
       if (result.exitCode == 0) {
-        final stdout = result.stdout.toString().toLowerCase();
-        final isEnabled = stdout.contains('pclink') && stdout.contains('--autostart');
-        autostartNotifier.value = isEnabled;
-        return isEnabled;
+        // Now check whether Windows Task Manager / Explorer marked it as disabled
+        final approvedResult = await Process.run('reg', [
+          'query',
+          r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
+          '/v',
+          _valueName,
+        ]);
+
+        if (approvedResult.exitCode == 0) {
+          final approvedOut = approvedResult.stdout.toString().toUpperCase();
+          if (approvedOut.contains('REG_BINARY')) {
+            final tokens = approvedOut.split(RegExp(r'\s+'));
+            final idx = tokens.indexOf('REG_BINARY');
+            if (idx != -1 && idx + 1 < tokens.length) {
+              final hex = tokens[idx + 1];
+              // In Windows StartupApproved, 03... or 01... indicates disabled in Task Manager
+              if (hex.startsWith('03') || hex.startsWith('01')) {
+                autostartNotifier.value = false;
+                return false;
+              }
+            }
+          }
+        }
+
+        autostartNotifier.value = true;
+        return true;
       }
     } catch (e) {
       debugPrint('WindowsAutostartService: Query error: $e');
@@ -65,6 +88,17 @@ class WindowsAutostartService {
 
         final success = result.exitCode == 0;
         if (success) {
+          // If Windows Task Manager previously recorded a disabled state, remove it
+          try {
+            await Process.run('reg', [
+              'delete',
+              r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
+              '/v',
+              _valueName,
+              '/f',
+            ]);
+          } catch (_) {}
+
           autostartNotifier.value = true;
         }
         debugPrint(
@@ -79,6 +113,16 @@ class WindowsAutostartService {
           _valueName,
           '/f',
         ]);
+
+        try {
+          await Process.run('reg', [
+            'delete',
+            r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
+            '/v',
+            _valueName,
+            '/f',
+          ]);
+        } catch (_) {}
 
         final success = result.exitCode == 0;
         if (success) {
