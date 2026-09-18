@@ -5,12 +5,10 @@ import 'package:flutter/services.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/widgets/universal/app_card_header.dart';
 import '../../../../core/widgets/universal/status_badge.dart';
-import '../../../../data/services/screen_share_service.dart';
 import '../../../../data/services/windows_autostart_service.dart';
 
 /// Card showing live Windows system integration settings:
 /// - Windows Startup (Silent background with no UI)
-/// - Screen Mirroring Authorization
 class WindowsSystemCard extends StatefulWidget {
   const WindowsSystemCard({super.key});
 
@@ -20,18 +18,14 @@ class WindowsSystemCard extends StatefulWidget {
 
 class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindingObserver {
   bool _isAutostartEnabled = false;
-  bool _isScreenMirrorEnabled = false;
   bool _isTogglingAutostart = false;
-  bool _isTogglingScreenMirror = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _isAutostartEnabled = WindowsAutostartService.autostartNotifier.value;
-    _isScreenMirrorEnabled = ScreenShareService.consentNotifier.value;
     WindowsAutostartService.autostartNotifier.addListener(_onAutostartChanged);
-    ScreenShareService.consentNotifier.addListener(_onScreenMirrorChanged);
     _loadStatus();
   }
 
@@ -48,17 +42,10 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindi
     }
   }
 
-  void _onScreenMirrorChanged() {
-    if (mounted) {
-      setState(() => _isScreenMirrorEnabled = ScreenShareService.consentNotifier.value);
-    }
-  }
-
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     WindowsAutostartService.autostartNotifier.removeListener(_onAutostartChanged);
-    ScreenShareService.consentNotifier.removeListener(_onScreenMirrorChanged);
     super.dispose();
   }
 
@@ -68,12 +55,10 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindi
     }
 
     final autostart = await WindowsAutostartService.isAutostartEnabled();
-    final screenMirror = await ScreenShareService.isConsentGranted();
 
     if (mounted) {
       setState(() {
         _isAutostartEnabled = autostart;
-        _isScreenMirrorEnabled = screenMirror;
       });
     }
   }
@@ -84,15 +69,6 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindi
     await WindowsAutostartService.setAutostartEnabled(value);
     if (mounted) {
       setState(() => _isTogglingAutostart = false);
-    }
-  }
-
-  Future<void> _toggleScreenMirror(bool value) async {
-    setState(() => _isTogglingScreenMirror = true);
-    HapticFeedback.selectionClick();
-    await ScreenShareService.setConsentGranted(value);
-    if (mounted) {
-      setState(() => _isTogglingScreenMirror = false);
     }
   }
 
@@ -142,21 +118,6 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindi
             isEnabled: _isAutostartEnabled,
             isOperating: _isTogglingAutostart,
             onChanged: _toggleAutostart,
-            colors: colors,
-          ),
-
-          Divider(color: colors.cardBorder, height: 24, thickness: 0.8),
-
-          // Screen mirror authorization row
-          _buildFeatureToggleRow(
-            icon: Icons.screenshot_monitor_rounded,
-            accentColor: const Color(0xFF10B981),
-            title: 'Screen Mirroring Authorization',
-            subtitle:
-                'Allows paired mobile phones to securely stream and view this desktop screen in real-time.',
-            isEnabled: _isScreenMirrorEnabled,
-            isOperating: _isTogglingScreenMirror,
-            onChanged: _toggleScreenMirror,
             colors: colors,
           ),
         ],
