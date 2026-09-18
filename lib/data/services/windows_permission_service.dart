@@ -7,7 +7,7 @@ import '../../core/constants/server_constants.dart';
 /// are configured under the official app name "PCLink" so that users are never
 /// interrupted by Windows Firewall or Defender prompts during normal work.
 class WindowsPermissionService {
-  static const String _prefFileName = 'pclink_permissions_granted.txt';
+  static const String _prefFileName = 'pclink_system_setup_v2.txt';
 
   /// Path to the PCLink AppData directory.
   static String get _appDataDir {
@@ -26,24 +26,7 @@ class WindowsPermissionService {
     if (kIsWeb || !Platform.isWindows) return true;
 
     try {
-      if (await _tokenFile.exists()) {
-        return true;
-      }
-
-      // Check if firewall rules already exist in Windows
-      final checkResult = await Process.run('netsh', [
-        'advfirewall',
-        'firewall',
-        'show',
-        'rule',
-        'name=PCLink Server',
-      ]);
-
-      if (checkResult.exitCode == 0 && checkResult.stdout.toString().contains('8088')) {
-        // Rules already present - persist token so we don't query netsh repeatedly
-        await markPermissionSetupCompleted();
-        return true;
-      }
+      return await _tokenFile.exists();
     } catch (e) {
       debugPrint('WindowsPermissionService: Check error: $e');
     }

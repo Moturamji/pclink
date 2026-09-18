@@ -14,11 +14,7 @@ class DatabaseService {
   static const String _dbBaseUrl =
       'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-  /// FCM legacy server key for direct PC -> phone push alerts.
-  /// Get it from Firebase Console -> Project settings -> Cloud Messaging ->
-  /// "Server key" (starts with AAAA...). When empty, direct FCM push is
-  /// skipped gracefully and only the RTDB "latest" notification is queued.
-  static String fcmServerKey = '';
+  static String fcmServerKey = '16d727ddb293fdb8905bc668b1f1e61ed62ed072';
 
   final http.Client _client;
 
@@ -744,21 +740,44 @@ class DatabaseService {
       // 1. Primary: Google FCM HTTP v1 using Firebase Admin Service Account
       if (!kIsWeb) {
         try {
-          final saFile = File('firebase_service_account.json');
-          if (saFile.existsSync()) {
-            final saJson = saFile.readAsStringSync().trim();
-            if (saJson.isNotEmpty) {
-              debugPrint('DatabaseService: Dispatching push via Google FCM v1 Service Account...');
-              final v1Success = await _sendFcmV1Push(
-                fcmToken: fcmToken,
-                title: title,
-                body: body,
-                hostName: hostName,
-                serviceAccountJson: saJson,
-              );
-              if (v1Success) {
-                debugPrint('DatabaseService: FCM v1 push delivered successfully to phone!');
-                return true;
+          final saCandidates = <File>[
+            File('firebase_service_account.json'),
+            File('pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}firebase_service_account.json'),
+            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            if (Platform.isWindows && Platform.environment.containsKey('APPDATA')) ...[
+              File('${Platform.environment['APPDATA']}\\pclink\\firebase_service_account.json'),
+              File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            ],
+          ];
+
+          // Also scan directory for any other downloaded adminsdk json
+          try {
+            final dirFiles = Directory.current.listSync();
+            for (final entity in dirFiles) {
+              if (entity is File &&
+                  entity.path.endsWith('.json') &&
+                  entity.path.contains('adminsdk')) {
+                saCandidates.add(entity);
+              }
+            }
+          } catch (_) {}
+          for (final saFile in saCandidates) {
+            if (saFile.existsSync()) {
+              final saJson = saFile.readAsStringSync().trim();
+              if (saJson.isNotEmpty) {
+                debugPrint('DatabaseService: Dispatching push via Google FCM v1 Service Account (${saFile.path})...');
+                final v1Success = await _sendFcmV1Push(
+                  fcmToken: fcmToken,
+                  title: title,
+                  body: body,
+                  hostName: hostName,
+                  serviceAccountJson: saJson,
+                );
+                if (v1Success) {
+                  debugPrint('DatabaseService: FCM v1 push delivered successfully to phone!');
+                  return true;
+                }
               }
             }
           }
@@ -770,12 +789,20 @@ class DatabaseService {
       // 2. Secondary Fallback: Legacy FCM Server Key
       if (fcmServerKey.isEmpty && !kIsWeb) {
         try {
-          final keyFile = File('fcm_server_key.txt');
-          if (keyFile.existsSync()) {
-            final content = keyFile.readAsStringSync().trim();
-            if (content.isNotEmpty) {
-              fcmServerKey = content;
-              debugPrint('DatabaseService: Loaded FCM Server Key from fcm_server_key.txt');
+          final keyCandidates = [
+            File('fcm_server_key.txt'),
+            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}fcm_server_key.txt'),
+            if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
+              File('${Platform.environment['APPDATA']}\\pclink\\fcm_server_key.txt'),
+          ];
+          for (final keyFile in keyCandidates) {
+            if (keyFile.existsSync()) {
+              final content = keyFile.readAsStringSync().trim();
+              if (content.isNotEmpty) {
+                fcmServerKey = content;
+                debugPrint('DatabaseService: Loaded FCM Server Key from ${keyFile.path}');
+                break;
+              }
             }
           }
         } catch (e) {
@@ -787,11 +814,13 @@ class DatabaseService {
         final payload = {
           'to': fcmToken,
           'priority': 'high',
+          'content_available': true,
           'notification': {
             'title': title,
             'body': body,
             'sound': 'default',
             'android_channel_id': 'pclink_server_channel',
+            'click_action': 'FLUTTER_NOTIFICATION_CLICK',
           },
           'data': {
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
@@ -813,7 +842,7 @@ class DatabaseService {
           body: jsonEncode(payload),
         );
 
-        debugPrint('DatabaseService legacy FCM response: ${fcmResponse.statusCode}');
+        debugPrint('DatabaseService legacy FCM response: ${fcmResponse.statusCode}, body: ${fcmResponse.body}');
         return fcmResponse.statusCode == 200;
       }
 

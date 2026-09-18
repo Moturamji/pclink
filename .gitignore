@@ -48,5 +48,5 @@ app.*.map.json
 PCLink/
 .vscode
 tunnel_url.txt
-fcm_server_key.txt
+pclink-*-firebase-adminsdk-*.json
 firebase_service_account.json

@@ -17,7 +17,75 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
   } catch (_) {}
-  debugPrint('NotificationService: Background FCM message received [${message.messageId}]: ${message.notification?.title}');
+  debugPrint('NotificationService: Background FCM message received [${message.messageId}]: ${message.notification?.title ?? message.data['title']}');
+
+  try {
+    final localNotifications = FlutterLocalNotificationsPlugin();
+    const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const initSettings = InitializationSettings(android: androidSettings);
+    await localNotifications.initialize(settings: initSettings);
+
+    const androidChannel = AndroidNotificationChannel(
+      NotificationService.channelId,
+      NotificationService.channelName,
+      description: NotificationService.channelDescription,
+      importance: Importance.max,
+      playSound: true,
+      enableVibration: true,
+      showBadge: true,
+    );
+
+    final androidPlugin = localNotifications
+        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin != null) {
+      await androidPlugin.createNotificationChannel(androidChannel);
+    }
+
+    final title = message.notification?.title ??
+        message.data['title'] ??
+        '🖥️ Windows PC is Online & Ready';
+    final hostName = message.data['hostName']?.toString() ?? 'Windows PC';
+    final rawBody = message.notification?.body ??
+        message.data['body'] ??
+        '$hostName is running PCLink and ready for secure connection.';
+
+    final bigTextStyleInformation = BigTextStyleInformation(
+      '**$hostName** is running PCLink and ready for secure connection.\n\n'
+      '• Status: Online & Live\n'
+      '• Tap to open PCLink and sync clipboard or transfer files.',
+      htmlFormatBigText: false,
+      contentTitle: title,
+      htmlFormatContentTitle: false,
+      summaryText: 'PCLink Live Server',
+      htmlFormatSummaryText: false,
+    );
+
+    final androidDetails = AndroidNotificationDetails(
+      NotificationService.channelId,
+      NotificationService.channelName,
+      channelDescription: NotificationService.channelDescription,
+      importance: Importance.max,
+      priority: Priority.max,
+      icon: '@mipmap/ic_launcher',
+      color: const Color(0xFF4F46E5),
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 250, 200, 250]),
+      styleInformation: bigTextStyleInformation,
+      ticker: '$hostName is Live',
+      autoCancel: true,
+    );
+
+    await localNotifications.show(
+      id: NotificationService.serverLiveNotificationId,
+      title: title,
+      body: rawBody,
+      notificationDetails: NotificationDetails(android: androidDetails),
+      payload: 'home',
+    );
+  } catch (e) {
+    debugPrint('Background notification display error: $e');
+  }
 }
 
 /// Service managing Firebase Cloud Messaging (FCM), permissions, and local notification display.
@@ -44,6 +112,30 @@ class NotificationService {
   static bool _isInitialized = false;
   static const int serverLiveNotificationId = 8881;
 
+  /// Pre-registers local notifications and the Android channel early at app startup.
+  static Future<void> initializeEarly() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const initSettings = InitializationSettings(android: androidSettings);
+      await _localNotifications.initialize(
+        settings: initSettings,
+        onDidReceiveNotificationResponse: (details) {
+          debugPrint('Notification clicked with payload: ${details.payload}');
+        },
+      );
+
+      final androidPlugin = _localNotifications
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (androidPlugin != null) {
+        await androidPlugin.createNotificationChannel(_androidChannel);
+        await androidPlugin.requestNotificationsPermission();
+      }
+    } catch (e) {
+      debugPrint('NotificationService initializeEarly error: $e');
+    }
+  }
+
   /// Initializes notification services, channels, and registers FCM listeners on supported platforms.
   static Future<void> initialize({
     User? user,
@@ -61,25 +153,8 @@ class NotificationService {
     }
 
     try {
-      // 1. Initialize local notifications plugin
-      const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const initSettings = InitializationSettings(android: androidSettings);
-
-      await _localNotifications.initialize(
-        settings: initSettings,
-        onDidReceiveNotificationResponse: (details) {
-          debugPrint('Notification clicked with payload: ${details.payload}');
-        },
-      );
-
-      // 2. Create the high importance Android channel & request permissions on Android 13+
-      final androidPlugin = _localNotifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-
-      if (androidPlugin != null) {
-        await androidPlugin.createNotificationChannel(_androidChannel);
-        await androidPlugin.requestNotificationsPermission();
-      }
+      // 1 & 2. Initialize local notifications plugin & notification channel
+      await initializeEarly();
 
       // 3. Request permissions from user
       final messaging = FirebaseMessaging.instance;

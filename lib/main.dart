@@ -28,9 +28,10 @@ void main() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    // Register FCM Background Handler & Foreground Clipboard Task on Android
+    // Register FCM Background Handler, early Notification Channels & Foreground Clipboard Task on Android
     if (!kIsWeb && Platform.isAndroid) {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+      await NotificationService.initializeEarly();
       await ClipboardService.initForegroundTask();
     }
     // Initialize Theme preference

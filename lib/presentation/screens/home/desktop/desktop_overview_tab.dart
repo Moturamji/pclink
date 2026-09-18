@@ -14,6 +14,7 @@ import '../widgets/screen_share_status_card.dart';
 import '../widgets/security_status_card.dart';
 import '../widgets/server_control_card.dart';
 import '../widgets/specs_card.dart';
+import '../widgets/windows_system_card.dart';
 
 class DesktopOverviewTab extends StatefulWidget {
   final DeviceDetails details;
@@ -121,6 +122,10 @@ class _DesktopOverviewTabState extends State<DesktopOverviewTab> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     PlatformHeader(details: widget.details),
+                    if (widget.details.isWindows) ...[
+                      const SizedBox(height: 16),
+                      const WindowsSystemCard(),
+                    ],
                     const SizedBox(height: 16),
                     SecurityStatusCard(
                       isConnected: widget.details.isConnected,
