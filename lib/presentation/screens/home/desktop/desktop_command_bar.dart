@@ -140,7 +140,7 @@ class DesktopCommandBar extends StatelessWidget {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'PCLink Cloud Relay',
+                      'Connected via Cloud',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,

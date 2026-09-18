@@ -346,7 +346,7 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
       children: [
         // Header
         Text(
-          'Live Share',
+          'Screen Mirror',
           style: TextStyle(
             color: colors.textPrimary,
             fontWeight: FontWeight.w800,
@@ -355,7 +355,7 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
         ),
         const SizedBox(height: 8),
         Text(
-          'View your PC screen securely from this phone.',
+          'View your PC screen in real time from this phone.',
           style: TextStyle(color: colors.textSecondary, fontSize: 16),
         ),
         const SizedBox(height: 28),
@@ -1183,7 +1183,7 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                         ),
                         const SizedBox(height: 8),
                         const Text(
-                          'View-only • Ultra low latency pipeline',
+                          'View-only mode • Your phone cannot control the PC',
                           style: TextStyle(color: Colors.white38, fontSize: 12),
                         ),
                       ],
@@ -1254,7 +1254,7 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                     ),
                     const SizedBox(width: 8),
                     const Text(
-                      'PC Live Screen',
+                      'PC Screen Mirror',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 15,
@@ -1441,12 +1441,12 @@ class _LiveShareViewerState extends State<LiveShareViewer>
             ),
           ),
 
-          // 3. Hint overlay at bottom (tap to hide/show controls, pinch to zoom)
-          if (_showHud && _isStreaming)
+          // 3. Persistent View-Only Mode pill (always visible when streaming)
+          if (_isStreaming)
             Positioned(
               left: 16,
               right: 16,
-              bottom: 12,
+              bottom: _showHud ? 40 : 12,
               child: SafeArea(
                 top: false,
                 child: Center(
@@ -1460,9 +1460,41 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                         color: Colors.white.withValues(alpha: 0.1),
                       ),
                     ),
-                    child: const Text(
-                      'Pinch to zoom in • Tap screen to hide controls',
-                      style: TextStyle(color: Colors.white54, fontSize: 11),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.visibility_rounded,
+                            color: Colors.white54, size: 14),
+                        SizedBox(width: 6),
+                        Text(
+                          'View-Only Mode',
+                          style: TextStyle(
+                            color: Colors.white54,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // 4. Hint overlay (tap to hide/show controls, pinch to zoom)
+          if (_showHud && _isStreaming)
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 12,
+              child: SafeArea(
+                top: false,
+                child: Center(
+                  child: Text(
+                    'Pinch to zoom \u2022 Tap to hide controls',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.35),
+                      fontSize: 10,
                     ),
                   ),
                 ),

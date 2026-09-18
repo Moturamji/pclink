@@ -46,6 +46,8 @@ class _ServerControlCardState extends State<ServerControlCard> {
   bool _authSuccess = false;
   String? _connectedHostName;
   ServerInfo? _lastKnownServer;
+  bool _hasAttemptedAutoConnect = false;
+  bool _userManuallyDisconnected = false;
 
   Future<void> _handleAndroidConnect(ServerInfo server) async {
     if (!server.isFreshlyLive()) {
@@ -71,6 +73,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
     setState(() {
       _isConnecting = true;
       _authMessage = null;
+      _userManuallyDisconnected = false;
     });
 
     final result = await ServerService.authenticateClientWithServer(
@@ -118,6 +121,8 @@ class _ServerControlCardState extends State<ServerControlCard> {
   Future<void> _handleAndroidDisconnect() async {
     setState(() {
       _isDisconnecting = true;
+      _userManuallyDisconnected = true;
+      _hasAttemptedAutoConnect = true;
     });
 
     // 1. Notify callback to stop background sync and cancel active transfers
@@ -192,7 +197,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
             icon: Icons.hub_rounded,
             iconColor: colors.primaryLight,
             title: 'PC LINK SERVICE',
-            subtitle: 'Local server daemon & network bridge',
+            subtitle: 'Keep running to connect with your phone',
             trailing: StatusBadge(
               label: isLive ? 'ACTIVE' : 'STANDBY',
               isActive: isLive,
@@ -215,9 +220,9 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   colors: colors,
                   icon: Icons.lock_rounded,
                   iconColor: colors.primaryLight,
-                  label: 'Connection Security:',
+                  label: 'Security:',
                   valueWidget: Text(
-                    'Encrypted (TLS 1.3)',
+                    'Private & Secure (Encrypted)',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -230,9 +235,9 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   colors: colors,
                   icon: Icons.cloud_done_rounded,
                   iconColor: AppColors.successLight,
-                  label: 'Network Channel:',
+                  label: 'Network:',
                   valueWidget: const StatusBadge(
-                    label: 'Cloud Relay Active',
+                    label: 'Connected via Cloud',
                     isActive: true,
                     activeColor: AppColors.successLight,
                   ),
@@ -242,9 +247,9 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   colors: colors,
                   icon: Icons.verified_user_rounded,
                   iconColor: colors.secondary,
-                  label: 'Access Control:',
+                  label: 'Pairing:',
                   valueWidget: Text(
-                    'Account & Hardware Token',
+                    'Paired with your account',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -269,27 +274,44 @@ class _ServerControlCardState extends State<ServerControlCard> {
                 ),
                 if (isLive && info != null) ...[
                   Divider(color: colors.cardBorder, height: 20, thickness: 0.8),
-                  _buildInfoRow(
-                    colors: colors,
-                    icon: Icons.dns_rounded,
-                    iconColor: colors.primaryLight,
-                    label: 'Local Endpoint:',
-                    valueWidget: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '${info.ipAddress}:${info.port}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: colors.textPrimary,
-                            letterSpacing: 0.2,
-                          ),
+                  Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: EdgeInsets.zero,
+                      title: Text(
+                        'Show connection details',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: colors.primaryLight,
                         ),
-                        const SizedBox(width: 8),
-                        CopyActionButton(
-                          textToCopy: info.url,
-                          label: 'Copy',
+                      ),
+                      children: [
+                        _buildInfoRow(
+                          colors: colors,
+                          icon: Icons.dns_rounded,
+                          iconColor: colors.primaryLight,
+                          label: 'Local Address:',
+                          valueWidget: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                '${info.ipAddress}:${info.port}',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: colors.textPrimary,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              CopyActionButton(
+                                textToCopy: info.url,
+                                label: 'Copy',
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
@@ -353,6 +375,19 @@ class _ServerControlCardState extends State<ServerControlCard> {
             server.connectedClientId == widget.localDeviceId;
         final isConnected = isLive && (_authSuccess || isClientMatch);
 
+        if (isLive && !isConnected && !_isConnecting && !_userManuallyDisconnected && !_hasAttemptedAutoConnect) {
+          _hasAttemptedAutoConnect = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && !_isConnecting && !_userManuallyDisconnected) {
+              _handleAndroidConnect(server);
+            }
+          });
+        }
+
+        if (!isLive) {
+          _hasAttemptedAutoConnect = false;
+        }
+
         if (!isLive && _authSuccess) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && _authSuccess) {
@@ -387,8 +422,8 @@ class _ServerControlCardState extends State<ServerControlCard> {
                 iconColor: isConnected ? AppColors.successLight : colors.primaryLight,
                 title: 'WINDOWS PC LINK',
                 subtitle: isConnected
-                    ? 'Encrypted peer synchronization active'
-                    : (isLive ? 'Windows host detected on network' : 'Host daemon currently offline'),
+                    ? 'Securely syncing with your PC'
+                    : (isLive ? 'Your Windows PC is online' : 'Windows PC is currently offline'),
                 trailing: StatusBadge(
                   label: isConnected ? 'CONNECTED' : (isLive ? 'LIVE' : 'STANDBY'),
                   isActive: isConnected || isLive,
@@ -428,7 +463,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                             ],
                           ),
                           const StatusBadge(
-                            label: 'TLS 1.3',
+                            label: 'Secure',
                             isActive: true,
                             activeColor: AppColors.successLight,
                           ),

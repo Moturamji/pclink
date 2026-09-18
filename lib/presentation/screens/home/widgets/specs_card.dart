@@ -45,7 +45,7 @@ class SpecsCard extends StatelessWidget {
             icon: Icons.tune_rounded,
             iconColor: colors.primaryLight,
             title: AppStrings.systemSpecsTitle,
-            subtitle: 'Hardware parameters & OS telemetry',
+            subtitle: 'Device details and system info',
           ),
           const SizedBox(height: 16),
           ListView.separated(

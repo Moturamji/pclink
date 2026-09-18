@@ -30,9 +30,7 @@ class AuthHeader extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         Text(
-          isWindows
-              ? AppStrings.windowsSignIn
-              : (isSignUp ? AppStrings.createAccount : AppStrings.welcomeBack),
+          isSignUp ? AppStrings.createAccount : AppStrings.welcomeBack,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 24,
@@ -43,11 +41,7 @@ class AuthHeader extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          isWindows
-              ? AppStrings.windowsSignInSubtitle
-              : (isSignUp
-                  ? AppStrings.signUpSubtitle
-                  : AppStrings.signInSubtitle),
+          isSignUp ? AppStrings.signUpSubtitle : AppStrings.signInSubtitle,
           textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 13,

@@ -12,8 +12,8 @@ import '../home/home_screen.dart';
 import 'widgets/auth_header.dart';
 import 'widgets/forgot_password_dialog.dart';
 
-/// Primary authentication screen managing Sign In and Android-only Sign Up.
-/// Redesigned with responsive studio split-view on desktop and tactile ergonomic layout on mobile.
+/// Primary authentication screen managing Sign In and Sign Up on both platforms.
+/// Responsive studio split-view on desktop and tactile ergonomic layout on mobile.
 class AuthScreen extends StatefulWidget {
   final AuthService? authService;
 
@@ -166,7 +166,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                         ),
                         Text(
-                          'Hardware-Link Console',
+                          'Seamless PC & Phone Link',
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
@@ -191,7 +191,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Bidirectional encrypted clipboard synchronization, high-speed multi-part file transfers, and remote system telemetry.',
+                  'Instantly sync your clipboard, share files of any size, and view your PC screen — all from your phone.',
                   style: TextStyle(
                     fontSize: 15,
                     height: 1.5,
@@ -202,22 +202,22 @@ class _AuthScreenState extends State<AuthScreen> {
                 _buildFeatureRow(
                   colors: colors,
                   icon: Icons.sync_alt_rounded,
-                  title: 'Real-time Clipboard Stream',
-                  subtitle: 'Instant background sync between PC and phone',
+                  title: 'Instant Clipboard Sync',
+                  subtitle: 'Copy on one device, paste on the other',
                 ),
                 const SizedBox(height: 16),
                 _buildFeatureRow(
                   colors: colors,
                   icon: Icons.speed_rounded,
-                  title: 'Resumable File Studio',
-                  subtitle: 'Multi-part HTTP 206 streaming with zero size limit',
+                  title: 'Fast, Unrestricted File Sharing',
+                  subtitle: 'Send any file, any size, directly between devices',
                 ),
                 const SizedBox(height: 16),
                 _buildFeatureRow(
                   colors: colors,
                   icon: Icons.security_rounded,
-                  title: 'End-to-End Handshake',
-                  subtitle: 'Session tokens and SHA-256 integrity verification',
+                  title: 'Private & Securely Encrypted',
+                  subtitle: 'Your data stays between your own devices',
                 ),
               ],
             ),
@@ -330,14 +330,12 @@ class _AuthScreenState extends State<AuthScreen> {
             _buildErrorBanner(_errorMessage!),
             const SizedBox(height: 20),
           ],
-          if (!_isWindows) ...[
-            _buildAuthModeToggle(colors),
-            const SizedBox(height: 24),
-          ],
+          _buildAuthModeToggle(colors),
+          const SizedBox(height: 24),
           _buildEmailField(colors),
           const SizedBox(height: 16),
           _buildPasswordField(colors),
-          if (_isSignUp && !_isWindows) ...[
+          if (_isSignUp) ...[
             const SizedBox(height: 16),
             _buildConfirmPasswordField(colors),
           ],
@@ -365,10 +363,7 @@ class _AuthScreenState extends State<AuthScreen> {
           ],
           const SizedBox(height: 8),
           _buildSubmitButton(colors),
-          if (_isWindows) ...[
-            const SizedBox(height: 20),
-            _buildWindowsNoticeCard(colors),
-          ],
+
         ],
       ),
     );
@@ -594,35 +589,5 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
       ),
     );
-  }
-
-  Widget _buildWindowsNoticeCard(AppThemeColors colors) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.surfaceSubtle,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        children: [
-          const Icon(
-            Icons.info_outline_rounded,
-            color: AppColors.secondary,
-            size: 18,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              AppStrings.windowsRegistrationNotice,
-              style: TextStyle(
-                color: colors.textSecondary,
-                fontSize: 12,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+}
 }

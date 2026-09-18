@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/universal/app_card_header.dart';
@@ -277,6 +279,38 @@ class _FileShareCardState extends State<FileShareCard> {
     if (mounted) _showSnack('Stopped sharing ${file.name}.');
   }
 
+  /// Open file with default system application
+  Future<void> _openFile(SharedFile file) async {
+    final path = file.filePath;
+    if (path == null) {
+      _showSnack('File path is unavailable.', isError: true);
+      return;
+    }
+    try {
+      if (!kIsWeb && Platform.isWindows) {
+        await Process.run('cmd', ['/c', 'start', '', path]);
+      }
+    } catch (e) {
+      _showSnack('Could not open file: $e', isError: true);
+    }
+  }
+
+  /// Reveal file in Windows Explorer
+  Future<void> _showInFolder(SharedFile file) async {
+    final path = file.filePath;
+    if (path == null) {
+      _showSnack('File path is unavailable.', isError: true);
+      return;
+    }
+    try {
+      if (!kIsWeb && Platform.isWindows) {
+        await Process.run('explorer.exe', ['/select,', path]);
+      }
+    } catch (e) {
+      _showSnack('Could not show in folder: $e', isError: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
@@ -301,8 +335,8 @@ class _FileShareCardState extends State<FileShareCard> {
           AppCardHeader(
             icon: Icons.folder_open_rounded,
             iconColor: colors.accentPurple,
-            title: 'FILE TRANSFER STUDIO',
-            subtitle: 'Direct local P2P streaming with HTTP 206 chunking',
+            title: 'FILE SHARING',
+            subtitle: 'Send and receive files directly between your devices',
             trailing: _files.isEmpty
                 ? null
                 : StatusBadge(
@@ -781,13 +815,37 @@ class _FileShareCardState extends State<FileShareCard> {
             ),
           ),
           const SizedBox(width: 8),
-          if (widget.isWindows)
-            IconButton(
-              onPressed: _busy ? null : () => _stopSharing(file),
-              tooltip: 'Stop sharing',
-              icon: const Icon(Icons.delete_outline_rounded, size: 18),
-              color: colors.textMuted,
-            )
+          if (widget.isWindows) ...[
+            if (file.filePath != null) ...[
+              Tooltip(
+                message: 'Open file',
+                child: IconButton(
+                  onPressed: _busy ? null : () => _openFile(file),
+                  icon: const Icon(Icons.open_in_new_rounded, size: 18),
+                  color: colors.primaryLight,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+              Tooltip(
+                message: 'Show in folder',
+                child: IconButton(
+                  onPressed: _busy ? null : () => _showInFolder(file),
+                  icon: const Icon(Icons.folder_open_rounded, size: 18),
+                  color: colors.textSecondary,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ],
+            Tooltip(
+              message: 'Remove',
+              child: IconButton(
+                onPressed: _busy ? null : () => _stopSharing(file),
+                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                color: colors.textMuted,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ]
           else if (isDownloadingThis)
             const SizedBox(
               width: 18,
@@ -866,8 +924,8 @@ class _FileShareCardState extends State<FileShareCard> {
         Expanded(
           child: Text(
             widget.isWindows
-                ? 'Files are copied to the shared folder and served to your phone only while the PC Link Service is active. Real-time transfer speed and progress display automatically during transfers.'
-                : 'Transfers are direct between this phone and your PC via the temporary server - real-time progress, speed, and bytes update live throughout the transfer.',
+                ? 'Files are shared with your phone while the PC Link Service is running. Transfer progress updates live.'
+                : 'Files transfer directly between your phone and PC. Progress, speed, and status update in real time.',
             style: TextStyle(
               fontSize: 11,
               height: 1.4,

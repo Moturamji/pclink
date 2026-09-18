@@ -7,12 +7,8 @@ abstract final class AppStrings {
   // Auth Strings
   static const String welcomeBack = 'Welcome to PCLink';
   static const String createAccount = 'Create PCLink Account';
-  static const String windowsSignIn = 'PCLink Windows Sign In';
-  static const String signInSubtitle = 'Sign in to access your device connection hub';
-  static const String signUpSubtitle = 'Register with your email and password';
-  static const String windowsSignInSubtitle = 'Sign in with your registered credentials';
-  static const String windowsRegistrationNotice =
-      'Account registration is only available on the Android mobile app. Please register on your phone before signing in on Windows.';
+  static const String signInSubtitle = 'Sign in to access your linked devices';
+  static const String signUpSubtitle = 'Create your account to get started';
 
   // Labels & Actions
   static const String signIn = 'Sign In';
@@ -27,13 +23,13 @@ abstract final class AppStrings {
   static const String cancel = 'Cancel';
 
   // Dashboard Metrics
-  static const String deviceIdTitle = 'DEVICE ID';
-  static const String primaryIpTitle = 'IP ADDRESS (PRIMARY IPv4)';
-  static const String activeInterfacesTitle = 'ACTIVE NETWORK INTERFACES';
-  static const String systemSpecsTitle = 'SYSTEM SPECIFICATIONS';
-  static const String targetPlatform = 'Target Platform';
+  static const String deviceIdTitle = 'Device ID';
+  static const String primaryIpTitle = 'IP Address';
+  static const String activeInterfacesTitle = 'Active Network Interfaces';
+  static const String systemSpecsTitle = 'System Specifications';
+  static const String targetPlatform = 'Platform';
   static const String activeSession = 'Active Session';
-  static const String signedInAs = 'SIGNED IN AS';
+  static const String signedInAs = 'Signed in as';
   static const String notConnected = 'Not Connected';
   static const String detectingDetails = 'Detecting Device & Network details...';
 }

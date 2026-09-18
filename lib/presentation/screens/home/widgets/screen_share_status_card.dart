@@ -78,7 +78,7 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  active ? 'Screen sharing is active' : 'Screen sharing permission',
+                  active ? 'Screen mirroring is active' : 'Screen Mirroring (Phone View)',
                   style: TextStyle(
                     color: colors.textPrimary,
                     fontWeight: FontWeight.w800,
@@ -93,7 +93,7 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
           Text(
             active
                 ? '${_status?.viewerName ?? 'A linked phone'} can view this PC screen. View-only; no remote control is enabled.'
-                : 'Allow your linked phone to request a view-only live screen session. You can disable this here at any time.',
+                : 'Allow your linked phone to view your PC screen in real time. View-only; no touch or mouse control.',
             style: TextStyle(color: colors.textSecondary, height: 1.4),
           ),
           if (active) ...[

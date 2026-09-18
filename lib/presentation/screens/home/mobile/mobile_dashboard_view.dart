@@ -14,7 +14,6 @@ import '../../../../data/services/server_service.dart';
 import '../../../../features/clipboard/services/clipboard_service.dart';
 import 'mobile_clipboard_tab.dart';
 import 'mobile_connect_tab.dart';
-import 'mobile_devices_tab.dart';
 import 'mobile_files_tab.dart';
 import 'mobile_live_share_tab.dart';
 
@@ -61,9 +60,9 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
 
   static const List<TabItemData> _tabs = [
     TabItemData(
-      icon: Icons.wifi_tethering_outlined,
-      activeIcon: Icons.wifi_tethering_rounded,
-      label: 'Connect',
+      icon: Icons.home_outlined,
+      activeIcon: Icons.home_rounded,
+      label: 'Home',
       activeColor: AppColors.primary,
     ),
     TabItemData(
@@ -79,15 +78,9 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
       activeColor: AppColors.secondary,
     ),
     TabItemData(
-      icon: Icons.devices_outlined,
-      activeIcon: Icons.devices_rounded,
-      label: 'Devices',
-      activeColor: AppColors.accentWarm,
-    ),
-    TabItemData(
       icon: Icons.desktop_windows_outlined,
       activeIcon: Icons.desktop_windows_rounded,
-      label: 'Live Share',
+      label: 'Screen Mirror',
       activeColor: AppColors.success,
     ),
   ];
@@ -224,12 +217,6 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
           clipboardService: widget.clipboardService,
         );
       case 3:
-        return MobileDevicesTab(
-          details: widget.details,
-          user: widget.user,
-          databaseService: widget.databaseService,
-        );
-      case 4:
       default:
         return MobileLiveShareTab(
           fileShareService: widget.fileShareService,

@@ -58,26 +58,26 @@ class _DesktopDashboardViewState extends State<DesktopDashboardView> {
   String _getTabTitle(DesktopNavTab tab) {
     switch (tab) {
       case DesktopNavTab.overview:
-        return 'Dashboard & Server Hub';
+        return 'Overview';
       case DesktopNavTab.fileStudio:
-        return 'File Transfer Studio';
+        return 'Files';
       case DesktopNavTab.clipboard:
-        return 'Realtime Clipboard Stream';
+        return 'Clipboard';
       case DesktopNavTab.devices:
-        return 'Linked Devices & Security Hub';
+        return 'Connected Devices';
     }
   }
 
   String _getTabSubtitle(DesktopNavTab tab) {
     switch (tab) {
       case DesktopNavTab.overview:
-        return 'Manage local server endpoints, network interfaces, and system health.';
+        return 'Monitor your PC status, connection, and linked phone';
       case DesktopNavTab.fileStudio:
-        return 'High-speed encrypted bidirectional file transfer with native progress tracking.';
+        return 'Send and receive files directly with your phone';
       case DesktopNavTab.clipboard:
-        return 'Seamless real-time clipboard sync between Windows and Android devices.';
+        return 'Seamless real-time clipboard sync between PC and phone';
       case DesktopNavTab.devices:
-        return 'Inspect authenticated peer devices, token authorizations, and encryption.';
+        return 'Manage and view your linked devices';
     }
   }
 

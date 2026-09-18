@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../../../core/constants/app_colors.dart';
 import '../../../../data/models/device_details.dart';
 import '../../../../data/models/server_info.dart';
 import '../../../../data/services/database_service.dart';
@@ -56,11 +57,65 @@ class MobileConnectTab extends StatelessWidget {
           stream: user != null ? databaseService.watchUserServer(user!) : null,
           builder: (context, snapshot) {
             final server = snapshot.data ?? currentServerInfo;
-            return SystemPowerCard(
-              isWindows: details.isWindows,
-              currentServerInfo: server,
-              localDeviceId: details.deviceId,
-              isConnected: details.isConnected,
+            final colors = context.colors;
+            return Container(
+              decoration: BoxDecoration(
+                color: colors.cardSurface,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: colors.cardBorder, width: 0.8),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.04),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: Theme(
+                data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                child: ExpansionTile(
+                  tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                  childrenPadding: EdgeInsets.zero,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(
+                      Icons.power_settings_new_rounded,
+                      size: 18,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  title: Text(
+                    'PC Power Options',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  subtitle: Text(
+                    'Sleep, Lock, Restart, Shutdown',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colors.textMuted,
+                    ),
+                  ),
+                  children: [
+                    SystemPowerCard(
+                      isWindows: details.isWindows,
+                      currentServerInfo: server,
+                      localDeviceId: details.deviceId,
+                      isConnected: details.isConnected,
+                    ),
+                  ],
+                ),
+              ),
             );
           },
         ),
