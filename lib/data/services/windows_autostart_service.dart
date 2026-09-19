@@ -8,6 +8,10 @@ class WindowsAutostartService {
   static const String _registryKey =
       r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';
   static const String _valueName = 'PCLink';
+  static const String _serializeKey =
+      r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize';
+  static const String _startupDelayValue = 'StartupDelayInMSec';
+  static const String _taskName = 'PCLink';
 
   /// Live reactive notifier for Windows autostart status
   static final ValueNotifier<bool> autostartNotifier = ValueNotifier<bool>(false);
@@ -63,8 +67,12 @@ class WindowsAutostartService {
     return false;
   }
 
-  /// Enables or disables PCLink autostart on Windows startup directly in registry.
-  /// When enabled, registers: `"<executablePath>" --autostart`
+  /// Enables or disables PCLink autostart on Windows startup.
+  /// When enabled:
+  /// 1. Registers: `"<executablePath>" --autostart` in `HKCU\...\Run`
+  /// 2. Sets `StartupDelayInMSec = 0` in `Explorer\Serialize` to remove Windows'
+  ///    built-in 30-60 second startup throttling delay, ensuring launch within 5-15 seconds.
+  /// 3. Attempts to register in Task Scheduler (`ONLOGON`) for instantaneous launch.
   static Future<bool> setAutostartEnabled(bool enabled) async {
     if (kIsWeb || !Platform.isWindows) return false;
 
@@ -99,6 +107,39 @@ class WindowsAutostartService {
             ]);
           } catch (_) {}
 
+          // Remove Windows Explorer's artificial 30-60 second startup delay:
+          // Setting StartupDelayInMSec = 0 tells Explorer to run startup items
+          // immediately rather than waiting for system idle.
+          try {
+            await Process.run('reg', [
+              'add',
+              _serializeKey,
+              '/v',
+              _startupDelayValue,
+              '/t',
+              'REG_DWORD',
+              '/d',
+              '0',
+              '/f',
+            ]);
+          } catch (e) {
+            debugPrint('WindowsAutostartService: Serialize delay config error: $e');
+          }
+
+          // Register in Windows Task Scheduler (fires immediately upon logon)
+          try {
+            await Process.run('schtasks', [
+              '/create',
+              '/tn',
+              _taskName,
+              '/tr',
+              cmdValue,
+              '/sc',
+              'onlogon',
+              '/f',
+            ]);
+          } catch (_) {}
+
           autostartNotifier.value = true;
         }
         debugPrint(
@@ -120,6 +161,16 @@ class WindowsAutostartService {
             r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
             '/v',
             _valueName,
+            '/f',
+          ]);
+        } catch (_) {}
+
+        // Remove Task Scheduler task if registered
+        try {
+          await Process.run('schtasks', [
+            '/delete',
+            '/tn',
+            _taskName,
             '/f',
           ]);
         } catch (_) {}

@@ -78,18 +78,21 @@ class _AppLogoState extends State<AppLogo> with SingleTickerProviderStateMixin {
         ),
       ),
       clipBehavior: Clip.antiAlias,
-      child: Image.asset(
-        'assets/logo/IMG_20260911_111434.png',
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) {
-          return Center(
-            child: Icon(
-              Icons.devices_rounded,
-              size: widget.size * 0.55,
-              color: AppColors.primaryLight,
-            ),
-          );
-        },
+      child: Padding(
+        padding: EdgeInsets.all(widget.size * 0.08),
+        child: Image.asset(
+          'assets/logo/logo.png',
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return Center(
+              child: Icon(
+                Icons.devices_rounded,
+                size: widget.size * 0.55,
+                color: AppColors.primaryLight,
+              ),
+            );
+          },
+        ),
       ),
     );
 

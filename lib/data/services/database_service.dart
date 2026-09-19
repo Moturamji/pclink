@@ -742,26 +742,38 @@ class DatabaseService {
         try {
           final saCandidates = <File>[
             File('firebase_service_account.json'),
+            File('pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
             File('pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}firebase_service_account.json'),
+            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             if (Platform.isWindows && Platform.environment.containsKey('APPDATA')) ...[
               File('${Platform.environment['APPDATA']}\\pclink\\firebase_service_account.json'),
+              File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             ],
           ];
 
-          // Also scan directory for any other downloaded adminsdk json
-          try {
-            final dirFiles = Directory.current.listSync();
-            for (final entity in dirFiles) {
-              if (entity is File &&
-                  entity.path.endsWith('.json') &&
-                  entity.path.contains('adminsdk')) {
-                saCandidates.add(entity);
+          // Also scan candidate directories for any other downloaded adminsdk json
+          final searchDirs = <Directory>[
+            Directory.current,
+            File(Platform.resolvedExecutable).parent,
+            if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
+              Directory('${Platform.environment['APPDATA']}\\pclink'),
+          ];
+          for (final dir in searchDirs) {
+            try {
+              if (dir.existsSync()) {
+                for (final entity in dir.listSync()) {
+                  if (entity is File &&
+                      entity.path.endsWith('.json') &&
+                      entity.path.contains('adminsdk')) {
+                    saCandidates.add(entity);
+                  }
+                }
               }
-            }
-          } catch (_) {}
+            } catch (_) {}
+          }
           for (final saFile in saCandidates) {
             if (saFile.existsSync()) {
               final saJson = saFile.readAsStringSync().trim();
