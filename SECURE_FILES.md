@@ -12,28 +12,28 @@ This document lists all sensitive credential files used by PCLink for authentica
 
 | File Name | Relative Location | Absolute Default Location | Description & Contents |
 | :--- | :--- | :--- | :--- |
-| **`credentials_backup.zip`** | `./` (Root) | `credentials_backup.zip` | Archive containing `pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json`, `firebase_service_account.json`, and `fcm_server_key.txt`. |
-| **`pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json`** | `./` (Root) | `%APPDATA%\pclink\` & `./` | Google Cloud IAM Service Account private key (`type: service_account`, `project_id: pclink-34bfa`, key ID: `f965fa6b41ce5e66a9b96968603e4cb6d4159867`). Used by the Windows desktop server to authenticate via OAuth 2.0 to Google FCM HTTP v1 (`messages:send`). |
+| **`pclink-34bfa-firebase-adminsdk-fbsvc-*.json`** | `./` (Root) | `%APPDATA%\pclink\` & `./` | Google Cloud IAM Service Account private key (`type: service_account`, `project_id: pclink-34bfa`). Kept locally on Windows only and never committed. |
 | **`firebase_service_account.json`** | `./` (Root) & `%APPDATA%\pclink\` | `.\firebase_service_account.json`<br>`%APPDATA%\pclink\firebase_service_account.json` | Standard copy of the Firebase Service Account JSON. Auto-detected by `DatabaseService` at runtime on Windows. |
-| **`fcm_server_key.txt`** | `./` (Root) & `%APPDATA%\pclink\` | `.\fcm_server_key.txt`<br>`%APPDATA%\pclink\fcm_server_key.txt` | Cloud messaging key string (`16d727ddb293fdb8905bc668b1f1e61ed62ed072`). Used for legacy server key fallback. |
+| **`fcm_server_key.txt`** | `%APPDATA%\pclink\` | `%APPDATA%\pclink\fcm_server_key.txt` | Cloud messaging key string. Kept locally in `%APPDATA%\pclink\` for the Windows desktop app to dispatch push alerts. Never committed to Git. |
 | **`google-services.json`** | `android/app/` | `android\app\google-services.json` | Android Firebase client configuration file containing project number, mobile SDK app ID, and API keys. |
 | **`firebase_options.dart`** | `lib/` | `lib\firebase_options.dart` | FlutterFire generated configuration containing client API keys, project ID, Realtime Database URL, and Storage bucket URLs. |
 
 ---
 
-## How to Extract & Use Credentials from `credentials_backup.zip`
+## Local Setup on Windows (Keys are Never Committed)
 
-When setting up PCLink on a new device or cloning the repo:
+The Windows app requires the FCM credentials locally to dispatch push notifications to mobile devices when the PC comes online. The mobile app does not need this key (it only receives notifications).
 
-1. **Extract the ZIP file in PowerShell**:
-   ```powershell
-   Expand-Archive -Path .\credentials_backup.zip -DestinationPath . -Force
-   ```
-2. **Copy to AppData for persistent Windows background discovery (optional)**:
+To configure locally on Windows without exposing credentials:
+
+1. **Place `fcm_server_key.txt` in `%APPDATA%\pclink\`**:
    ```powershell
    New-Item -ItemType Directory -Force -Path "$env:APPDATA\pclink"
-   Copy-Item .\firebase_service_account.json "$env:APPDATA\pclink\" -Force
-   Copy-Item .\fcm_server_key.txt "$env:APPDATA\pclink\" -Force
+   Set-Content -Path "$env:APPDATA\pclink\fcm_server_key.txt" -Value "<YOUR_FCM_SERVER_KEY>"
+   ```
+2. **Or keep it in the project root** (which is ignored by `.gitignore`):
+   ```powershell
+   Set-Content -Path ".\fcm_server_key.txt" -Value "<YOUR_FCM_SERVER_KEY>"
    ```
 
 ---
