@@ -14,7 +14,8 @@ class DatabaseService {
   static const String _dbBaseUrl =
       'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-  static String fcmServerKey = '16d727ddb293fdb8905bc668b1f1e61ed62ed072';
+  static String fcmServerKey =
+      const String.fromEnvironment('FCM_SERVER_KEY', defaultValue: '');
 
   final http.Client _client;
 
