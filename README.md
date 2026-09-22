@@ -8,6 +8,17 @@ Cross-platform **clipboard sync** between a Windows PC and an Android phone.
 - Clipboard payloads travel **directly** between PC and phone over HTTP
   (`/api/clipboard`, `/api/clipboard/latest`) — no DB involvement.
 
+## Downloads
+
+Official builds organized chronologically by date:
+
+| Release Date | Release Tag | Windows (x64) | Android (APK) | Complete Bundle |
+| :--- | :--- | :--- | :--- | :--- |
+| **2026-09-22** *(Latest)* | [`v2026-09-22`](https://github.com/Moturamji/pclink/releases/tag/v2026-09-22) | [Download ZIP](https://github.com/Moturamji/pclink/releases/download/v2026-09-22/pclink-windows-x64.zip) | [Download APK](https://github.com/Moturamji/pclink/releases/download/v2026-09-22/pclink-release.apk) | [Download Bundle](https://github.com/Moturamji/pclink/releases/download/v2026-09-22/pclink-release-2026-09-22.zip) |
+| **2026-09-19** | [`v2026-09-19`](https://github.com/Moturamji/pclink/releases/tag/v2026-09-19) | [Download ZIP](https://github.com/Moturamji/pclink/releases/download/v2026-09-19/pclink-windows-x64.zip) | [Download APK](https://github.com/Moturamji/pclink/releases/download/v2026-09-19/pclink-release.apk) | [Download Bundle](https://github.com/Moturamji/pclink/releases/download/v2026-09-19/pclink-release-2026-09-19.zip) |
+| **2026-09-17** | [`v2026-09-17`](https://github.com/Moturamji/pclink/releases/tag/v2026-09-17) | [Download ZIP](https://github.com/Moturamji/pclink/releases/download/v2026-09-17/pclink-windows-x64.zip) | [Download APK](https://github.com/Moturamji/pclink/releases/download/v2026-09-17/pclink-release.apk) | [Download Bundle](https://github.com/Moturamji/pclink/releases/download/v2026-09-17/pclink-release-2026-09-17.zip) |
+| **2026-09-11** | [`v2026-09-11`](https://github.com/Moturamji/pclink/releases/tag/v2026-09-11) | [Download ZIP](https://github.com/Moturamji/pclink/releases/download/v2026-09-11/pclink-windows-x64.zip) | [Download APK](https://github.com/Moturamji/pclink/releases/download/v2026-09-11/pclink-release.apk) | [Download Bundle](https://github.com/Moturamji/pclink/releases/download/v2026-09-11/pclink-release-2026-09-11.zip) |
+
 ## Running
 
 1. Sign in on both devices with the same account.
