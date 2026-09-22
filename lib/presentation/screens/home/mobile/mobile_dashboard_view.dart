@@ -97,7 +97,7 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
             const AppLogo(
               size: 32,
               borderRadius: 10,
-              showGlow: true,
+              showGlow: false,
               isAnimated: false,
             ),
             const SizedBox(width: 10),
@@ -121,22 +121,25 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
             onTap: widget.isRefreshing ? null : widget.onRefresh,
             child: IconButton(
               icon: widget.isRefreshing
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: colors.primary,
+                      ),
                     )
-                  : const Icon(Icons.refresh_rounded),
+                  : Icon(Icons.refresh_rounded, color: colors.textSecondary),
               tooltip: 'Refresh',
-              onPressed: null,
+              onPressed: widget.isRefreshing ? null : widget.onRefresh,
             ),
           ),
           Bounceable(
             onTap: widget.onSignOut,
-            child: const IconButton(
-              icon: Icon(Icons.logout_rounded, color: AppColors.error),
+            child: IconButton(
+              icon: const Icon(Icons.logout_rounded, color: AppColors.error),
               tooltip: AppStrings.signOut,
-              onPressed: null,
+              onPressed: widget.onSignOut,
             ),
           ),
           const SizedBox(width: 6),

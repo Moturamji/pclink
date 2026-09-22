@@ -60,11 +60,19 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: active ? colors.success.withValues(alpha: 0.10) : colors.cardSurface,
+        color: active ? colors.success.withValues(alpha: 0.08) : colors.cardSurface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: active ? colors.success.withValues(alpha: 0.45) : colors.cardBorder,
+          color: active ? colors.success.withValues(alpha: 0.25) : colors.cardBorder,
+          width: 0.8,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

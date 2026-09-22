@@ -82,7 +82,7 @@ class _WindowsSystemCardState extends State<WindowsSystemCard> with WidgetsBindi
       padding: const EdgeInsets.all(20.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(

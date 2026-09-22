@@ -4,12 +4,11 @@ import '../constants/app_colors.dart';
 /// Centralized Material 3 theme definitions: Precision Hardware-Link Console meets Friendly Studio Fluidity.
 /// Provides obsidian dark theme and silky nordic light theme with refined typography and surface elevation.
 abstract final class AppTheme {
-  /// Dark Theme (Obsidian Midnight & Electric Cyan-Azure)
+  /// Dark Theme (Velvety Soft Slate & Studio Azure)
   static ThemeData get darkTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
-      // ── Global Material ink/splash suppression ──
       splashFactory: NoSplash.splashFactory,
       splashColor: Colors.transparent,
       highlightColor: Colors.transparent,
@@ -56,15 +55,15 @@ abstract final class AppTheme {
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(18),
           side: const BorderSide(color: AppColors.darkCardBorder, width: 0.8),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.darkCardSurface,
-        elevation: 16,
+        elevation: 12,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(20),
           side: const BorderSide(color: AppColors.darkCardBorder, width: 0.8),
         ),
         titleTextStyle: const TextStyle(
@@ -144,7 +143,7 @@ abstract final class AppTheme {
           backgroundColor: AppColors.primary,
           foregroundColor: Colors.white,
           elevation: 0,
-          minimumSize: const Size(88, 46),
+          minimumSize: const Size(88, 48),
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -159,7 +158,7 @@ abstract final class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.primaryLight,
-          minimumSize: const Size(88, 46),
+          minimumSize: const Size(88, 48),
           side: const BorderSide(color: AppColors.darkCardBorder, width: 0.8),
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           shape: RoundedRectangleBorder(
@@ -186,12 +185,11 @@ abstract final class AppTheme {
     );
   }
 
-  /// Light Theme (Nordic Alabaster & Cerulean Blue)
+  /// Light Theme (Warm Silky Alabaster & Cerulean Azure)
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,
-      // ── Global Material ink/splash suppression ──
       splashFactory: NoSplash.splashFactory,
       splashColor: Colors.transparent,
       highlightColor: Colors.transparent,
@@ -238,15 +236,15 @@ abstract final class AppTheme {
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(18),
           side: const BorderSide(color: AppColors.lightCardBorder, width: 0.8),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: AppColors.lightCardSurface,
-        elevation: 12,
+        elevation: 10,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(22),
+          borderRadius: BorderRadius.circular(20),
           side: const BorderSide(color: AppColors.lightCardBorder, width: 0.8),
         ),
         titleTextStyle: const TextStyle(
@@ -323,7 +321,7 @@ abstract final class AppTheme {
           backgroundColor: AppColors.primaryDark,
           foregroundColor: Colors.white,
           elevation: 0,
-          minimumSize: const Size(88, 46),
+          minimumSize: const Size(88, 48),
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(14),
@@ -338,7 +336,7 @@ abstract final class AppTheme {
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.primaryDark,
-          minimumSize: const Size(88, 46),
+          minimumSize: const Size(88, 48),
           side: const BorderSide(color: AppColors.lightCardBorder, width: 0.8),
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           shape: RoundedRectangleBorder(

@@ -342,7 +342,7 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
     final colors = context.colors;
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(20, 24, 20, 112),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 100),
       children: [
         // Header
         Text(
@@ -350,19 +350,20 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
           style: TextStyle(
             color: colors.textPrimary,
             fontWeight: FontWeight.w800,
-            fontSize: 28,
+            fontSize: 24,
+            letterSpacing: -0.3,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
           'View your PC screen in real time from this phone.',
-          style: TextStyle(color: colors.textSecondary, fontSize: 16),
+          style: TextStyle(color: colors.textSecondary, fontSize: 14),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 18),
 
         // ─── Screen View Card ───
         _buildScreenViewCard(colors),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
 
         // ─── System Power Controls ───
         _buildPowerControlsCard(colors),
@@ -372,15 +373,16 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
 
   Widget _buildScreenViewCard(AppThemeColors colors) {
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(
-            color: colors.primary.withValues(alpha: 0.10),
-            blurRadius: 26,
-            offset: const Offset(0, 10),
+            color: Colors.black.withValues(alpha: context.isDark ? 0.16 : 0.04),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -388,31 +390,32 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Container(
-            width: 48,
-            height: 48,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: colors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(15),
+              borderRadius: BorderRadius.circular(12),
             ),
             child:
                 Icon(Icons.desktop_windows_rounded, color: colors.primary),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           Text(
             'PC screen view is off',
             style: TextStyle(
               color: colors.textPrimary,
-              fontWeight: FontWeight.w800,
-              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              fontSize: 18,
+              letterSpacing: -0.2,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             'This is view-only. Your phone cannot control the PC. '
             'The PC dashboard shows who is watching and can stop sharing at any time.',
-            style: TextStyle(color: colors.textSecondary, height: 1.45),
+            style: TextStyle(color: colors.textSecondary, height: 1.45, fontSize: 13),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 18),
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
@@ -432,9 +435,9 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: colors.primary,
                 foregroundColor: Colors.white,
-                minimumSize: const Size.fromHeight(52),
+                minimumSize: const Size.fromHeight(48),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(14),
                 ),
               ),
             ),
@@ -455,9 +458,9 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
         boxShadow: [
           BoxShadow(
             color:
-                Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.04),
+                Colors.black.withValues(alpha: context.isDark ? 0.16 : 0.04),
             blurRadius: 18,
-            offset: const Offset(0, 6),
+            offset: const Offset(0, 4),
           ),
         ],
       ),

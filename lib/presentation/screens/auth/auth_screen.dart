@@ -231,13 +231,13 @@ class _AuthScreenState extends State<AuthScreen> {
             padding: const EdgeInsets.all(36.0),
             decoration: BoxDecoration(
               color: colors.cardSurface,
-              borderRadius: BorderRadius.circular(24),
+              borderRadius: BorderRadius.circular(20),
               border: Border.all(color: colors.cardBorder, width: 0.8),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withValues(alpha: colors.isDark ? 0.28 : 0.05),
-                  blurRadius: 30,
-                  offset: const Offset(0, 10),
+                  color: Colors.black.withValues(alpha: colors.isDark ? 0.16 : 0.04),
+                  blurRadius: 20,
+                  offset: const Offset(0, 6),
                 ),
               ],
             ),
@@ -253,13 +253,13 @@ class _AuthScreenState extends State<AuthScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 28.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(20),
         border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.25 : 0.05),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: colors.isDark ? 0.16 : 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),

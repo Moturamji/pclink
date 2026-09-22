@@ -180,7 +180,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
       padding: const EdgeInsets.all(20.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(
@@ -276,7 +276,9 @@ class _ServerControlCardState extends State<ServerControlCard> {
                   Divider(color: colors.cardBorder, height: 20, thickness: 0.8),
                   Theme(
                     data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                    child: ExpansionTile(
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ExpansionTile(
                       tilePadding: EdgeInsets.zero,
                       childrenPadding: EdgeInsets.zero,
                       title: Text(
@@ -316,7 +318,8 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ],
                     ),
                   ),
-                ],
+                ),
+              ],
               ],
             ),
           ),
@@ -404,7 +407,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
           padding: const EdgeInsets.all(20.0),
           decoration: BoxDecoration(
             color: colors.cardSurface,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(color: colors.cardBorder, width: 0.8),
             boxShadow: [
               BoxShadow(

@@ -34,9 +34,8 @@ class UserSessionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: colors.primaryLight.withValues(alpha: 0.14),
+              color: colors.primaryLight.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: colors.primaryLight.withValues(alpha: 0.25)),
             ),
             child: Icon(
               Icons.account_circle_rounded,
@@ -77,11 +76,8 @@ class UserSessionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: colors.success.withValues(alpha: 0.14),
+              color: colors.success.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: colors.success.withValues(alpha: 0.3),
-              ),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,

@@ -51,7 +51,7 @@ class DesktopSidebar extends StatelessWidget {
                 const AppLogo(
                   size: 38,
                   borderRadius: 12,
-                  showGlow: true,
+                  showGlow: false,
                   isAnimated: false,
                 ),
                 const SizedBox(width: 12),
@@ -199,7 +199,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.overview,
                   icon: Icons.dashboard_outlined,
                   activeIcon: Icons.dashboard_rounded,
-                  label: 'Overview',
+                  label: 'Dashboard & Server',
                   accentColor: colors.primary,
                 ),
                 _buildNavItem(
@@ -207,7 +207,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.fileStudio,
                   icon: Icons.folder_open_outlined,
                   activeIcon: Icons.folder_rounded,
-                  label: 'Files',
+                  label: 'File Transfer Studio',
                   accentColor: colors.accentPurple,
                 ),
                 _buildNavItem(
@@ -215,7 +215,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.clipboard,
                   icon: Icons.content_paste_outlined,
                   activeIcon: Icons.content_paste_rounded,
-                  label: 'Clipboard',
+                  label: 'Clipboard Stream',
                   accentColor: colors.secondary,
                 ),
                 _buildNavItem(
@@ -223,7 +223,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.devices,
                   icon: Icons.devices_outlined,
                   activeIcon: Icons.devices_rounded,
-                  label: 'Devices',
+                  label: 'Devices & Security',
                   accentColor: colors.accentWarm,
                 ),
               ],

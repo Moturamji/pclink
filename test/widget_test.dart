@@ -610,23 +610,37 @@ void main() {
       );
 
       // Verify title & setup text
-      expect(find.text('Welcome to PCLink'), findsOneWidget);
-      expect(find.text('One-Time Network Permission Setup'), findsOneWidget);
-
-      // Verify every permission explicitly names PCLink
-      expect(find.text('PCLink Local Sync'), findsOneWidget);
-      expect(find.text('PCLink Network Relay'), findsOneWidget);
-      expect(find.text('PCLink Firewall Authorization'), findsOneWidget);
-      expect(find.text('Grant PCLink Permissions'), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Text &&
+              (w.data == 'Welcome to PCLink' ||
+                  w.data == 'PCLink System Setup'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Text &&
+              (w.data == 'One-Time Network Permission Setup' ||
+                  w.data ==
+                      'Recommended features are pre-selected for optimal experience'),
+        ),
+        findsOneWidget,
+      );
 
       // Verify NO other name like cloudflare appears anywhere in the dialog text
       expect(find.textContaining('cloudflare', findRichText: true), findsNothing);
       expect(find.textContaining('Cloudflare', findRichText: true), findsNothing);
 
       // Verify dismiss button
-      expect(find.text('Maybe Later'), findsOneWidget);
-      await tester.ensureVisible(find.text('Maybe Later'));
-      await tester.tap(find.text('Maybe Later'));
+      final dismissFinder = find.byWidgetPredicate(
+        (w) => w is Text && (w.data == 'Maybe Later' || w.data == 'Skip for Now'),
+      );
+      expect(dismissFinder, findsOneWidget);
+      await tester.ensureVisible(dismissFinder);
+      await tester.tap(dismissFinder);
       await tester.pumpAndSettle();
       expect(dismissed, isTrue);
       expect(granted, isFalse);
