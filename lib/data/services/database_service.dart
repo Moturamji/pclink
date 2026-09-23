@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../models/device_details.dart';
 import '../models/linked_device.dart';
 import '../models/server_info.dart';
+import '../models/user_deletion_status.dart';
 
 /// Service managing user, device, and local server synchronization with Firebase Realtime Database via REST API.
 class DatabaseService {
@@ -933,6 +934,148 @@ class DatabaseService {
       return false;
     } finally {
       authClient?.close();
+    }
+  }
+
+  /// Requests scheduled account deletion with a 15-day waiting period.
+  /// Updates `delete: true` and `deleteRequestedAt` in the database.
+  Future<bool> requestAccountDeletion({
+    required User user,
+    Duration gracePeriod = const Duration(days: 15),
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final now = DateTime.now();
+      final effectiveAt = now.add(gracePeriod);
+
+      final resp = await _client.patch(
+        userUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'delete': true,
+          'deleteRequestedAt': now.toIso8601String(),
+          'deleteEffectiveAt': effectiveAt.toIso8601String(),
+          // Explicitly clear any legacy unused fields so the database node remains clean
+          'isDeleted': null,
+          'deleteRequested': null,
+        }),
+      );
+      debugPrint('DatabaseService: Account deletion requested, status: ${resp.statusCode}');
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService requestAccountDeletion error: $e');
+      return false;
+    }
+  }
+
+  /// Cancels a pending account deletion request, fully restoring the user account.
+  /// Updates `delete: false`, clears deletion timestamps, and records `undeletedAt`.
+  Future<bool> cancelAccountDeletion({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final now = DateTime.now();
+
+      final resp = await _client.patch(
+        userUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'delete': false,
+          'deleteRequestedAt': null,
+          'deleteEffectiveAt': null,
+          'undeletedAt': now.toIso8601String(),
+          'isDeleted': null,
+          'deleteRequested': null,
+        }),
+      );
+      debugPrint('DatabaseService: Account deletion cancelled (undeleted), status: ${resp.statusCode}');
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService cancelAccountDeletion error: $e');
+      return false;
+    }
+  }
+
+  /// Fetches the user's current account deletion status from Firebase RTDB.
+  Future<UserDeletionStatus> getAccountDeletionStatus({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final response = await _safeGet(userUri);
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final dynamic data = jsonDecode(response.body);
+        if (data is Map) {
+          return UserDeletionStatus.fromJson(Map<String, dynamic>.from(data));
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getAccountDeletionStatus error: $e');
+    }
+    return const UserDeletionStatus(isDeleteRequested: false);
+  }
+
+  /// Real-time stream providing periodic updates of the account deletion status
+  /// to ensure both PC and mobile devices immediately synchronize deletion state.
+  Stream<UserDeletionStatus> listenAccountDeletionStatus(
+    User user, {
+    Duration interval = const Duration(seconds: 4),
+  }) {
+    late final StreamController<UserDeletionStatus> controller;
+    Timer? timer;
+
+    Future<void> poll() async {
+      try {
+        final status = await getAccountDeletionStatus(user: user);
+        if (!controller.isClosed) {
+          controller.add(status);
+        }
+      } catch (e) {
+        debugPrint('DatabaseService listenAccountDeletionStatus poll error: $e');
+      }
+    }
+
+    controller = StreamController<UserDeletionStatus>.broadcast(
+      onListen: () {
+        poll();
+        timer = Timer.periodic(interval, (_) => poll());
+      },
+      onCancel: () {
+        timer?.cancel();
+        timer = null;
+      },
+    );
+
+    return controller.stream;
+  }
+
+  /// Permanently purges user account data from the server if the 15-day grace period expired.
+  Future<bool> purgeExpiredAccount({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final resp = await _client.delete(userUri);
+      debugPrint('DatabaseService: Purged expired account from DB, status: ${resp.statusCode}');
+      try {
+        await user.delete();
+      } catch (e) {
+        debugPrint('DatabaseService: Note - auth user delete fallback: $e');
+      }
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService purgeExpiredAccount error: $e');
+      return false;
     }
   }
 }

@@ -15,11 +15,13 @@ import '../../../data/services/file_share_service.dart';
 import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
+import '../../../data/models/user_deletion_status.dart';
 import '../../../data/services/windows_permission_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
 import '../auth/auth_screen.dart';
 import 'desktop/desktop_dashboard_view.dart';
 import 'mobile/mobile_dashboard_view.dart';
+import 'widgets/account_deletion_dialogs.dart';
 import 'widgets/windows_permission_dialog.dart';
 
 /// Main dashboard orchestrator: renders dedicated, distinct UI experiences
@@ -67,6 +69,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isRefreshing = false;
   bool _wasServerLive = false;
   String? _lastAlertedNotificationId;
+  UserDeletionStatus? _deletionStatus;
+  StreamSubscription<UserDeletionStatus>? _deletionStatusSub;
 
   @override
   void initState() {
@@ -99,6 +103,22 @@ class _HomeScreenState extends State<HomeScreen> {
       user: user,
       databaseService: _databaseService,
     );
+
+    if (user != null) {
+      _deletionStatusSub = _databaseService
+          .listenAccountDeletionStatus(user)
+          .listen((status) async {
+        if (!mounted) return;
+        setState(() {
+          _deletionStatus = status;
+        });
+
+        // If the 15-day grace period has passed, permanently purge the account
+        if (status.isPermanentlyExpired) {
+          _handleExpiredAccountPurge(user);
+        }
+      });
+    }
 
     if (!kIsWeb && Platform.isWindows) {
       _checkWindowsPermissions();
@@ -305,6 +325,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _notificationSub?.cancel();
     _tunnelWatcherTimer?.cancel();
     _tunnelUrlSub?.cancel();
+    _deletionStatusSub?.cancel();
     _tunnelService.dispose();
     _clipboardService.dispose();
     _fileShareService.dispose();
@@ -576,6 +597,96 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _handleDeleteAccount() async {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    final confirmed = await AccountDeletionDialog.show(context);
+    if (!confirmed || !mounted) return;
+
+    final success = await _databaseService.requestAccountDeletion(user: user);
+    if (!mounted) return;
+
+    if (success) {
+      final updated = await _databaseService.getAccountDeletionStatus(user: user);
+      if (!mounted) return;
+      setState(() => _deletionStatus = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Account scheduled for deletion. You have a 15-day grace period to undelete at any time.',
+          ),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to schedule account deletion. Please check connection and try again.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleUndeleteAccount() async {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    final confirmed = await AccountUndeleteDialog.show(context);
+    if (!confirmed || !mounted) return;
+
+    final success = await _databaseService.cancelAccountDeletion(user: user);
+    if (!mounted) return;
+
+    if (success) {
+      final updated = await _databaseService.getAccountDeletionStatus(user: user);
+      if (!mounted) return;
+      setState(() => _deletionStatus = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account restored! Scheduled deletion has been cancelled.'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to cancel account deletion. Please try again.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleExpiredAccountPurge(User user) async {
+    await _databaseService.purgeExpiredAccount(user: user);
+    await _cleanupAndMarkOffline();
+    _tunnelWatcherTimer?.cancel();
+    _tunnelUrlSub?.cancel();
+    await _tunnelService.stop();
+    await _authService.signOut();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+        (route) => false,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Your account has been permanently deleted as the 15-day grace period expired.',
+          ),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = _authService.currentUser;
@@ -647,6 +758,9 @@ class _HomeScreenState extends State<HomeScreen> {
             isRefreshing: _isRefreshing,
             onRefresh: _refresh,
             onSignOut: _confirmSignOut,
+            deletionStatus: _deletionStatus,
+            onDeleteAccount: _handleDeleteAccount,
+            onUndeleteAccount: _handleUndeleteAccount,
             onToggleServer: () => _toggleServer(details),
             onConnectionStateChanged: (isConnected) {
               if (!details.isWindows) {
@@ -677,6 +791,9 @@ class _HomeScreenState extends State<HomeScreen> {
           isRefreshing: _isRefreshing,
           onRefresh: _refresh,
           onSignOut: _confirmSignOut,
+          deletionStatus: _deletionStatus,
+          onDeleteAccount: _handleDeleteAccount,
+          onUndeleteAccount: _handleUndeleteAccount,
           onToggleServer: () => _toggleServer(details),
           onConnectionStateChanged: (isConnected) {
             if (!details.isWindows) {

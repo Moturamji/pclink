@@ -177,3 +177,27 @@
   - [x] Verify that `_activeTransfers` on `ServerService` correctly transitions from `queued` -> `transferring` -> `completed` during a download.
   - [x] Verify `FileShareService.downloadFile` with matching file IDs and 1-at-a-time concurrency.
   - [x] Run `flutter analyze` and full test suite regression (`flutter test` - 92 of 92 tests passing).
+
+---
+
+## Phase 10: 15-Day Account Deletion & Undeletion Lifecycle
+- [x] **Task 10.1: Database Schema & Service Architecture (`DatabaseService`)**
+  - [x] Create `UserDeletionStatus` data model with single clean `delete` boolean, `deleteRequestedAt` (DateTime?), `deleteEffectiveAt` (DateTime?), `daysRemaining` (int), and `isPermanentlyExpired` (bool).
+  - [x] Cleaned schema: removed redundant `isDeleted` and `deleteRequested` fields so only the requested `delete` boolean and ISO timestamps are stored in the database.
+  - [x] Implement `requestAccountDeletion(User user)` in `DatabaseService`: updates `delete: true`, `deleteRequestedAt: nowIso`, `deleteEffectiveAt: 15DaysLaterIso`, and clears any legacy `isDeleted`/`deleteRequested` keys on `/users/{uid}.json`.
+  - [x] Implement `cancelAccountDeletion(User user)` in `DatabaseService`: updates `delete: false`, `deleteRequestedAt: null`, `deleteEffectiveAt: null`, `undeletedAt: nowIso`, and cleans legacy keys on `/users/{uid}.json`.
+  - [x] Implement `getAccountDeletionStatus(User user)` and real-time `listenAccountDeletionStatus(User user)` in `DatabaseService` using polling/stream synchronization so PC and Phone stay synchronized in real time.
+  - [x] Implement `purgeExpiredAccount(User user)` in `DatabaseService`: if `delete == true` and 15 days have elapsed, permanently wipe user data from the database and sign out.
+- [x] **Task 10.2: Confirmation Dialogs & Notification Banner Components**
+  - [x] Build `AccountDeletionDialog`: displays a clear, stylized modal explaining the 15-day waiting period, how the user can undelete anytime before the period expires from PC or phone, and that after 15 days the account is permanently purged.
+  - [x] Build `AccountUndeleteDialog`: confirmation modal to cancel deletion, restore the account, and reset the database fields to active.
+  - [x] Build `AccountDeletionBanner`: warning banner displayed across the dashboard when deletion is active, showing exact days/hours remaining and an immediate "Undelete Account" button.
+- [x] **Task 10.3: UI Integration Across Windows Desktop & Android Mobile**
+  - [x] In `HomeScreen`: listen to `listenAccountDeletionStatus`, display `AccountDeletionBanner` when `delete == true`, and trigger auto-purge if 15 days expired.
+  - [x] In `DesktopSidebar` (PC): conditionally render "Delete Account" vs "Undelete Account" button based on DB `delete` status; wire up confirmation dialogs.
+  - [x] In `MobileDashboardView` (Phone): conditionally render "Delete Account" vs "Undelete Account" in the action area; wire up confirmation dialogs.
+  - [x] Verify two-way synchronization: deleting or undeleting on PC instantly reflects on Phone, and vice versa.
+- [x] **Task 10.4: Automated Testing & Verification**
+  - [x] Create unit tests for `UserDeletionStatus` parsing, 15-day time calculation, and expired detection.
+  - [x] Create tests for `requestAccountDeletion` and `cancelAccountDeletion` verifying database payloads.
+  - [x] Run `flutter analyze` and full test suite regression (`flutter test` - 99 of 99 tests passing).

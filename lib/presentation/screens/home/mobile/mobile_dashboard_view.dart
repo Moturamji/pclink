@@ -17,6 +17,9 @@ import 'mobile_connect_tab.dart';
 import 'mobile_files_tab.dart';
 import 'mobile_live_share_tab.dart';
 
+import '../../../../data/models/user_deletion_status.dart';
+import '../widgets/account_deletion_dialogs.dart';
+
 /// Complete Mobile Dashboard Shell with hero top bar, floating squircle
 /// bottom tab bar, and spring micro-interactions.
 class MobileDashboardView extends StatefulWidget {
@@ -33,6 +36,9 @@ class MobileDashboardView extends StatefulWidget {
   final VoidCallback onToggleServer;
   final ValueChanged<bool> onConnectionStateChanged;
   final VoidCallback onDisconnectRequested;
+  final UserDeletionStatus? deletionStatus;
+  final VoidCallback? onDeleteAccount;
+  final VoidCallback? onUndeleteAccount;
 
   const MobileDashboardView({
     super.key,
@@ -49,6 +55,9 @@ class MobileDashboardView extends StatefulWidget {
     required this.onToggleServer,
     required this.onConnectionStateChanged,
     required this.onDisconnectRequested,
+    this.deletionStatus,
+    this.onDeleteAccount,
+    this.onUndeleteAccount,
   });
 
   @override
@@ -134,6 +143,24 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
               onPressed: widget.isRefreshing ? null : widget.onRefresh,
             ),
           ),
+          if (widget.deletionStatus?.isDeleteRequested == true)
+            Bounceable(
+              onTap: widget.onUndeleteAccount,
+              child: IconButton(
+                icon: const Icon(Icons.restore_rounded, color: AppColors.success),
+                tooltip: 'Undelete Account',
+                onPressed: widget.onUndeleteAccount,
+              ),
+            )
+          else
+            Bounceable(
+              onTap: widget.onDeleteAccount,
+              child: IconButton(
+                icon: Icon(Icons.delete_outline_rounded, color: colors.textSecondary),
+                tooltip: 'Delete Account',
+                onPressed: widget.onDeleteAccount,
+              ),
+            ),
           Bounceable(
             onTap: widget.onSignOut,
             child: IconButton(
@@ -151,26 +178,40 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
           Positioned.fill(
             child: RefreshIndicator(
               onRefresh: widget.onRefresh,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 220),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (child, animation) {
-                  return FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0, 0.02),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
+              child: Column(
+                children: [
+                  if (widget.deletionStatus?.isDeleteRequested == true)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: AccountDeletionBanner(
+                        status: widget.deletionStatus!,
+                        onUndelete: widget.onUndeleteAccount ?? () {},
+                      ),
                     ),
-                  );
-                },
-                child: KeyedSubtree(
-                  key: ValueKey(_currentTabIndex),
-                  child: _buildTabBody(),
-                ),
+                  Expanded(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      switchInCurve: Curves.easeOutCubic,
+                      switchOutCurve: Curves.easeInCubic,
+                      transitionBuilder: (child, animation) {
+                        return FadeTransition(
+                          opacity: animation,
+                          child: SlideTransition(
+                            position: Tween<Offset>(
+                              begin: const Offset(0, 0.02),
+                              end: Offset.zero,
+                            ).animate(animation),
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: KeyedSubtree(
+                        key: ValueKey(_currentTabIndex),
+                        child: _buildTabBody(),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

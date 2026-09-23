@@ -16,6 +16,9 @@ import 'desktop_sidebar.dart';
 
 /// Complete Desktop Dashboard Shell with dedicated sidebar, command bar,
 /// and smooth multi-workbench tab transitions.
+import '../../../../data/models/user_deletion_status.dart';
+import '../widgets/account_deletion_dialogs.dart';
+
 class DesktopDashboardView extends StatefulWidget {
   final DeviceDetails details;
   final User? user;
@@ -30,6 +33,9 @@ class DesktopDashboardView extends StatefulWidget {
   final VoidCallback onToggleServer;
   final ValueChanged<bool> onConnectionStateChanged;
   final VoidCallback onDisconnectRequested;
+  final UserDeletionStatus? deletionStatus;
+  final VoidCallback? onDeleteAccount;
+  final VoidCallback? onUndeleteAccount;
 
   const DesktopDashboardView({
     super.key,
@@ -46,6 +52,9 @@ class DesktopDashboardView extends StatefulWidget {
     required this.onToggleServer,
     required this.onConnectionStateChanged,
     required this.onDisconnectRequested,
+    this.deletionStatus,
+    this.onDeleteAccount,
+    this.onUndeleteAccount,
   });
 
   @override
@@ -99,6 +108,9 @@ class _DesktopDashboardViewState extends State<DesktopDashboardView> {
             isRefreshing: widget.isRefreshing,
             onRefresh: widget.onRefresh,
             onSignOut: widget.onSignOut,
+            deletionStatus: widget.deletionStatus,
+            onDeleteAccount: widget.onDeleteAccount,
+            onUndeleteAccount: widget.onUndeleteAccount,
           ),
 
           // Main Desktop Content Area
@@ -111,6 +123,14 @@ class _DesktopDashboardViewState extends State<DesktopDashboardView> {
                   serverInfo: widget.currentServerInfo,
                   isWindows: widget.details.isWindows,
                 ),
+                if (widget.deletionStatus?.isDeleteRequested == true)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 16, 28, 0),
+                    child: AccountDeletionBanner(
+                      status: widget.deletionStatus!,
+                      onUndelete: widget.onUndeleteAccount ?? () {},
+                    ),
+                  ),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 250),

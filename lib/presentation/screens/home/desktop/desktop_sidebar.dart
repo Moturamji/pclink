@@ -6,6 +6,8 @@ import '../../../../core/widgets/universal/bounceable.dart';
 import '../../../../core/widgets/universal/hoverable.dart';
 import '../../../../core/widgets/universal/theme_toggle_button.dart';
 
+import '../../../../data/models/user_deletion_status.dart';
+
 enum DesktopNavTab { overview, fileStudio, clipboard, devices }
 
 /// Polished Desktop Sidebar Navigation Rail with tactile micro-interactions,
@@ -18,6 +20,9 @@ class DesktopSidebar extends StatelessWidget {
   final bool isRefreshing;
   final VoidCallback onRefresh;
   final VoidCallback onSignOut;
+  final UserDeletionStatus? deletionStatus;
+  final VoidCallback? onDeleteAccount;
+  final VoidCallback? onUndeleteAccount;
 
   const DesktopSidebar({
     super.key,
@@ -28,6 +33,9 @@ class DesktopSidebar extends StatelessWidget {
     required this.isRefreshing,
     required this.onRefresh,
     required this.onSignOut,
+    this.deletionStatus,
+    this.onDeleteAccount,
+    this.onUndeleteAccount,
   });
 
   @override
@@ -307,7 +315,86 @@ class DesktopSidebar extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
+                if (deletionStatus?.isDeleteRequested == true)
+                  Bounceable(
+                    onTap: onUndeleteAccount,
+                    scaleFactor: 0.98,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.35),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.restore_rounded,
+                            size: 15,
+                            color: AppColors.success,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Undelete Account',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.success,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Bounceable(
+                    onTap: onDeleteAccount,
+                    scaleFactor: 0.98,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceSubtle,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: colors.cardBorder,
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 15,
+                            color: colors.textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Delete Account',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
                 Bounceable(
                   onTap: onSignOut,
                   scaleFactor: 0.98,
