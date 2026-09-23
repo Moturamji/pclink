@@ -84,6 +84,10 @@ class TransferFingerprint {
     }
   }
 
+  /// Alias for [readMetadata].
+  static Future<Map<String, dynamic>?> readMetaFile(File metaFile) =>
+      readMetadata(metaFile);
+
   /// Reads and validates a resume metadata sidecar file.
   /// Returns the verified offset if [expectedFingerprint] matches and
   /// physical temporary file exists and has sufficient length.

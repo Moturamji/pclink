@@ -13,6 +13,7 @@ import '../../core/utils/transfer_fingerprint.dart';
 import '../../core/utils/transfer_integrity.dart';
 import '../../features/file_share/models/shared_file.dart';
 import '../../features/file_share/models/transfer_progress.dart';
+import 'foreground_transfer_manager.dart';
 import 'screen_share_start_result.dart';
 
 /// Android client for the Windows temporary server's file-sharing API.
@@ -63,6 +64,20 @@ class FileShareService {
         return;
       }
       _activeTransfers[progress.fileId] = progress;
+      if (progress.isActive) {
+        final activeCount =
+            _activeTransfers.values.where((t) => t.isActive).length;
+        ForegroundTransferManager.instance.updateProgress(
+          progress,
+          activeCount: activeCount,
+        );
+      } else if (_activeTransfers.values.isNotEmpty &&
+          _activeTransfers.values.every((t) => !t.isActive)) {
+        ForegroundTransferManager.instance.onTransfersFinished(
+          success: _activeTransfers.values
+              .every((t) => t.status == TransferStatus.completed),
+        );
+      }
       if (progress.status == TransferStatus.completed ||
           progress.status == TransferStatus.failed ||
           progress.status == TransferStatus.cancelled) {
@@ -161,7 +176,25 @@ class FileShareService {
   /// process. Purging happens once instead of on every download attempt.
   bool _purgedStaleParts = false;
 
-  /// All candidate PC server URLs (public WAN first, then LAN), deduplicated.
+  /// Returns true for direct local network URLs (Wi-Fi/Ethernet/localhost).
+  bool _isDirectLanUrl(String url) {
+    if (!url.startsWith('http://')) return false;
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final host = uri.host;
+    if (host == 'localhost' || host == '127.0.0.1') return true;
+    if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
+    if (host.startsWith('172.')) {
+      final parts = host.split('.');
+      if (parts.length >= 2) {
+        final second = int.tryParse(parts[1]);
+        if (second != null && second >= 16 && second <= 31) return true;
+      }
+    }
+    return false;
+  }
+
+  /// All candidate PC server URLs (direct LAN first, then WAN/tunnel), deduplicated.
   List<String> _candidateUrls() {
     final list = _getTargetServerUrls?.call();
     if (list == null || list.isEmpty) return const <String>[];
@@ -180,6 +213,14 @@ class FileShareService {
         if (!result.contains(s)) result.add(s);
       }
     }
+    // High-speed LAN routes (Wi-Fi/Ethernet) always tried before rate-limited cloud relays
+    result.sort((a, b) {
+      final aLan = _isDirectLanUrl(a);
+      final bLan = _isDirectLanUrl(b);
+      if (aLan && !bLan) return -1;
+      if (!aLan && bLan) return 1;
+      return 0;
+    });
     return result;
   }
 
@@ -429,6 +470,13 @@ class FileShareService {
     final results = <bool>[];
     final queue = <String>[];
 
+    final first = filePaths.isNotEmpty
+        ? filePaths.first.split(RegExp(r'[\\/]')).last
+        : null;
+    ForegroundTransferManager.instance.ensureForegroundActive(
+      initialFileName: first,
+    );
+
     for (final path in filePaths) {
       final file = File(path);
       if (!file.existsSync()) continue;
@@ -508,8 +556,6 @@ class FileShareService {
     CancellationToken? cancelToken,
     String? customTransferId,
   }) async {
-    // 4 MB chunk size: 125 requests for 500 MB (reducing HTTP turnaround latency by 50-70%)
-    const segmentSize = 4 * 1024 * 1024;
     final urls = _candidateUrls();
     if (urls.isEmpty) return false;
 
@@ -556,13 +602,17 @@ class FileShareService {
     for (final baseUrl in urls) {
       if (token.isCancelled) break;
       try {
+        final isLan = _isDirectLanUrl(baseUrl);
+        // High-throughput 16 MB chunks on local LAN (Wi-Fi/Ethernet); 4 MB on WAN tunnel
+        final segmentSize = isLan ? (16 * 1024 * 1024) : (4 * 1024 * 1024);
         var offset = 0;
         final checkUri = Uri.parse(
           '$baseUrl${ServerConstants.filesUploadEndpoint}?checkOffset=true&name=$encodedName&size=$totalBytes&fileKey=${encodedName}_$totalBytes&fingerprint=$fingerprint',
         );
+        final checkTimeout = Duration(milliseconds: isLan ? 2500 : 6000);
         final check = await _client
             .get(checkUri, headers: _authHeaders())
-            .timeout(const Duration(seconds: 5));
+            .timeout(checkTimeout);
         if (check.statusCode == HttpStatus.ok) {
           final data = jsonDecode(check.body);
           final savedOffset = data is Map ? data['offset'] : null;
@@ -577,7 +627,7 @@ class FileShareService {
           final rafResume = await file.open(mode: FileMode.read);
           try {
             var toHash = offset;
-            const bSize = 256 * 1024;
+            const bSize = 1024 * 1024;
             final b = Uint8List(bSize);
             while (toHash > 0) {
               final r = min(bSize, toHash);
@@ -620,8 +670,9 @@ class FileShareService {
             final request = http.Request('POST', uri)
               ..bodyBytes = bytes
               ..headers.addAll(_authHeaders(contentType: 'application/octet-stream'));
-            final chunkCrc = TransferCrc32()..update(bytes);
-            request.headers['X-Chunk-Checksum'] = chunkCrc.hexString;
+            if (isFinalSegment) {
+              request.headers['x-transfer-checksum'] = cumulativeSourceCrc.hexString;
+            }
 
             // Emit dual progress as chunk is dispatched onto wire
             _emitProgress(
@@ -1134,6 +1185,9 @@ class FileShareService {
     CancellationToken? cancelToken,
     String? customTransferId,
   }) async {
+    ForegroundTransferManager.instance.ensureForegroundActive(
+      initialFileName: item.name,
+    );
     final urls = _candidateUrls();
     if (urls.isEmpty) {
       debugPrint('FileShareService: No server URLs configured for download');

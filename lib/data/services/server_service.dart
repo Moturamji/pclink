@@ -19,6 +19,19 @@ import 'database_service.dart';
 import 'system_power_service.dart';
 import 'screen_share_service.dart';
 
+/// Internal state preserving running CRC32 accumulator across consecutive chunk requests.
+class _UploadSessionState {
+  final TransferCrc32 crc;
+  int verifiedOffset;
+  DateTime lastActivity;
+
+  _UploadSessionState({
+    required this.crc,
+    required this.verifiedOffset,
+    required this.lastActivity,
+  });
+}
+
 /// Manages the lightweight server on Windows and client-side handshake on Android across local and public networks.
 class ServerService {
   HttpServer? _server;
@@ -37,6 +50,7 @@ class ServerService {
 
   final Map<String, CancellationToken> _activeTokens = {};
   final Map<String, TransferProgress> _activeTransfers = {};
+  final Map<String, _UploadSessionState> _activeUploadSessions = {};
   final StreamController<Map<String, TransferProgress>> _allTransfersController =
       StreamController<Map<String, TransferProgress>>.broadcast();
 
@@ -946,26 +960,59 @@ class ServerService {
       if (effectiveOffset == 0 && await partFile.exists()) {
         await partFile.delete();
         if (await metaFile.exists()) await metaFile.delete();
+        _activeUploadSessions.remove(fileKey);
       }
 
-      // Initialize incremental CRC32 accumulator
-      final runningCrc = TransferCrc32();
-      if (effectiveOffset > 0) {
-        // If resuming, hash existing bytes from disk to initialize running CRC
-        final rafExisting = await partFile.open(mode: FileMode.read);
-        try {
-          var remainingExisting = effectiveOffset;
-          const bufSize = 256 * 1024;
-          final buf = Uint8List(bufSize);
-          while (remainingExisting > 0) {
-            final toRead = min(bufSize, remainingExisting);
-            final readBytes = await rafExisting.readInto(buf, 0, toRead);
-            if (readBytes <= 0) break;
-            runningCrc.update(readBytes == toRead ? buf : buf.sublist(0, readBytes));
-            remainingExisting -= readBytes;
+      // Initialize incremental CRC32 accumulator in O(1) time
+      TransferCrc32 runningCrc;
+      final cachedSession = _activeUploadSessions[fileKey];
+      if (cachedSession != null && cachedSession.verifiedOffset == effectiveOffset) {
+        // Fast-path: Consecutive chunk in active transfer session, reuse CRC accumulator directly without disk reads!
+        runningCrc = cachedSession.crc;
+        cachedSession.lastActivity = DateTime.now();
+      } else {
+        // Not in memory: check if .meta sidecar file already recorded runningCrc at this offset
+        TransferCrc32? restoredCrc;
+        if (effectiveOffset > 0 && await metaFile.exists()) {
+          try {
+            final meta = await TransferFingerprint.readMetadata(metaFile);
+            if (meta != null &&
+                meta['verifiedOffset'] == effectiveOffset &&
+                meta['runningCrc'] is String) {
+              final hex = meta['runningCrc'] as String;
+              final val = int.tryParse(hex, radix: 16);
+              if (val != null) {
+                restoredCrc = TransferCrc32.fromValue(
+                  val,
+                  bytesProcessed: effectiveOffset,
+                );
+              }
+            }
+          } catch (_) {}
+        }
+
+        if (restoredCrc != null) {
+          runningCrc = restoredCrc;
+        } else {
+          runningCrc = TransferCrc32();
+          if (effectiveOffset > 0) {
+            // Rare recovery path: stream existing bytes once from disk
+            final rafExisting = await partFile.open(mode: FileMode.read);
+            try {
+              var remainingExisting = effectiveOffset;
+              const bufSize = 512 * 1024;
+              final buf = Uint8List(bufSize);
+              while (remainingExisting > 0) {
+                final toRead = min(bufSize, remainingExisting);
+                final readBytes = await rafExisting.readInto(buf, 0, toRead);
+                if (readBytes <= 0) break;
+                runningCrc.update(readBytes == toRead ? buf : buf.sublist(0, readBytes));
+                remainingExisting -= readBytes;
+              }
+            } finally {
+              await rafExisting.close();
+            }
           }
-        } finally {
-          await rafExisting.close();
         }
       }
 
@@ -1040,8 +1087,13 @@ class ServerService {
             );
           }
         }
-        await raf.flush();
-        await raf.close();
+        if (isChunkedUpload && totalBytes > 0 && (effectiveOffset + bytesReceivedThisSession) < totalBytes) {
+          // Intermediate chunk: close file handle without forcing physical disk FlushFileBuffers sync
+          await raf.close();
+        } else {
+          await raf.flush();
+          await raf.close();
+        }
       } catch (e) {
         debugPrint('ServerService: upload pipe error: $e');
         await raf.close();
@@ -1101,6 +1153,7 @@ class ServerService {
       if (totalBytes > 0 && totalOnDisk > totalBytes) {
         await partFile.delete();
         if (await metaFile.exists()) await metaFile.delete();
+        _activeUploadSessions.remove(fileKey);
         throw const HttpException('Upload exceeded the advertised file size');
       }
 
@@ -1121,8 +1174,15 @@ class ServerService {
           );
         }
         if (isChunkedUpload) {
-          // Acknowledged upload segment: preserve the verified offset and keep
-          // the transfer alive.  The next small request starts exactly here.
+          // Acknowledged upload segment: update in-memory session so the next chunk starts in O(1) time
+          _activeUploadSessions[fileKey] = _UploadSessionState(
+            crc: runningCrc,
+            verifiedOffset: totalOnDisk,
+            lastActivity: DateTime.now(),
+          );
+          _activeUploadSessions.removeWhere(
+            (_, s) => DateTime.now().difference(s.lastActivity).inMinutes > 5,
+          );
           _emitTransferProgress(
             TransferProgress(
               fileId: transferId,
@@ -1288,6 +1348,7 @@ class ServerService {
       _sharedFiles.insert(0, item);
       if (_sharedFiles.length > 100) _sharedFiles.removeLast();
       _sharedFilesController.add(List.from(_sharedFiles));
+      _activeUploadSessions.remove(fileKey);
 
       request.response.statusCode = HttpStatus.ok;
       request.response.headers.contentType = ContentType.json;
@@ -1303,6 +1364,7 @@ class ServerService {
       await request.response.close();
       debugPrint('ServerService: Received upload from phone: $finalSavedName ($actualSize bytes)');
     } catch (e) {
+      _activeUploadSessions.remove(fileKey);
       debugPrint('ServerService: _handleFileUpload error: $e');
       request.response.statusCode = HttpStatus.internalServerError;
       request.response.headers.contentType = ContentType.json;

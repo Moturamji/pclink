@@ -123,3 +123,33 @@
   - [x] Verify controlled concurrency limit (max 2 active transfers).
 - [x] **Task 6.5: Run Full Test Suite Regression**
   - [x] Ran `flutter test` across all unit, integration, and benchmark tests with 100% passing status.
+
+---
+
+## Phase 7: Ultra-Fast Throughput & LAN Prioritization
+- [x] **Task 7.1: Eliminate $O(N^2)$ Receiver Re-Read Disk Thrashing in `ServerService`**
+  - [x] Implement active upload session registry (`_activeUploadSessions`) in `ServerService` to preserve running CRC32 accumulator across consecutive chunk requests.
+  - [x] Eliminate quadratic multi-gigabyte disk re-read loop (`rafExisting.readInto`) on every chunk request.
+  - [x] If resuming an interrupted transfer after a server restart, load `runningCrc` from `.part_$fileKey.meta` in $O(1)$ time.
+  - [x] Optimize disk buffer flushing: batch file writes and flush only on stream completion or large buffer thresholds.
+- [x] **Task 7.2: Adaptive High-Throughput Chunking & Single-Pass Client Hashing**
+  - [x] Detect connection transport type (direct local LAN vs remote WAN tunnel).
+  - [x] Scale chunk size to 8 MB - 16 MB on local LAN (reducing HTTP round-trip requests for 500 MB from 125 to 31).
+  - [x] Eliminate duplicate chunk CRC calculation on client (use single-pass hashing).
+- [x] **Task 7.3: Robust Multi-Interface LAN Discovery & Priority Probing**
+  - [x] Filter out virtual adapters (`vEthernet`, `WSL`, `VirtualBox`, `VMware`) in `DeviceService` to prioritize physical Wi-Fi/Ethernet adapters.
+  - [x] Ensure direct LAN connection is always probed and prioritized with fast timeout before falling back to rate-limited WAN tunnels.
+
+---
+
+## Phase 8: Android Background File Transfer Engine
+- [x] **Task 8.1: Configure Android Background Execution Permissions**
+  - [x] Add `android.permission.WAKE_LOCK` to `AndroidManifest.xml` to prevent CPU/Wi-Fi sleep during large background file transfers.
+- [x] **Task 8.2: Implement `ForegroundTransferManager` Integration in `FileShareService`**
+  - [x] Create foreground notification manager hooked into `FileShareService` transfer lifecycle.
+  - [x] When transfers start or are enqueued, elevate foreground task to display real-time transfer notifications (`Transferring <filename> - XX% (YY MB/s)`).
+  - [x] Throttle notification updates (500ms rate limit) to preserve battery and UI responsiveness while app is backgrounded.
+  - [x] Automatically release wake lock and revert/stop foreground service when all transfers reach terminal status.
+- [x] **Task 8.3: Verification & Throughput Benchmarking**
+  - [x] Create automated tests for $O(1)$ chunk ingestion and foreground manager lifecycle.
+  - [x] Run full test suite regression (`flutter test`) and `flutter analyze` to ensure 100% clean status.

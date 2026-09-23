@@ -224,6 +224,21 @@ class DeviceService {
     return interfaces;
   }
 
+  bool _isVirtualInterface(String name) {
+    final lower = name.toLowerCase();
+    return lower.contains('vethernet') ||
+        lower.contains('wsl') ||
+        lower.contains('virtual') ||
+        lower.contains('vmware') ||
+        lower.contains('vbox') ||
+        lower.contains('hyper-v') ||
+        lower.contains('docker') ||
+        lower.contains('tailscale') ||
+        lower.contains('zerotier') ||
+        lower.contains('tap') ||
+        lower.contains('tun');
+  }
+
   String _determinePrimaryIp(List<NetworkAddressInfo> interfaces) {
     if (interfaces.isEmpty) return 'Not Connected';
 
@@ -237,9 +252,23 @@ class DeviceService {
       return interfaces.first.address;
     }
 
-    // Prefer a typical site-local LAN address (192.168.x, 10.x, 172.16-31.x)
-    // and skip virtual-adapter / link-local ranges so we don't advertise a
-    // Docker/Hyper-V/VPN NIC that the phone can never reach.
+    // Prioritize physical Wi-Fi / Ethernet adapters over virtual switches (WSL, Hyper-V, Docker)
+    nonLoopbackIpv4.sort((a, b) {
+      final aVirt = _isVirtualInterface(a.interfaceName);
+      final bVirt = _isVirtualInterface(b.interfaceName);
+      if (!aVirt && bVirt) return -1;
+      if (aVirt && !bVirt) return 1;
+
+      // Prefer typical home/office LAN subnets: 192.168.x first, then 10.x, then 172.x
+      int subnetRank(String ip) {
+        if (ip.startsWith('192.168.')) return 0;
+        if (ip.startsWith('10.')) return 1;
+        if (ip.startsWith('172.')) return 2;
+        return 3;
+      }
+      return subnetRank(a.address).compareTo(subnetRank(b.address));
+    });
+
     for (final info in nonLoopbackIpv4) {
       if (_isUsableSiteLocalAddress(info.address)) {
         return info.address;

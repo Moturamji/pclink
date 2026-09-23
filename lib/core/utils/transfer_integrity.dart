@@ -22,6 +22,17 @@ class TransferCrc32 {
   int _crc = 0xFFFFFFFF;
   int _bytesProcessed = 0;
 
+  TransferCrc32({int initialCrc = 0xFFFFFFFF, int bytesProcessed = 0})
+      : _crc = initialCrc,
+        _bytesProcessed = bytesProcessed;
+
+  factory TransferCrc32.fromValue(int value, {int bytesProcessed = 0}) {
+    return TransferCrc32(
+      initialCrc: (value ^ 0xFFFFFFFF) & 0xFFFFFFFF,
+      bytesProcessed: bytesProcessed,
+    );
+  }
+
   int get bytesProcessed => _bytesProcessed;
 
   /// Updates the CRC-32 accumulator with [chunk].
