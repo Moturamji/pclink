@@ -40,27 +40,53 @@ class TransferFingerprint {
     return fullCrc.hexString;
   }
 
-  /// Saves a resume metadata sidecar file alongside the `.part` file.
+  /// Saves a resume metadata sidecar file alongside the `.transfer.tmp` or `.part` file.
   static Future<void> writeMetaFile({
     required File metaFile,
     required String fingerprint,
     required String originalName,
     required int totalBytes,
     required int verifiedOffset,
+    String? transferId,
+    int? chunkSize,
+    String? runningCrc,
+    int? senderBytes,
+    int? receiverBytes,
+    String? status,
   }) async {
     final data = {
       'fingerprint': fingerprint,
       'originalName': originalName,
       'totalBytes': totalBytes,
       'verifiedOffset': verifiedOffset,
+      'transferId': ?transferId,
+      'chunkSize': ?chunkSize,
+      'runningCrc': ?runningCrc,
+      'senderBytes': ?senderBytes,
+      'receiverBytes': ?receiverBytes,
+      'status': ?status,
       'lastUpdatedMs': DateTime.now().millisecondsSinceEpoch,
     };
     await metaFile.writeAsString(jsonEncode(data));
   }
 
+  /// Reads extended metadata from a `.transfer.meta` or `.part_*.meta` file.
+  static Future<Map<String, dynamic>?> readMetadata(File metaFile) async {
+    if (!await metaFile.exists()) return null;
+    try {
+      final content = await metaFile.readAsString();
+      final dynamic decoded = jsonDecode(content);
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Reads and validates a resume metadata sidecar file.
   /// Returns the verified offset if [expectedFingerprint] matches and
-  /// physical `.part` file exists and has sufficient length.
+  /// physical temporary file exists and has sufficient length.
   /// Returns 0 if invalid or mismatched.
   static Future<int> readVerifiedOffset({
     required File partFile,
@@ -73,9 +99,8 @@ class TransferFingerprint {
     }
 
     try {
-      final content = await metaFile.readAsString();
-      final dynamic decoded = jsonDecode(content);
-      if (decoded is! Map) return 0;
+      final decoded = await readMetadata(metaFile);
+      if (decoded == null) return 0;
 
       final savedFp = decoded['fingerprint'] as String?;
       final savedTotal = decoded['totalBytes'] as int?;
@@ -102,7 +127,7 @@ class TransferFingerprint {
     }
   }
 
-  /// Cleans up stale `.part` and `.meta` files older than [maxAge] in [dir].
+  /// Cleans up stale `.part`, `.transfer.tmp`, and `.meta` files older than [maxAge] in [dir].
   static Future<int> purgeStalePartFiles(
     Directory dir, {
     Duration maxAge = const Duration(hours: 24),
@@ -116,8 +141,11 @@ class TransferFingerprint {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is File) {
           final fileName = entity.path.split(RegExp(r'[\\/]')).last;
-          if (fileName.startsWith('.part_') &&
-              (fileName.endsWith('.tmp') || fileName.endsWith('.meta'))) {
+          final isStaleCandidate = (fileName.startsWith('.part_') &&
+                  (fileName.endsWith('.tmp') || fileName.endsWith('.meta'))) ||
+              fileName.endsWith('.transfer.tmp') ||
+              fileName.endsWith('.transfer.meta');
+          if (isStaleCandidate) {
             try {
               final stat = await entity.stat();
               if (now.difference(stat.modified) > maxAge) {

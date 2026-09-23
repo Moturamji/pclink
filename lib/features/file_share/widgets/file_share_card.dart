@@ -32,9 +32,11 @@ class FileShareCard extends StatefulWidget {
 class _FileShareCardState extends State<FileShareCard> {
   StreamSubscription<List<SharedFile>>? _fileSub;
   StreamSubscription<TransferProgress?>? _progressSub;
+  StreamSubscription<Map<String, TransferProgress>>? _allTransfersSub;
   List<SharedFile> _files = const [];
   TransferProgress? _transferProgress;
   TransferProgress? _remoteTransferProgress;
+  Map<String, TransferProgress> _transfers = {};
   Timer? _remoteProgressTimer;
   bool _remoteProgressPollInFlight = false;
   bool _busy = false;
@@ -51,10 +53,16 @@ class _FileShareCardState extends State<FileShareCard> {
       _transferProgress = serverService?.currentTransferProgress;
       _progressSub =
           serverService?.transferProgressStream.listen(_onProgressChanged);
+      _transfers = Map.of(serverService?.allTransfers ?? {});
+      _allTransfersSub =
+          serverService?.allTransfersStream.listen(_onAllTransfersChanged);
     } else {
       _transferProgress = widget.fileShareService?.currentProgress;
       _progressSub =
           widget.fileShareService?.progressStream.listen(_onProgressChanged);
+      _transfers = Map.of(widget.fileShareService?.allTransfers ?? {});
+      _allTransfersSub = widget.fileShareService?.allTransfersStream
+          .listen(_onAllTransfersChanged);
       _refreshFiles();
       _startRemoteProgressPolling();
     }
@@ -68,6 +76,7 @@ class _FileShareCardState extends State<FileShareCard> {
         widget.serverService != oldWidget.serverService) {
       _fileSub?.cancel();
       _progressSub?.cancel();
+      _allTransfersSub?.cancel();
       if (widget.isWindows) {
         _files = widget.serverService?.sharedFiles ?? const [];
         _fileSub =
@@ -75,10 +84,16 @@ class _FileShareCardState extends State<FileShareCard> {
         _transferProgress = widget.serverService?.currentTransferProgress;
         _progressSub = widget.serverService?.transferProgressStream
             .listen(_onProgressChanged);
+        _transfers = Map.of(widget.serverService?.allTransfers ?? {});
+        _allTransfersSub = widget.serverService?.allTransfersStream
+            .listen(_onAllTransfersChanged);
       } else {
         _transferProgress = widget.fileShareService?.currentProgress;
         _progressSub =
             widget.fileShareService?.progressStream.listen(_onProgressChanged);
+        _transfers = Map.of(widget.fileShareService?.allTransfers ?? {});
+        _allTransfersSub = widget.fileShareService?.allTransfersStream
+            .listen(_onAllTransfersChanged);
         _refreshFiles();
         _startRemoteProgressPolling();
       }
@@ -89,6 +104,7 @@ class _FileShareCardState extends State<FileShareCard> {
   void dispose() {
     _fileSub?.cancel();
     _progressSub?.cancel();
+    _allTransfersSub?.cancel();
     _remoteProgressTimer?.cancel();
     super.dispose();
   }
@@ -105,6 +121,17 @@ class _FileShareCardState extends State<FileShareCard> {
     if (mounted) {
       setState(() {
         _transferProgress = progress;
+        if (progress != null) {
+          _transfers[progress.fileId] = progress;
+        }
+      });
+    }
+  }
+
+  void _onAllTransfersChanged(Map<String, TransferProgress> map) {
+    if (mounted) {
+      setState(() {
+        _transfers = Map.of(map);
       });
     }
   }
@@ -142,6 +169,16 @@ class _FileShareCardState extends State<FileShareCard> {
           _remoteTransferProgress?.status != next?.status) {
         setState(() => _remoteTransferProgress = next);
       }
+      if (transfers.isNotEmpty) {
+        setState(() {
+          for (final t in transfers) {
+            if (!_transfers.containsKey(t.fileId) ||
+                _transfers[t.fileId]!.status != TransferStatus.transferring) {
+              _transfers[t.fileId] = t;
+            }
+          }
+        });
+      }
     } finally {
       _remoteProgressPollInFlight = false;
     }
@@ -155,6 +192,35 @@ class _FileShareCardState extends State<FileShareCard> {
     return local ?? remote;
   }
 
+  List<TransferProgress> get _activeOrRecentTransfers {
+    if (_transfers.isEmpty) {
+      final vis = _visibleTransferProgress;
+      return vis != null ? [vis] : const [];
+    }
+    final list = _transfers.values.toList();
+    list.sort((a, b) {
+      int score(TransferProgress p) {
+        if (p.status == TransferStatus.transferring ||
+            p.status == TransferStatus.resuming ||
+            p.status == TransferStatus.verifying ||
+            p.status == TransferStatus.finalizing) {
+          return 0;
+        }
+        if (p.status == TransferStatus.preparing) return 1;
+        if (p.status == TransferStatus.queued) return 2;
+        if (p.status == TransferStatus.paused) return 3;
+        if (p.status == TransferStatus.completed) return 4;
+        return 5;
+      }
+
+      final sA = score(a);
+      final sB = score(b);
+      if (sA != sB) return sA.compareTo(sB);
+      return b.timestamp.compareTo(a.timestamp);
+    });
+    return list;
+  }
+
   Future<void> _refreshFiles() async {
     final service = widget.fileShareService;
     if (service == null) return;
@@ -166,7 +232,7 @@ class _FileShareCardState extends State<FileShareCard> {
     }
   }
 
-  /// Windows: pick local files and copy them into the shared folder.
+  /// Windows: pick local files and share them instantly with immediate card creation.
   Future<void> _pickAndShareWindows() async {
     final serverService = widget.serverService;
     if (serverService == null) return;
@@ -175,27 +241,35 @@ class _FileShareCardState extends State<FileShareCard> {
       _busy = true;
       _busyLabel = 'Opening file picker...';
     });
-    // Render the acknowledgement before invoking the native picker.  This is
-    // especially important on Windows where selecting a large file can take a
-    // moment while Explorer resolves its metadata.
     await Future<void>.delayed(Duration.zero);
-    var added = 0;
     try {
       final files = await FilePicker.pickFiles();
       if (files.isEmpty) return;
-      if (mounted) setState(() => _busyLabel = 'Preparing selected files...');
+      if (mounted) setState(() => _busyLabel = 'Enqueuing selected files...');
 
-      for (final f in files) {
-        if (f.path == null) continue;
-        if (mounted) {
-          setState(() => _busyLabel = 'Sharing ${f.name}...');
-        }
-        final item = await serverService.addLocalSharedFile(
-          sourcePath: f.path!,
-          deviceName: 'Windows PC',
+      final validPaths = files
+          .map((f) => f.path)
+          .whereType<String>()
+          .where((p) => p.isNotEmpty)
+          .toList();
+
+      if (validPaths.isEmpty) return;
+
+      final enqueued = await serverService.enqueueLocalSharedFiles(
+        sourcePaths: validPaths,
+        deviceName: 'Windows PC',
+      );
+
+      if (mounted) {
+        _showSnack(
+          enqueued.isNotEmpty
+              ? 'Added ${enqueued.length} file(s) for immediate sharing.'
+              : 'No files were added.',
+          isError: enqueued.isEmpty,
         );
-        if (item != null) added++;
       }
+    } catch (e) {
+      if (mounted) _showSnack('File selection error: $e', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -204,16 +278,9 @@ class _FileShareCardState extends State<FileShareCard> {
         });
       }
     }
-    if (!mounted) return;
-    _showSnack(
-      added > 0
-          ? 'Added $added file(s) - your phone can now download them.'
-          : 'No files were added.',
-      isError: added == 0,
-    );
   }
 
-  /// Android: pick local files and upload them directly to the PC's server.
+  /// Android: pick local files and immediately enqueue them for streaming upload to PC.
   Future<void> _pickAndSendFiles() async {
     final service = widget.fileShareService;
     if (service == null) {
@@ -229,15 +296,28 @@ class _FileShareCardState extends State<FileShareCard> {
       _busyLabel = 'Opening file picker...';
     });
     await Future<void>.delayed(Duration.zero);
-    var sent = 0;
     try {
       final files = await FilePicker.pickFiles();
       if (files.isEmpty) return;
-      for (final f in files) {
-        if (f.path == null) continue;
-        if (mounted) setState(() => _busyLabel = 'Sending ${f.name}...');
-        if (await service.uploadFile(f.path!)) sent++;
+      if (mounted) setState(() => _busyLabel = 'Enqueuing files for upload...');
+
+      final validPaths = files
+          .map((f) => f.path)
+          .whereType<String>()
+          .where((p) => p.isNotEmpty)
+          .toList();
+
+      if (validPaths.isEmpty) return;
+
+      service.enqueueUploadFiles(validPaths);
+
+      if (mounted) {
+        _showSnack(
+          'Enqueued ${validPaths.length} file(s) for immediate transfer.',
+        );
       }
+    } catch (e) {
+      if (mounted) _showSnack('File selection error: $e', isError: true);
     } finally {
       if (mounted) {
         setState(() {
@@ -246,14 +326,6 @@ class _FileShareCardState extends State<FileShareCard> {
         });
       }
     }
-    if (!mounted) return;
-    _showSnack(
-      sent > 0
-          ? 'Sent $sent file(s) securely to your PC.'
-          : 'Nothing was sent. Make sure DeskPocket is open and the Link Service is active on the PC.',
-      isError: sent == 0,
-    );
-    if (sent > 0) await _refreshFiles();
   }
 
   /// Android: download a shared file from the PC into the phone's Downloads.
@@ -314,6 +386,7 @@ class _FileShareCardState extends State<FileShareCard> {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
+    final activeTransfers = _activeOrRecentTransfers;
 
     return Container(
       padding: const EdgeInsets.all(20.0),
@@ -347,8 +420,11 @@ class _FileShareCardState extends State<FileShareCard> {
           ),
           const SizedBox(height: 16),
 
-          // Live Real-Time Transfer Indicator Panel
-          if (_visibleTransferProgress != null) ...[
+          // Live Real-Time Transfer Indicator Panel(s)
+          if (activeTransfers.isNotEmpty) ...[
+            _buildLiveTransfersSection(activeTransfers, colors),
+            const SizedBox(height: 16),
+          ] else if (_visibleTransferProgress != null) ...[
             _buildLiveTransferPanel(_visibleTransferProgress!, colors),
             const SizedBox(height: 16),
           ],
@@ -364,28 +440,130 @@ class _FileShareCardState extends State<FileShareCard> {
     );
   }
 
-  /// Dedicated real-time file transfer progress dashboard
-  Widget _buildLiveTransferPanel(TransferProgress progress, AppThemeColors colors) {
+  /// Displays all active and recent transfers
+  Widget _buildLiveTransfersSection(
+    List<TransferProgress> transfers,
+    AppThemeColors colors,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (transfers.length > 1) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8, left: 4),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.swap_vert_rounded,
+                  size: 15,
+                  color: colors.primaryLight,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  'ACTIVE TRANSFERS (${transfers.length})',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.8,
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        for (int i = 0; i < transfers.length; i++) ...[
+          _buildLiveTransferPanel(transfers[i], colors),
+          if (i < transfers.length - 1) const SizedBox(height: 10),
+        ],
+      ],
+    );
+  }
+
+  /// Dedicated real-time file transfer progress card with dual sender/receiver tracking
+  Widget _buildLiveTransferPanel(
+    TransferProgress progress,
+    AppThemeColors colors,
+  ) {
     final isUpload = progress.isUpload;
     final isDone = progress.status == TransferStatus.completed;
     final isFailed = progress.status == TransferStatus.failed;
     final isCancelled = progress.status == TransferStatus.cancelled;
+    final isQueued = progress.status == TransferStatus.queued;
+    final isPaused = progress.status == TransferStatus.paused;
     final inProgress = progress.isActive;
 
     final themeColor = isDone
         ? colors.success
         : (isFailed || isCancelled
             ? AppColors.error
-            : colors.primaryLight);
+            : (isPaused
+                ? colors.accentWarm
+                : (isQueued ? colors.textMuted : colors.primaryLight)));
 
-    final actionLabel = widget.isWindows &&
-            (progress.status == TransferStatus.preparing ||
-                progress.status == TransferStatus.verifying ||
-                progress.status == TransferStatus.finalizing)
-        ? 'Preparing secure shared copy'
-        : isUpload
-        ? (widget.isWindows ? 'Sending to Phone' : 'Sending to PC')
-        : (widget.isWindows ? 'Receiving from Phone' : 'Receiving from PC');
+    final actionLabel = () {
+      switch (progress.status) {
+        case TransferStatus.idle:
+          return 'Idle';
+        case TransferStatus.queued:
+          return 'Queued in transfer line';
+        case TransferStatus.preparing:
+          return 'Preparing transfer metadata';
+        case TransferStatus.connecting:
+          return 'Connecting to peer';
+        case TransferStatus.paused:
+          return 'Transfer paused / reconnecting';
+        case TransferStatus.resuming:
+          return 'Resuming from verified offset';
+        case TransferStatus.verifying:
+          return 'Verifying chunk integrity';
+        case TransferStatus.finalizing:
+          return 'Finalizing destination file';
+        case TransferStatus.completed:
+          return 'Transfer complete';
+        case TransferStatus.failed:
+          return 'Transfer failed';
+        case TransferStatus.cancelled:
+          return 'Transfer cancelled';
+        case TransferStatus.transferring:
+        case TransferStatus.inProgress:
+          return isUpload
+              ? (widget.isWindows ? 'Sending to Phone' : 'Sending to PC')
+              : (widget.isWindows
+                  ? 'Receiving from Phone'
+                  : 'Receiving from PC');
+      }
+    }();
+
+    final statusBadgeLabel = () {
+      switch (progress.status) {
+        case TransferStatus.idle:
+          return 'IDLE';
+        case TransferStatus.queued:
+          return 'QUEUED';
+        case TransferStatus.preparing:
+          return 'PREPARING';
+        case TransferStatus.connecting:
+          return 'CONNECTING';
+        case TransferStatus.paused:
+          return 'PAUSED';
+        case TransferStatus.resuming:
+          return 'RESUMING';
+        case TransferStatus.verifying:
+          return 'VERIFYING';
+        case TransferStatus.finalizing:
+          return 'FINALIZING';
+        case TransferStatus.completed:
+          return '100% DONE';
+        case TransferStatus.failed:
+          return 'FAILED';
+        case TransferStatus.cancelled:
+          return 'CANCELLED';
+        case TransferStatus.transferring:
+        case TransferStatus.inProgress:
+          return progress.percentageLabel;
+      }
+    }();
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -412,9 +590,11 @@ class _FileShareCardState extends State<FileShareCard> {
                 child: Icon(
                   isDone
                       ? Icons.check_circle_rounded
-                      : (isUpload
-                          ? Icons.cloud_upload_rounded
-                          : Icons.cloud_download_rounded),
+                      : (isQueued
+                          ? Icons.hourglass_top_rounded
+                          : (isUpload
+                              ? Icons.cloud_upload_rounded
+                              : Icons.cloud_download_rounded)),
                   size: 18,
                   color: themeColor,
                 ),
@@ -455,11 +635,7 @@ class _FileShareCardState extends State<FileShareCard> {
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
-                  isDone
-                      ? '100%'
-                      : (isFailed
-                          ? 'FAILED'
-                          : (isCancelled ? 'CANCELLED' : progress.percentageLabel)),
+                  statusBadgeLabel,
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
@@ -471,23 +647,69 @@ class _FileShareCardState extends State<FileShareCard> {
           ),
           const SizedBox(height: 12),
 
-          // Linear Progress Bar
+          // Dual Progress Bar: background is sender read/buffer, foreground is receiver confirmed
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: LinearProgressIndicator(
-              value: inProgress
-                  ? progress.fraction
-                  : (isDone ? 1.0 : 0.0),
-              minHeight: 6,
-              backgroundColor: colors.surface,
-              valueColor: AlwaysStoppedAnimation<Color>(themeColor),
+            child: SizedBox(
+              height: 7,
+              child: Stack(
+                children: [
+                  Container(color: colors.surface),
+                  if (!isQueued) ...[
+                    // Sender progress (buffer)
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: isDone
+                          ? 1.0
+                          : progress.senderFraction.clamp(0.0, 1.0),
+                      child: Container(
+                        color: themeColor.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    // Receiver progress (confirmed to disk)
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: isDone
+                          ? 1.0
+                          : progress.receiverFraction.clamp(0.0, 1.0),
+                      child: Container(
+                        color: themeColor,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
+
+          // Dual progress percentage indicator
+          if (progress.totalBytes > 0 && !isQueued) ...[
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Sender: ${progress.senderPercentageLabel}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: themeColor.withValues(alpha: 0.8),
+                  ),
+                ),
+                Text(
+                  'Receiver: ${progress.receiverPercentageLabel}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: themeColor,
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
 
-          // Keep every status visible at narrow widths and when an error has a
-          // long explanation.  A Wrap avoids the desktop overflow reported by
-          // large-transfer failures without hiding useful information.
+          // Details Row (Wrap for responsiveness)
           LayoutBuilder(
             builder: (context, constraints) {
               final compact = constraints.maxWidth < 600;
@@ -497,96 +719,104 @@ class _FileShareCardState extends State<FileShareCard> {
                 spacing: 14,
                 runSpacing: 8,
                 children: [
-              // Transferred / Total
-              SizedBox(
-                width: transferWidth,
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.data_usage_rounded,
-                      size: 13,
-                      color: colors.textMuted,
-                    ),
-                    const SizedBox(width: 5),
-                    Flexible(
-                      child: Text(
-                        progress.transferredLabel,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: colors.textSecondary,
+                  // Transferred / Total
+                  SizedBox(
+                    width: transferWidth,
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.data_usage_rounded,
+                          size: 13,
+                          color: colors.textMuted,
                         ),
-                        overflow: TextOverflow.ellipsis,
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: Text(
+                            progress.transferredLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: colors.textSecondary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // Speed
+                  if (inProgress) ...[
+                    SizedBox(
+                      width: compact ? constraints.maxWidth : 115,
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.speed_rounded,
+                            size: 13,
+                            color: colors.textMuted,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            progress.speedLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: colors.primaryLight,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                ),
-              ),
 
-              // Speed
-              if (inProgress) ...[
-                SizedBox(
-                  width: compact ? constraints.maxWidth : 115,
-                  child: Row(
-                  children: [
-                    Icon(
-                      Icons.speed_rounded,
-                      size: 13,
-                      color: colors.textMuted,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      progress.speedLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: colors.primaryLight,
-                      ),
-                    ),
-                  ],
-                  ),
-                ),
-              ],
-
-              // Remaining
-              SizedBox(
-                width: remainingWidth,
-                child: Row(
-                children: [
-                  Icon(
-                    isDone
-                        ? Icons.timer_off_rounded
-                        : Icons.hourglass_bottom_rounded,
-                    size: 13,
-                    color: isDone ? colors.success : colors.textMuted,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      isDone ? 'Finished' : progress.remainingLabel,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: inProgress
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        color: isDone
-                            ? colors.success
-                            : colors.textSecondary,
-                      ),
+                  // Remaining
+                  SizedBox(
+                    width: remainingWidth,
+                    child: Row(
+                      children: [
+                        Icon(
+                          isDone
+                              ? Icons.timer_off_rounded
+                              : (isQueued
+                                  ? Icons.hourglass_top_rounded
+                                  : Icons.hourglass_bottom_rounded),
+                          size: 13,
+                          color: isDone ? colors.success : colors.textMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            isDone
+                                ? 'Finished'
+                                : (isQueued
+                                    ? 'Waiting in queue'
+                                    : (isFailed
+                                        ? (progress.errorMessage ?? 'Failed')
+                                        : progress.remainingLabel)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: inProgress
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                              color: isDone
+                                  ? colors.success
+                                  : colors.textSecondary,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
-              ),
-            ],
               );
             },
           ),
 
-          // Cancel Button for active transfer (isolated per-transfer cancellation)
-          if (inProgress &&
+          // Cancel Button for active or queued transfer
+          if ((inProgress || isQueued) &&
               ((!widget.isWindows && widget.fileShareService != null) ||
                   (widget.isWindows && widget.serverService != null))) ...[
             const SizedBox(height: 8),

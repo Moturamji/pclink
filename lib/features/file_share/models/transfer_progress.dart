@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 enum TransferStatus {
   idle,
+  queued,
   preparing,
   connecting,
   transferring,
@@ -19,8 +20,19 @@ enum TransferStatus {
 class TransferStateMachine {
   static const Map<TransferStatus, Set<TransferStatus>> _validTransitions = {
     TransferStatus.idle: {
+      TransferStatus.queued,
       TransferStatus.preparing,
       TransferStatus.connecting,
+      TransferStatus.cancelled,
+    },
+    TransferStatus.queued: {
+      TransferStatus.preparing,
+      TransferStatus.connecting,
+      TransferStatus.resuming,
+      TransferStatus.transferring,
+      TransferStatus.inProgress,
+      TransferStatus.paused,
+      TransferStatus.failed,
       TransferStatus.cancelled,
     },
     TransferStatus.preparing: {
@@ -96,6 +108,24 @@ class TransferStateMachine {
     final allowed = _validTransitions[from];
     return allowed != null && allowed.contains(to);
   }
+
+  final String? fileId;
+  TransferStatus _status;
+
+  TransferStateMachine([this.fileId, TransferStatus initialStatus = TransferStatus.preparing])
+      : _status = initialStatus;
+
+  TransferStatus get currentStatus => _status;
+
+  bool canTransitionTo(TransferStatus target) => isValidTransition(_status, target);
+
+  bool transition(TransferStatus target) {
+    if (canTransitionTo(target)) {
+      _status = target;
+      return true;
+    }
+    return false;
+  }
 }
 
 /// Reactive model representing real-time file transfer progress, throughput, and status.
@@ -105,6 +135,8 @@ class TransferProgress {
   final String fileName;
   final int bytesTransferred;
   final int totalBytes;
+  final int senderBytes;
+  final int receiverBytes;
   final double speedBytesPerSec;
   final bool isUpload;
   final TransferStatus status;
@@ -116,15 +148,19 @@ class TransferProgress {
     required this.fileName,
     required this.bytesTransferred,
     required this.totalBytes,
+    int? senderBytes,
+    int? receiverBytes,
     this.speedBytesPerSec = 0.0,
     required this.isUpload,
     this.status = TransferStatus.inProgress,
     this.errorMessage,
     required this.timestamp,
-  });
+  })  : senderBytes = senderBytes ?? bytesTransferred,
+        receiverBytes = receiverBytes ?? bytesTransferred;
 
   /// True if the transfer is currently running (not terminal or paused).
   bool get isActive =>
+      status == TransferStatus.queued ||
       status == TransferStatus.preparing ||
       status == TransferStatus.connecting ||
       status == TransferStatus.transferring ||
@@ -148,9 +184,40 @@ class TransferProgress {
     return raw.clamp(0.0, 0.99);
   }
 
+  /// Real-time sender progress fraction from 0.0 to 1.0.
+  double get senderFraction {
+    if (totalBytes <= 0) return 0.0;
+    if (status == TransferStatus.completed) return 1.0;
+    final raw = senderBytes / totalBytes;
+    return raw.clamp(0.0, 0.99);
+  }
+
+  /// Real-time receiver progress fraction from 0.0 to 1.0.
+  double get receiverFraction {
+    if (totalBytes <= 0) return 0.0;
+    if (status == TransferStatus.completed) return 1.0;
+    final raw = receiverBytes / totalBytes;
+    return raw.clamp(0.0, 0.99);
+  }
+
+  /// Percentage label for the sender's transmission progress.
+  String get senderPercentageLabel {
+    if (status == TransferStatus.completed) return '100%';
+    final pct = (senderFraction * 100).clamp(0.0, 99.0);
+    return '${pct.toStringAsFixed(1)}%';
+  }
+
+  /// Percentage label for the receiver's confirmed progress.
+  String get receiverPercentageLabel {
+    if (status == TransferStatus.completed) return '100%';
+    final pct = (receiverFraction * 100).clamp(0.0, 99.0);
+    return '${pct.toStringAsFixed(1)}%';
+  }
+
   /// Percentage or status string. Displays 100% only when truly completed.
   String get percentageLabel {
     if (status == TransferStatus.completed) return '100%';
+    if (status == TransferStatus.queued) return 'Queued';
     if (status == TransferStatus.verifying) return 'Verifying...';
     if (status == TransferStatus.finalizing) return 'Finalizing...';
     if (status == TransferStatus.connecting) return 'Connecting...';
@@ -194,6 +261,7 @@ class TransferProgress {
   /// Estimated time remaining or remaining bytes label.
   String get remainingLabel {
     if (status == TransferStatus.completed) return 'Completed';
+    if (status == TransferStatus.queued) return 'Queued...';
     if (status == TransferStatus.finalizing) return 'Finalizing file...';
     if (status == TransferStatus.verifying) return 'Verifying integrity...';
     if (status == TransferStatus.connecting) return 'Connecting...';
@@ -231,6 +299,8 @@ class TransferProgress {
     String? fileName,
     int? bytesTransferred,
     int? totalBytes,
+    int? senderBytes,
+    int? receiverBytes,
     double? speedBytesPerSec,
     bool? isUpload,
     TransferStatus? status,
@@ -242,6 +312,8 @@ class TransferProgress {
       fileName: fileName ?? this.fileName,
       bytesTransferred: bytesTransferred ?? this.bytesTransferred,
       totalBytes: totalBytes ?? this.totalBytes,
+      senderBytes: senderBytes ?? this.senderBytes,
+      receiverBytes: receiverBytes ?? this.receiverBytes,
       speedBytesPerSec: speedBytesPerSec ?? this.speedBytesPerSec,
       isUpload: isUpload ?? this.isUpload,
       status: status ?? this.status,
@@ -250,14 +322,14 @@ class TransferProgress {
     );
   }
 
-  /// Wire representation used by the authenticated PC progress feed.  Keeping
-  /// this model conversion here prevents the phone and PC from drifting on
-  /// status names or numeric fields.
+  /// Wire representation used by the authenticated PC progress feed.
   Map<String, Object?> toMap() => {
         'fileId': fileId,
         'fileName': fileName,
         'bytesTransferred': bytesTransferred,
         'totalBytes': totalBytes,
+        'senderBytes': senderBytes,
+        'receiverBytes': receiverBytes,
         'speedBytesPerSec': speedBytesPerSec,
         'isUpload': isUpload,
         'status': status.name,
@@ -284,11 +356,14 @@ class TransferProgress {
     }
     final parsedTimestamp = DateTime.tryParse(timestamp);
     if (parsedTimestamp == null) return null;
+    final transferred = bytesTransferred.toInt();
     return TransferProgress(
       fileId: fileId,
       fileName: fileName,
-      bytesTransferred: bytesTransferred.toInt(),
+      bytesTransferred: transferred,
       totalBytes: totalBytes.toInt(),
+      senderBytes: (map['senderBytes'] as num?)?.toInt() ?? transferred,
+      receiverBytes: (map['receiverBytes'] as num?)?.toInt() ?? transferred,
       speedBytesPerSec: (map['speedBytesPerSec'] as num?)?.toDouble() ?? 0,
       isUpload: map['isUpload'] == true,
       status: status.first,
