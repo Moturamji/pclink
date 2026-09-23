@@ -56,27 +56,30 @@ class WindowsPermissionService {
       final relayExe = '$_appDataDir\\pclink-relay.exe';
       const port = ServerConstants.defaultPort;
 
-      debugPrint('WindowsPermissionService: Requesting one-time Windows permissions for PCLink...');
+      debugPrint('WindowsPermissionService: Requesting one-time Windows permissions for DeskPocket...');
 
-      // Build PowerShell script that configures all PCLink firewall rules at once
+      // Build PowerShell script that configures all DeskPocket firewall rules at once
       final psScript = '''
 \$appExe = '$appExe';
 \$relayExe = '$relayExe';
 \$port = $port;
 
-# 1. PCLink Application Rule (Inbound TCP & UDP for main app)
+# 1. DeskPocket Application Rule (Inbound TCP & UDP for main app)
+netsh advfirewall firewall delete rule name="DeskPocket Application" > \$null 2>&1;
 netsh advfirewall firewall delete rule name="PCLink Application" > \$null 2>&1;
-netsh advfirewall firewall add rule name="PCLink Application" dir=in action=allow program="\$appExe" enable=yes profile=any description="PCLink Device Discovery and Synchronization Service" > \$null 2>&1;
+netsh advfirewall firewall add rule name="DeskPocket Application" dir=in action=allow program="\$appExe" enable=yes profile=any description="DeskPocket Device Discovery and Synchronization Service" > \$null 2>&1;
 
-# 2. PCLink Network Relay Service Rule
+# 2. DeskPocket Network Relay Service Rule
+netsh advfirewall firewall delete rule name="DeskPocket Relay Service" > \$null 2>&1;
 netsh advfirewall firewall delete rule name="PCLink Relay Service" > \$null 2>&1;
 if (Test-Path "\$relayExe") {
-    netsh advfirewall firewall add rule name="PCLink Relay Service" dir=in action=allow program="\$relayExe" enable=yes profile=any description="PCLink Encrypted Cloud Relay Network Service" > \$null 2>&1;
+    netsh advfirewall firewall add rule name="DeskPocket Relay Service" dir=in action=allow program="\$relayExe" enable=yes profile=any description="DeskPocket Encrypted Cloud Relay Network Service" > \$null 2>&1;
 }
 
-# 3. PCLink Local Service Port Rule
+# 3. DeskPocket Local Service Port Rule
+netsh advfirewall firewall delete rule name="DeskPocket Server" > \$null 2>&1;
 netsh advfirewall firewall delete rule name="PCLink Server" > \$null 2>&1;
-netsh advfirewall firewall add rule name="PCLink Server" dir=in action=allow protocol=TCP localport="\$port" enable=yes profile=any description="PCLink Inbound Synchronization Service Port" > \$null 2>&1;
+netsh advfirewall firewall add rule name="DeskPocket Server" dir=in action=allow protocol=TCP localport="\$port" enable=yes profile=any description="DeskPocket Inbound Synchronization Service Port" > \$null 2>&1;
 
 exit 0;
 ''';

@@ -137,7 +137,7 @@ class _MobileLiveShareTabState extends State<MobileLiveShareTab> {
         serverStartTime: startTime,
         action: action,
         timeoutSeconds: timeoutSeconds,
-        comment: 'Remote $action initiated via PCLink Live Share',
+        comment: 'Remote $action initiated via DeskPocket Live Share',
       );
 
       if (!mounted) return;

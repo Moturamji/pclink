@@ -46,6 +46,7 @@ app.*.map.json
 # Widget Preview related
 .widget_preview/
 PCLink/
+DeskPocket/
 .vscode
 tunnel_url.txt
 pclink-*-firebase-adminsdk-*.json

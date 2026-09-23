@@ -614,7 +614,9 @@ void main() {
         find.byWidgetPredicate(
           (w) =>
               w is Text &&
-              (w.data == 'Welcome to PCLink' ||
+              (w.data == 'Welcome to DeskPocket' ||
+                  w.data == 'DeskPocket System Setup' ||
+                  w.data == 'Welcome to PCLink' ||
                   w.data == 'PCLink System Setup'),
         ),
         findsOneWidget,

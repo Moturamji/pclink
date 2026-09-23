@@ -196,7 +196,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                           : (_serverReachable
                               ? 'Connected to your PC. Copies sync in real time.'
                               : (_syncError ??
-                                  'PC server is not reachable. Make sure PCLink is running on the PC.')),
+                                  'PC server is not reachable. Make sure DeskPocket is running on the PC.')),
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.35,

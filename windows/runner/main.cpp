@@ -29,21 +29,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   }
 
   // Single Instance Mutex & Window Wakeup
-  const wchar_t kPCLinkMutexName[] = L"Local\\PCLink_Application_Instance_Mutex_v1";
-  const UINT kPCLinkShowWindowMessage = ::RegisterWindowMessage(L"PCLink_ShowWindow_Broadcast_Message");
+  const wchar_t kDeskPocketMutexName[] = L"Local\\DeskPocket_Application_Instance_Mutex_v1";
+  const UINT kDeskPocketShowWindowMessage = ::RegisterWindowMessage(L"DeskPocket_ShowWindow_Broadcast_Message");
 
-  HANDLE hMutex = ::CreateMutex(nullptr, FALSE, kPCLinkMutexName);
+  HANDLE hMutex = ::CreateMutex(nullptr, FALSE, kDeskPocketMutexName);
   if (hMutex != nullptr && ::GetLastError() == ERROR_ALREADY_EXISTS) {
-    // Another instance of PCLink is already active in background or foreground.
+    // Another instance of DeskPocket is already active in background or foreground.
     // Signal the running instance to wake up, restore, and display its UI.
-    HWND existing_window = ::FindWindow(L"FLUTTER_RUNNER_WIN32_WINDOW", L"pclink");
+    HWND existing_window = ::FindWindow(L"FLUTTER_RUNNER_WIN32_WINDOW", L"DeskPocket");
+    if (existing_window == nullptr) {
+      existing_window = ::FindWindow(L"FLUTTER_RUNNER_WIN32_WINDOW", L"pclink");
+    }
     if (existing_window != nullptr) {
-      ::PostMessage(existing_window, kPCLinkShowWindowMessage, 0, 0);
+      ::PostMessage(existing_window, kDeskPocketShowWindowMessage, 0, 0);
       ::ShowWindow(existing_window, SW_SHOW);
       ::ShowWindow(existing_window, SW_RESTORE);
       ::SetForegroundWindow(existing_window);
     } else {
-      ::PostMessage(HWND_BROADCAST, kPCLinkShowWindowMessage, 0, 0);
+      ::PostMessage(HWND_BROADCAST, kDeskPocketShowWindowMessage, 0, 0);
     }
     ::CloseHandle(hMutex);
     ::CoUninitialize();
@@ -58,7 +61,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
-  if (!window.Create(L"pclink", origin, size)) {
+  if (!window.Create(L"DeskPocket", origin, size)) {
     if (hMutex) {
       ::ReleaseMutex(hMutex);
       ::CloseHandle(hMutex);

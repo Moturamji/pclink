@@ -47,16 +47,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final hostName = message.data['hostName']?.toString() ?? 'Windows PC';
     final rawBody = message.notification?.body ??
         message.data['body'] ??
-        '$hostName is running PCLink and ready for secure connection.';
+        '$hostName is running DeskPocket and ready for secure connection.';
 
     final bigTextStyleInformation = BigTextStyleInformation(
-      '**$hostName** is running PCLink and ready for secure connection.\n\n'
+      '**$hostName** is running DeskPocket and ready for secure connection.\n\n'
       '• Status: Online & Live\n'
-      '• Tap to open PCLink and sync clipboard or transfer files.',
+      '• Tap to open DeskPocket and sync clipboard or transfer files.',
       htmlFormatBigText: false,
       contentTitle: title,
       htmlFormatContentTitle: false,
-      summaryText: 'PCLink Live Server',
+      summaryText: 'DeskPocket Live Server',
       htmlFormatSummaryText: false,
     );
 
@@ -91,7 +91,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// Service managing Firebase Cloud Messaging (FCM), permissions, and local notification display.
 class NotificationService {
   static const String channelId = 'pclink_server_channel';
-  static const String channelName = 'PCLink Server Alerts';
+  static const String channelName = 'DeskPocket Server Alerts';
   static const String channelDescription =
       'Notifications when your Windows PC link is live and ready for connection.';
 
@@ -241,14 +241,14 @@ class NotificationService {
               : 'Secure Connection Ready';
 
       final bigTextStyleInformation = BigTextStyleInformation(
-        '**$hostName** is running PCLink and ready for secure connection.\n\n'
+        '**$hostName** is running DeskPocket and ready for secure connection.\n\n'
         '• Status: Online & Live\n'
         '• Endpoint: $endpointSummary\n\n'
-        'Tap to open PCLink and sync clipboard or transfer files.',
+        'Tap to open DeskPocket and sync clipboard or transfer files.',
         htmlFormatBigText: false,
         contentTitle: '🖥️ Windows PC is Online & Ready',
         htmlFormatContentTitle: false,
-        summaryText: 'PCLink Live Server',
+        summaryText: 'DeskPocket Live Server',
         htmlFormatSummaryText: false,
       );
 
@@ -295,7 +295,7 @@ class NotificationService {
   /// Displays a local heads-up notification for foreground or data-only FCM messages.
   static Future<void> _showLocalNotification(RemoteMessage message) async {
     final notification = message.notification;
-    final title = notification?.title ?? message.data['title'] ?? 'PCLink Alert';
+    final title = notification?.title ?? message.data['title'] ?? 'DeskPocket Alert';
     final body = notification?.body ?? message.data['body'] ?? 'Windows PC is Live & Ready!';
 
     const androidDetails = AndroidNotificationDetails(

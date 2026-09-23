@@ -476,7 +476,7 @@ class DatabaseService {
 
     return {
       'success': false,
-      'error': 'Connection timed out. Ensure the Windows PC is running PCLink.',
+      'error': 'Connection timed out. Ensure the Windows PC is running DeskPocket.',
     };
   }
 
@@ -654,7 +654,7 @@ class DatabaseService {
         body: jsonEncode({
           'id': 'notif_${DateTime.now().millisecondsSinceEpoch}',
           'title': 'Windows PC is Live',
-          'body': '$pcHostName is running PCLink and ready for secure connection.',
+          'body': '$pcHostName is running DeskPocket and ready for secure connection.',
           'timestamp': DateTime.now().toIso8601String(),
           'type': 'server_live',
           'hostName': pcHostName,
@@ -668,7 +668,7 @@ class DatabaseService {
       await sendDirectFcmPush(
         user: user,
         title: 'Windows PC is Live',
-        body: '$pcHostName is running PCLink and ready for secure connection.',
+        body: '$pcHostName is running DeskPocket and ready for secure connection.',
         hostName: pcHostName,
       );
     } catch (e) {

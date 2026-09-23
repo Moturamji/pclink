@@ -99,7 +99,7 @@ class ClipboardService with WidgetsBindingObserver {
       FlutterForegroundTask.init(
         androidNotificationOptions: AndroidNotificationOptions(
           channelId: 'pclink_foreground_sync',
-          channelName: 'PCLink Background Sync',
+          channelName: 'DeskPocket Background Sync',
           channelDescription:
               'Maintains live background connection and direct clipboard route with PC',
           channelImportance: NotificationChannelImportance.LOW,
@@ -291,7 +291,7 @@ void _onForegroundDataReceived(dynamic data) {
     ];
     _nextProbeAllowedAt = DateTime.now().add(Duration(seconds: backoffSeconds));
     _reportFailure(
-      'Cannot reach your PC server yet (${urls.join(', ')}). Make sure PCLink is open on the PC, then copy again.',
+      'Cannot reach your PC server yet (${urls.join(', ')}). Make sure DeskPocket is open on the PC, then copy again.',
     );
     return null;
   }
@@ -343,7 +343,7 @@ void _onForegroundDataReceived(dynamic data) {
       if (!await FlutterForegroundTask.isRunningService) {
         await FlutterForegroundTask.startService(
           serviceId: 256,
-          notificationTitle: 'PCLink Live Sync Active',
+          notificationTitle: 'DeskPocket Live Sync Active',
           notificationText: 'Tap "Send to PC" to instantly transfer clipboard',
           notificationButtons: [
             const NotificationButton(id: 'sync_now', text: 'Send to PC'),
@@ -389,7 +389,7 @@ void _onForegroundDataReceived(dynamic data) {
     } else if (response != null && response.statusCode != 200) {
       _consecutiveFailures++;
       _reportFailure(
-        'PC server responded with status ${response.statusCode}. Try restarting PCLink on the PC.',
+        'PC server responded with status ${response.statusCode}. Try restarting DeskPocket on the PC.',
       );
     }
   }
@@ -496,7 +496,7 @@ void _onForegroundDataReceived(dynamic data) {
           return;
         } else if (response.statusCode == 401) {
           _reportFailure(
-            'PC rejected this device or the server session password. Open PCLink on the PC (restart if needed), then reconnect.',
+            'PC rejected this device or the server session password. Open DeskPocket on the PC (restart if needed), then reconnect.',
           );
           return;
         }

@@ -529,7 +529,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         content: Text(
-          'Are you sure you want to sign out of PCLink?',
+          'Are you sure you want to sign out of DeskPocket?',
           style: TextStyle(
             color: colors.textSecondary,
             fontSize: 13,

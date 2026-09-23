@@ -661,7 +661,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
-                          'Windows PC link is in standby. Open PCLink on your PC to establish a secure connection.',
+                          'Windows PC link is in standby. Open DeskPocket on your PC to establish a secure connection.',
                           style: TextStyle(
                             fontSize: 12,
                             height: 1.4,

@@ -608,7 +608,7 @@ class FileShareService {
           totalBytes: totalBytes,
           isUpload: true,
           status: TransferStatus.failed,
-          errorMessage: 'Connection interrupted. You can retry and PCLink will resume.',
+          errorMessage: 'Connection interrupted. You can retry and DeskPocket will resume.',
           timestamp: DateTime.now(),
         ),
       );
@@ -1334,7 +1334,7 @@ class FileShareService {
       }
 
       // 2. Direct Android primary storage Download folder
-      final androidDownload = Directory('/storage/emulated/0/Download/PCLink');
+      final androidDownload = Directory('/storage/emulated/0/Download/DeskPocket');
       try {
         if (!await androidDownload.exists()) {
           await androidDownload.create(recursive: true);
@@ -1342,7 +1342,7 @@ class FileShareService {
         return androidDownload;
       } catch (e) {
         debugPrint(
-          'FileShareService: Falling back from /storage/emulated/0/Download/PCLink: $e',
+          'FileShareService: Falling back from /storage/emulated/0/Download/DeskPocket: $e',
         );
       }
 
@@ -1353,7 +1353,7 @@ class FileShareService {
         );
         if (extDirs != null && extDirs.isNotEmpty) {
           final candidate =
-              Directory('${extDirs.first.path}${Platform.pathSeparator}PCLink');
+              Directory('${extDirs.first.path}${Platform.pathSeparator}DeskPocket');
           if (!await candidate.exists()) {
             await candidate.create(recursive: true);
           }
@@ -1370,20 +1370,20 @@ class FileShareService {
       final downloads = await getDownloadsDirectory();
       if (downloads != null) {
         targetDir = Directory(
-          '${downloads.path}${Platform.pathSeparator}PCLink',
+          '${downloads.path}${Platform.pathSeparator}DeskPocket',
         );
       }
     } catch (_) {}
 
-    // 5. Fallback to Documents/PCLink
+    // 5. Fallback to Documents/DeskPocket
     try {
       final docs = await getApplicationDocumentsDirectory();
       targetDir ??= Directory(
-        '${docs.path}${Platform.pathSeparator}PCLink',
+        '${docs.path}${Platform.pathSeparator}DeskPocket',
       );
     } catch (_) {}
 
-    targetDir ??= Directory('.${Platform.pathSeparator}PCLink');
+    targetDir ??= Directory('.${Platform.pathSeparator}DeskPocket');
 
     if (!await targetDir.exists()) {
       await targetDir.create(recursive: true);

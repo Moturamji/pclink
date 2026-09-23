@@ -218,7 +218,7 @@ class _FileShareCardState extends State<FileShareCard> {
     final service = widget.fileShareService;
     if (service == null) {
       _showSnack(
-        'PC link is not ready yet. Start PCLink on your PC first.',
+        'PC link is not ready yet. Start DeskPocket on your PC first.',
         isError: true,
       );
       return;
@@ -250,7 +250,7 @@ class _FileShareCardState extends State<FileShareCard> {
     _showSnack(
       sent > 0
           ? 'Sent $sent file(s) securely to your PC.'
-          : 'Nothing was sent. Make sure PCLink is open and the Link Service is active on the PC.',
+          : 'Nothing was sent. Make sure DeskPocket is open and the Link Service is active on the PC.',
       isError: sent == 0,
     );
     if (sent > 0) await _refreshFiles();

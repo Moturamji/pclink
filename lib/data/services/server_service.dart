@@ -371,7 +371,7 @@ class ServerService {
   }
 
   /// Resolves (and lazily creates) the on-disk shared folder located inside
-  /// the system's Downloads folder under the dedicated 'PCLink' subfolder.
+  /// the system's Downloads folder under the dedicated 'DeskPocket' subfolder.
   Future<Directory> _getSharedDir() async {
     if (_sharedDir != null && await _sharedDir!.exists()) return _sharedDir!;
 
@@ -379,7 +379,7 @@ class ServerService {
     if (!kIsWeb && Platform.isWindows) {
       final userProfile = Platform.environment['USERPROFILE'];
       if (userProfile != null && userProfile.isNotEmpty) {
-        final candidate = Directory('$userProfile\\Downloads\\PCLink');
+        final candidate = Directory('$userProfile\\Downloads\\DeskPocket');
         targetDir = candidate;
       }
     }
@@ -387,16 +387,16 @@ class ServerService {
     try {
       final downloads = await getDownloadsDirectory();
       if (downloads != null) {
-        targetDir ??= Directory('${downloads.path}\\PCLink');
+        targetDir ??= Directory('${downloads.path}\\DeskPocket');
       }
     } catch (_) {}
 
     try {
       final docs = await getApplicationDocumentsDirectory();
-      targetDir ??= Directory('${docs.path}\\PCLink');
+      targetDir ??= Directory('${docs.path}\\DeskPocket');
     } catch (_) {}
 
-    targetDir ??= Directory('.\\PCLink');
+    targetDir ??= Directory('.\\DeskPocket');
 
     if (!await targetDir.exists()) {
       await targetDir.create(recursive: true);
@@ -818,7 +818,7 @@ class ServerService {
       request.response.statusCode = HttpStatus.forbidden;
       request.response.write(jsonEncode({
         'success': false,
-        'error': 'Screen sharing is disabled on this PC. Enable it from the PCLink dashboard.',
+        'error': 'Screen sharing is disabled on this PC. Enable it from the DeskPocket dashboard.',
       }));
     } else {
       request.response.statusCode = HttpStatus.ok;
@@ -868,7 +868,7 @@ class ServerService {
       request.response.statusCode = HttpStatus.forbidden;
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode({
-        'error': 'Screen sharing is disabled on this PC. Enable it from the PCLink dashboard.',
+        'error': 'Screen sharing is disabled on this PC. Enable it from the DeskPocket dashboard.',
       }));
       await request.response.close();
       return;
@@ -909,7 +909,7 @@ class ServerService {
       request.response.statusCode = HttpStatus.forbidden;
       request.response.headers.contentType = ContentType.json;
       request.response.write(jsonEncode({
-        'error': 'Screen sharing is disabled on this PC. Enable it from the PCLink dashboard.',
+        'error': 'Screen sharing is disabled on this PC. Enable it from the DeskPocket dashboard.',
       }));
       await request.response.close();
       return;
@@ -1900,7 +1900,7 @@ class ServerService {
         'firewall',
         'show',
         'rule',
-        'name=PCLink Server',
+        'name=DeskPocket Server',
       ]);
       if (checkResult.stdout.toString().contains('$port')) {
         debugPrint(
@@ -1915,7 +1915,7 @@ class ServerService {
         'firewall',
         'add',
         'rule',
-        'name=PCLink Server',
+        'name=DeskPocket Server',
         'dir=in',
         'action=allow',
         'protocol=TCP',
@@ -1931,13 +1931,13 @@ class ServerService {
           'ServerService: ⚠️ Could not add firewall rule (needs admin). Run this in an elevated terminal:',
         );
         debugPrint(
-          '  netsh advfirewall firewall add rule name="PCLink Server" dir=in action=allow protocol=TCP localport=$port',
+          '  netsh advfirewall firewall add rule name="DeskPocket Server" dir=in action=allow protocol=TCP localport=$port',
         );
       }
     } catch (e) {
       debugPrint('ServerService: ⚠️ Firewall check error: $e');
       debugPrint(
-        '  Manually run as Admin: netsh advfirewall firewall add rule name="PCLink Server" dir=in action=allow protocol=TCP localport=$port',
+        '  Manually run as Admin: netsh advfirewall firewall add rule name="DeskPocket Server" dir=in action=allow protocol=TCP localport=$port',
       );
     }
   }
@@ -2081,7 +2081,7 @@ class ServerService {
     return {
       'success': false,
       'error':
-          'Failed to reach Windows PC. Make sure PCLink is running on your PC.',
+          'Failed to reach Windows PC. Make sure DeskPocket is running on your PC.',
     };
   }
 
@@ -2167,7 +2167,7 @@ class ServerService {
               body: jsonEncode({
                 'action': action,
                 'timeoutSeconds': timeoutSeconds,
-                'comment': comment ?? 'Triggered remotely via PCLink Android',
+                'comment': comment ?? 'Triggered remotely via DeskPocket Android',
                 'deviceId': androidDeviceId,
                 'timestamp': DateTime.now().toIso8601String(),
               }),

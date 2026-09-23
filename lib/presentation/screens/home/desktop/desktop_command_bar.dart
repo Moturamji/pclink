@@ -29,9 +29,12 @@ class DesktopCommandBar extends StatelessWidget {
       if (!kIsWeb && Platform.isWindows) {
         final userProfile = Platform.environment['USERPROFILE'];
         if (userProfile != null && userProfile.isNotEmpty) {
-          final candidate = Directory('$userProfile\\Downloads\\PCLink');
+          final candidate = Directory('$userProfile\\Downloads\\DeskPocket');
+          final legacyCandidate = Directory('$userProfile\\Downloads\\PCLink');
           if (await candidate.exists()) {
             dirPath = candidate.path;
+          } else if (await legacyCandidate.exists()) {
+            dirPath = legacyCandidate.path;
           } else {
             dirPath = '$userProfile\\Downloads';
           }

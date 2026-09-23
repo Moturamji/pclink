@@ -156,7 +156,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'PCLink System Setup',
+                            'DeskPocket System Setup',
                             style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.w800,
@@ -191,7 +191,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
                           icon: Icons.power_settings_new_rounded,
                           title: 'Auto-Start on Windows Boot (Background)',
                           description:
-                              'Launches silently in the background on startup with zero UI. Open PCLink anytime to see live status.',
+                              'Launches silently in the background on startup with zero UI. Open DeskPocket anytime to see live status.',
                           accentColor: const Color(0xFF6366F1),
                           value: _autoStartOnBoot,
                           onChanged: (val) => setState(() => _autoStartOnBoot = val),

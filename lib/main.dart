@@ -49,5 +49,5 @@ void main() async {
     debugPrint('Initialization warning: $e\n$stack');
   }
 
-  runApp(const PCLinkApp());
+  runApp(const DeskPocketApp());
 }

@@ -53,13 +53,13 @@ class SystemPowerService {
         return shutdown(
           timeoutSeconds: timeoutSeconds,
           force: force,
-          comment: comment ?? 'Remote shutdown initiated via PCLink',
+          comment: comment ?? 'Remote shutdown initiated via DeskPocket',
         );
       case ServerConstants.actionRestart:
         return restart(
           timeoutSeconds: timeoutSeconds,
           force: force,
-          comment: comment ?? 'Remote restart initiated via PCLink',
+          comment: comment ?? 'Remote restart initiated via DeskPocket',
         );
       case ServerConstants.actionLock:
         return lockWorkstation();
