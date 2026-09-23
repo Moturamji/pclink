@@ -153,3 +153,27 @@
 - [x] **Task 8.3: Verification & Throughput Benchmarking**
   - [x] Create automated tests for $O(1)$ chunk ingestion and foreground manager lifecycle.
   - [x] Run full test suite regression (`flutter test`) and `flutter analyze` to ensure 100% clean status.
+
+---
+
+## Phase 9: PC-to-Phone Transfer Pipeline & Queue Resolution
+- [x] **Task 9.1: Harmonize Transfer ID & State Machine on Server (`ServerService`)**
+  - [x] Use `match.id` (the shared file ID) as canonical `transferId` in `_handleFileDownload` so `_activeTransfers[match.id]` is updated directly.
+  - [x] If an incoming download request specifies a different `transferId`, alias/link it to `match.id` and ensure `_activeTransfers[match.id]` transitions from `queued` to `transferring`.
+  - [x] Stream download bytes with dual progress metrics (`senderBytes` and `receiverBytes`) for `match.id`.
+  - [x] Transition `match.id` to `TransferStatus.completed` (or `cancelled`/`failed`) upon completion, eliminating stuck queued cards on PC.
+- [x] **Task 9.2: Harmonize Transfer ID & Implement Auto-Pull in `FileShareService` (Client)**
+  - [x] In `downloadFile()`, use `customTransferId ?? item.id` so both PC server and phone client track the identical `fileId`.
+  - [x] Implement persistent, class-level `_downloadQueue` and `_uploadQueue` in `FileShareService` strictly enforcing 1-at-a-time concurrency across all operations (multi-file selection, successive batch selections, and manual "Get" button taps).
+  - [x] In `FileShareCard`, routed manual `_downloadFile` button clicks through `enqueueDownloadFiles` so manual downloads also queue up nicely instead of running in parallel.
+  - [x] Implemented cancellation queue drainage in `cancelTransfer` and `cancelActiveTransfers` to safely cancel queued items before they start.
+  - [x] Implement an automatic pull / sync monitor in `FileShareService` (`syncPendingDownloads()`) that checks for PC-originated queued files (`sourcePlatform == 'windows'`) and automatically triggers download.
+- [x] **Task 9.3: Reactive UI Synchronization in `FileShareCard`**
+  - [x] In `_refreshRemoteProgress()`, automatically refresh `_files` when new remote transfers are detected so the phone has the full `SharedFile` metadata.
+  - [x] When PC-queued transfers appear in `listRemoteTransfers()`, automatically enqueue them for download via `fileShareService` if auto-download is active.
+  - [x] In the shared files list on Android, update the "Get" button into an active progress / status indicator when a file is queued or downloading.
+- [x] **Task 9.4: Comprehensive Automated Testing & Regression Verification**
+  - [x] Create unit tests verifying the PC-to-Phone queue-to-download transition with matching IDs.
+  - [x] Verify that `_activeTransfers` on `ServerService` correctly transitions from `queued` -> `transferring` -> `completed` during a download.
+  - [x] Verify `FileShareService.downloadFile` with matching file IDs and 1-at-a-time concurrency.
+  - [x] Run `flutter analyze` and full test suite regression (`flutter test` - 92 of 92 tests passing).

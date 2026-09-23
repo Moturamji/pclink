@@ -1,10 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pclink/core/utils/transfer_fingerprint.dart';
 import 'package:pclink/core/utils/transfer_integrity.dart';
 import 'package:pclink/data/models/device_details.dart';
-import 'package:pclink/data/services/device_service.dart';
 import 'package:pclink/data/services/file_share_service.dart';
 import 'package:pclink/data/services/foreground_transfer_manager.dart';
 import 'package:pclink/features/file_share/models/transfer_progress.dart';

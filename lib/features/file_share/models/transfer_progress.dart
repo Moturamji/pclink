@@ -53,6 +53,9 @@ class TransferStateMachine {
     TransferStatus.resuming: {
       TransferStatus.transferring,
       TransferStatus.inProgress,
+      TransferStatus.verifying,
+      TransferStatus.finalizing,
+      TransferStatus.completed,
       TransferStatus.failed,
       TransferStatus.cancelled,
     },

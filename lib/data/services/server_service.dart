@@ -1006,7 +1006,11 @@ class ServerService {
                 final toRead = min(bufSize, remainingExisting);
                 final readBytes = await rafExisting.readInto(buf, 0, toRead);
                 if (readBytes <= 0) break;
-                runningCrc.update(readBytes == toRead ? buf : buf.sublist(0, readBytes));
+                runningCrc.update(
+                  readBytes == buf.length
+                      ? buf
+                      : Uint8List.sublistView(buf, 0, readBytes),
+                );
                 remainingExisting -= readBytes;
               }
             } finally {
@@ -1447,10 +1451,19 @@ class ServerService {
     }
     request.response.contentLength = contentLength;
 
-    final transferId = request.uri.queryParameters['transferId'] ??
-        'tx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+    final requestedTransferId = request.uri.queryParameters['transferId'];
+    // Canonical transfer ID: if this file was enqueued locally, its card is keyed by match.id.
+    // In all cases, the primary transfer card for this shared file on PC is match.id.
+    final transferId = _activeTransfers.containsKey(match.id)
+        ? match.id
+        : (requestedTransferId ?? match.id);
+
     final token = CancellationToken();
     _activeTokens[transferId] = token;
+    if (requestedTransferId != null && requestedTransferId != transferId) {
+      _activeTokens[requestedTransferId] = token;
+      _activeTransfers.remove(requestedTransferId);
+    }
     final stopwatch = Stopwatch()..start();
     var bytesSent = 0;
     var lastProgressTime = DateTime.now();
@@ -1556,12 +1569,6 @@ class ServerService {
           ),
         );
       }
-
-      Timer(const Duration(seconds: 3), () {
-        if (_currentTransferProgress?.fileId == transferId) {
-          _emitTransferProgress(null);
-        }
-      });
     } catch (e) {
       debugPrint('ServerService: _handleFileDownload error: $e');
       _emitTransferProgress(

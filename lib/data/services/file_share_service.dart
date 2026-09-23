@@ -32,6 +32,9 @@ class FileShareService {
   String? _deviceId;
   String? _currentDeviceName;
 
+  final Set<String> _processedDownloadIds = <String>{};
+  Timer? _autoSyncTimer;
+
   // Real-time file transfer progress broadcast stream (active uploads/downloads)
   TransferProgress? _currentProgress;
   final StreamController<TransferProgress?> _progressController =
@@ -41,6 +44,13 @@ class FileShareService {
   final Map<String, TransferProgress> _activeTransfers = {};
   final StreamController<Map<String, TransferProgress>> _allTransfersController =
       StreamController<Map<String, TransferProgress>>.broadcast();
+
+  // Persistent queues for strict 1-at-a-time concurrency
+  final List<({String path, String? matchingId, Completer<bool> completer})> _uploadQueue = [];
+  int _runningUploads = 0;
+
+  final List<({SharedFile file, Completer<File?> completer})> _downloadQueue = [];
+  int _runningDownloads = 0;
 
   Stream<TransferProgress?> get progressStream => _progressController.stream;
   Stream<Map<String, TransferProgress>> get allTransfersStream =>
@@ -125,6 +135,22 @@ class FileShareService {
     if (token != null) {
       token.cancel();
     }
+    // Remove from upload queue if pending
+    _uploadQueue.removeWhere((item) {
+      if (item.matchingId == transferId) {
+        if (!item.completer.isCompleted) item.completer.complete(false);
+        return true;
+      }
+      return false;
+    });
+    // Remove from download queue if pending
+    _downloadQueue.removeWhere((item) {
+      if (item.file.id == transferId) {
+        if (!item.completer.isCompleted) item.completer.complete(null);
+        return true;
+      }
+      return false;
+    });
     final existing = _activeTransfers[transferId];
     if (existing != null && existing.isActive) {
       _emitProgress(
@@ -139,6 +165,15 @@ class FileShareService {
 
   /// Cancels all active upload or download transfers immediately.
   void cancelActiveTransfers() {
+    for (final item in _uploadQueue) {
+      if (!item.completer.isCompleted) item.completer.complete(false);
+    }
+    _uploadQueue.clear();
+    for (final item in _downloadQueue) {
+      if (!item.completer.isCompleted) item.completer.complete(null);
+    }
+    _downloadQueue.clear();
+
     for (final token in List.of(_activeTokens.values)) {
       token.cancel();
     }
@@ -467,15 +502,14 @@ class FileShareService {
   /// Immediately registers and enqueues multiple upload files with controlled concurrency.
   /// All transfer cards appear immediately in queued state.
   Future<List<bool>> enqueueUploadFiles(List<String> filePaths) async {
-    final results = <bool>[];
-    final queue = <String>[];
-
     final first = filePaths.isNotEmpty
         ? filePaths.first.split(RegExp(r'[\\/]')).last
         : null;
     ForegroundTransferManager.instance.ensureForegroundActive(
       initialFileName: first,
     );
+
+    final futures = <Future<bool>>[];
 
     for (final path in filePaths) {
       final file = File(path);
@@ -500,7 +534,14 @@ class FileShareService {
         timestamp: DateTime.now(),
       );
       _activeTransfers[transferId] = initial;
-      queue.add(path);
+
+      final completer = Completer<bool>();
+      _uploadQueue.add((path: path, matchingId: transferId, completer: completer));
+      futures.add(completer.future);
+    }
+
+    if (futures.isEmpty) {
+      return [];
     }
 
     if (!_allTransfersController.isClosed) {
@@ -513,41 +554,159 @@ class FileShareService {
       }
     }
 
-    // Controlled concurrency: up to 2 active transfers simultaneously
-    const maxConcurrent = 2;
-    var running = 0;
-    final completer = Completer<List<bool>>();
+    _pumpUploadQueue();
+    return Future.wait(futures);
+  }
 
-    void pump() {
-      while (running < maxConcurrent && queue.isNotEmpty) {
-        final nextPath = queue.removeAt(0);
-        running++;
-        final name = nextPath.split(RegExp(r'[\\/]')).last;
-        String? matchingId;
-        for (final entry in _activeTransfers.entries) {
-          if (entry.value.fileName == name &&
-              entry.value.status == TransferStatus.queued) {
-            matchingId = entry.key;
-            break;
-          }
-        }
-        uploadFile(nextPath, customTransferId: matchingId).then((success) {
-          results.add(success);
-          running--;
-          pump();
-        }).catchError((e) {
-          results.add(false);
-          running--;
-          pump();
-        });
+  void _pumpUploadQueue() {
+    const maxConcurrent = 1;
+    while (_runningUploads < maxConcurrent && _uploadQueue.isNotEmpty) {
+      final item = _uploadQueue.removeAt(0);
+      _runningUploads++;
+      uploadFile(item.path, customTransferId: item.matchingId).then((success) {
+        if (!item.completer.isCompleted) item.completer.complete(success);
+        _runningUploads--;
+        _pumpUploadQueue();
+      }).catchError((e) {
+        if (!item.completer.isCompleted) item.completer.complete(false);
+        _runningUploads--;
+        _pumpUploadQueue();
+      });
+    }
+  }
+
+  /// Immediately registers and enqueues multiple download files with controlled concurrency.
+  /// Transfers 1 file at a time for 100% full speed, keeping remaining files queued.
+  Future<List<File?>> enqueueDownloadFiles(List<SharedFile> files) async {
+    final first = files.isNotEmpty ? files.first.name : null;
+    ForegroundTransferManager.instance.ensureForegroundActive(
+      initialFileName: first,
+    );
+
+    final futures = <Future<File?>>[];
+
+    for (final file in files) {
+      if (_processedDownloadIds.contains(file.id)) continue;
+      final existing = _activeTransfers[file.id];
+      if (existing != null &&
+          (existing.status == TransferStatus.transferring ||
+              existing.status == TransferStatus.resuming ||
+              existing.status == TransferStatus.queued ||
+              existing.status == TransferStatus.completed)) {
+        continue;
       }
-      if (running == 0 && queue.isEmpty && !completer.isCompleted) {
-        completer.complete(results);
+
+      final transferId = file.id;
+      final token = CancellationToken();
+      _activeTokens[transferId] = token;
+
+      final initial = TransferProgress(
+        fileId: transferId,
+        fileName: file.name,
+        bytesTransferred: 0,
+        totalBytes: file.size,
+        senderBytes: 0,
+        receiverBytes: 0,
+        speedBytesPerSec: 0,
+        isUpload: false,
+        status: TransferStatus.queued,
+        timestamp: DateTime.now(),
+      );
+      _activeTransfers[transferId] = initial;
+
+      final completer = Completer<File?>();
+      _downloadQueue.add((file: file, completer: completer));
+      futures.add(completer.future);
+    }
+
+    if (futures.isEmpty) {
+      return [];
+    }
+
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.add(Map.from(_activeTransfers));
+    }
+    if (_currentProgress == null && _activeTransfers.isNotEmpty) {
+      _currentProgress = _activeTransfers.values.last;
+      if (!_progressController.isClosed) {
+        _progressController.add(_currentProgress);
       }
     }
 
-    pump();
-    return completer.future;
+    _pumpDownloadQueue();
+    return Future.wait(futures);
+  }
+
+  void _pumpDownloadQueue() {
+    const maxConcurrent = 1;
+    while (_runningDownloads < maxConcurrent && _downloadQueue.isNotEmpty) {
+      final item = _downloadQueue.removeAt(0);
+      _runningDownloads++;
+      downloadFile(item.file, customTransferId: item.file.id).then((dest) {
+        if (!item.completer.isCompleted) item.completer.complete(dest);
+        _runningDownloads--;
+        _pumpDownloadQueue();
+      }).catchError((e) {
+        if (!item.completer.isCompleted) item.completer.complete(null);
+        _runningDownloads--;
+        _pumpDownloadQueue();
+      });
+    }
+  }
+
+  /// Checks for any PC-queued files that have not yet been downloaded by this phone
+  /// and automatically enqueues them for sequential download.
+  Future<void> syncPendingDownloads({List<TransferProgress>? remoteTransfers}) async {
+    if (_candidateUrls().isEmpty) return;
+    try {
+      final transfers = remoteTransfers ?? await listRemoteTransfers();
+      final queuedFromPC = transfers.where((t) =>
+          t.status == TransferStatus.queued &&
+          !_processedDownloadIds.contains(t.fileId) &&
+          (!_activeTransfers.containsKey(t.fileId) ||
+              _activeTransfers[t.fileId]?.status == TransferStatus.failed)).toList();
+
+      if (queuedFromPC.isEmpty) return;
+
+      final files = await listSharedFiles();
+      final toDownload = <SharedFile>[];
+
+      for (final tx in queuedFromPC) {
+        final match = files.firstWhere(
+          (f) => f.id == tx.fileId,
+          orElse: () => SharedFile(
+            id: tx.fileId,
+            name: tx.fileName,
+            size: tx.totalBytes,
+            sourcePlatform: 'windows',
+            sourceDeviceName: 'Windows PC',
+            timestamp: tx.timestamp,
+          ),
+        );
+        toDownload.add(match);
+      }
+
+      if (toDownload.isNotEmpty) {
+        debugPrint(
+          'FileShareService: Auto-pulling ${toDownload.length} PC-queued file(s)...',
+        );
+        unawaited(enqueueDownloadFiles(toDownload));
+      }
+    } catch (e) {
+      debugPrint('FileShareService syncPendingDownloads error: $e');
+    }
+  }
+
+  /// Starts a periodic background monitor that detects PC-queued files and pulls them.
+  void startAutoSync({Duration interval = const Duration(seconds: 3)}) {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(interval, (_) => syncPendingDownloads());
+  }
+
+  /// Stops the periodic background monitor.
+  void stopAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
   }
 
   /// High-throughput chunked upload with persistent keep-alive and incremental CRC-32.
@@ -633,7 +792,11 @@ class FileShareService {
               final r = min(bSize, toHash);
               final bytesRead = await rafResume.readInto(b, 0, r);
               if (bytesRead <= 0) break;
-              cumulativeSourceCrc.update(bytesRead == r ? b : b.sublist(0, bytesRead));
+              cumulativeSourceCrc.update(
+                bytesRead == b.length
+                    ? b
+                    : Uint8List.sublistView(b, 0, bytesRead),
+              );
               toHash -= bytesRead;
             }
           } finally {
@@ -1196,7 +1359,9 @@ class FileShareService {
 
     final totalBytes = item.size;
     final transferId = customTransferId ??
-        'rx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+        (item.id.isNotEmpty
+            ? item.id
+            : 'rx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}');
     final token = cancelToken ?? CancellationToken();
     _activeTokens[transferId] = token;
 
@@ -1248,6 +1413,7 @@ class FileShareService {
                 timestamp: DateTime.now(),
               ),
             );
+            _processedDownloadIds.add(item.id);
             return finalDest;
           }
         }
@@ -1454,6 +1620,7 @@ class FileShareService {
         });
 
 
+        _processedDownloadIds.add(item.id);
         return finalDest;
       } catch (e) {
         debugPrint('FileShareService: Download from $baseUrl failed: $e');
@@ -1572,9 +1739,13 @@ class FileShareService {
   }
 
   void dispose() {
+    stopAutoSync();
     _client.close();
     if (!_progressController.isClosed) {
       _progressController.close();
+    }
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.close();
     }
   }
 }

@@ -172,12 +172,38 @@ class _FileShareCardState extends State<FileShareCard> {
       if (transfers.isNotEmpty) {
         setState(() {
           for (final t in transfers) {
-            if (!_transfers.containsKey(t.fileId) ||
-                _transfers[t.fileId]!.status != TransferStatus.transferring) {
+            final local = _transfers[t.fileId];
+            if (local == null ||
+                (local.status != TransferStatus.transferring &&
+                    local.status != TransferStatus.resuming &&
+                    local.status != TransferStatus.verifying)) {
               _transfers[t.fileId] = t;
             }
           }
         });
+
+        // Auto-pull any PC-queued files
+        final hasQueuedFromPC = transfers.any((t) =>
+            t.status == TransferStatus.queued &&
+            t.isUpload &&
+            (!_transfers.containsKey(t.fileId) ||
+                _transfers[t.fileId]?.status == TransferStatus.queued));
+        if (hasQueuedFromPC) {
+          unawaited(service.syncPendingDownloads(remoteTransfers: transfers));
+        }
+      }
+
+      // Check if any transfer is not in _files, and refresh _files if needed
+      final knownFileIds = _files.map((f) => f.id).toSet();
+      final hasUnknownFiles =
+          transfers.any((t) => !knownFileIds.contains(t.fileId));
+      if (hasUnknownFiles || _files.isEmpty) {
+        final updatedFiles = await service.listSharedFiles();
+        if (mounted && updatedFiles.isNotEmpty) {
+          setState(() {
+            _files = updatedFiles;
+          });
+        }
       }
     } finally {
       _remoteProgressPollInFlight = false;
@@ -334,7 +360,8 @@ class _FileShareCardState extends State<FileShareCard> {
     if (service == null) return;
 
     setState(() => _downloadingId = file.id);
-    final dest = await service.downloadFile(file);
+    final results = await service.enqueueDownloadFiles([file]);
+    final dest = results.isNotEmpty ? results.first : null;
     if (!mounted) return;
     setState(() => _downloadingId = null);
 
@@ -1075,35 +1102,126 @@ class _FileShareCardState extends State<FileShareCard> {
                 visualDensity: VisualDensity.compact,
               ),
             ),
-          ]
-          else if (isDownloadingThis)
-            const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          else
-            OutlinedButton.icon(
-              onPressed: _busy ? null : () => _downloadFile(file),
-              icon: const Icon(Icons.download_rounded, size: 16),
-              label: const Text('Get'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: colors.success,
-                side: BorderSide(
-                  color: colors.success.withValues(alpha: 0.4),
-                  width: 0.8,
-                ),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 6,
-                ),
-                minimumSize: Size.zero,
-                textStyle: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+          ] else ...[
+            Builder(
+              builder: (context) {
+                final tx = _transfers[file.id];
+                final isTxDownloading = isDownloadingThis ||
+                    (tx != null &&
+                        (tx.status == TransferStatus.transferring ||
+                            tx.status == TransferStatus.resuming ||
+                            tx.status == TransferStatus.verifying ||
+                            tx.status == TransferStatus.preparing));
+                final isTxQueued =
+                    tx != null && tx.status == TransferStatus.queued;
+                final isTxCompleted =
+                    tx != null && tx.status == TransferStatus.completed;
+
+                if (isTxDownloading) {
+                  return Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colors.primaryLight,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        tx?.percentageLabel ?? '...',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: colors.primaryLight,
+                        ),
+                      ),
+                    ],
+                  );
+                } else if (isTxQueued) {
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: colors.textMuted.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.hourglass_top_rounded,
+                          size: 13,
+                          color: colors.textMuted,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Queued',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: colors.textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                } else if (isTxCompleted) {
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: colors.success.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.check_circle_rounded,
+                          size: 13,
+                          color: colors.success,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Saved',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: colors.success,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                return OutlinedButton.icon(
+                  onPressed: _busy ? null : () => _downloadFile(file),
+                  icon: const Icon(Icons.download_rounded, size: 16),
+                  label: const Text('Get'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colors.success,
+                    side: BorderSide(
+                      color: colors.success.withValues(alpha: 0.4),
+                      width: 0.8,
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    minimumSize: Size.zero,
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                );
+              },
             ),
+          ],
         ],
       ),
     );
