@@ -2,6 +2,9 @@
 
 #include <optional>
 #include <shellapi.h>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "native_screen_share.h"
@@ -57,6 +60,16 @@ bool FlutterWindow::OnCreate() {
         } else if (call.method_name() == "hideWindow") {
           this->HideWindowToTray();
           result->Success();
+        } else if (call.method_name() == "getPendingSharedFiles") {
+          std::vector<flutter::EncodableValue> encodables;
+          for (const auto& file_path : this->pending_shared_files_) {
+            encodables.push_back(flutter::EncodableValue(file_path));
+          }
+          this->pending_shared_files_.clear();
+          result->Success(flutter::EncodableValue(encodables));
+        } else if (call.method_name() == "clearPendingSharedFiles") {
+          this->pending_shared_files_.clear();
+          result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
         }
@@ -148,6 +161,36 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   if (message == g_show_window_message || message == g_show_window_message_legacy) {
     ShowWindowAndBringToFront();
     return 0;
+  }
+
+  // 1b. Handle shared files sent via WM_COPYDATA from another instance
+  if (message == WM_COPYDATA) {
+    COPYDATASTRUCT* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
+    if (cds != nullptr && cds->dwData == 0x4445534B && cds->lpData != nullptr) {
+      const char* raw_str = reinterpret_cast<const char*>(cds->lpData);
+      std::string data(raw_str);
+      std::vector<std::string> files;
+      std::istringstream stream(data);
+      std::string line;
+      while (std::getline(stream, line)) {
+        if (!line.empty()) {
+          files.push_back(line);
+          pending_shared_files_.push_back(line);
+        }
+      }
+
+      if (window_channel_ && !files.empty()) {
+        std::vector<flutter::EncodableValue> encodable_files;
+        for (const auto& f : files) {
+          encodable_files.push_back(flutter::EncodableValue(f));
+        }
+        window_channel_->InvokeMethod(
+            "onSharedFilesReceived",
+            std::make_unique<flutter::EncodableValue>(encodable_files));
+      }
+      ShowWindowAndBringToFront();
+      return TRUE;
+    }
   }
 
   // 2. Handle System Tray interactions

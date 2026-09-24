@@ -16,6 +16,7 @@ import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
 import '../../../data/models/user_deletion_status.dart';
+import '../../../data/services/share_target_service.dart';
 import '../../../data/services/windows_permission_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
 import '../auth/auth_screen.dart';
@@ -71,6 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _lastAlertedNotificationId;
   UserDeletionStatus? _deletionStatus;
   StreamSubscription<UserDeletionStatus>? _deletionStatusSub;
+  StreamSubscription<List<String>>? _shareTargetSub;
 
   @override
   void initState() {
@@ -203,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _loadDeviceDetails();
+    _setupShareTargetListener();
   }
 
   void _startAndroidServices(DeviceDetails details) {
@@ -299,6 +302,56 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
+  void _setupShareTargetListener() {
+    _shareTargetSub?.cancel();
+    _shareTargetSub = ShareTargetService().sharedFilesStream.listen((files) {
+      _handleIncomingSharedFiles(files);
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pending = await ShareTargetService().consumeInitialAndPendingFiles();
+      if (pending.isNotEmpty) {
+        _handleIncomingSharedFiles(pending);
+      }
+    });
+  }
+
+  void _handleIncomingSharedFiles(List<String> files) {
+    if (files.isEmpty) return;
+    final isWindows = !kIsWeb && Platform.isWindows;
+
+    if (isWindows) {
+      _serverService.enqueueLocalSharedFiles(
+        sourcePaths: files,
+        deviceName: 'Windows PC',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'DeskPocket: Added ${files.length} shared file(s) for phone access.',
+            ),
+            backgroundColor: AppColors.accentPurple,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      _fileShareService.enqueueUploadFiles(files);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'DeskPocket: Enqueued ${files.length} shared file(s) for transfer to PC.',
+            ),
+            backgroundColor: AppColors.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   void _startDeviceHeartbeat(User user, String platformKey) {
     _deviceHeartbeatTimer?.cancel();
     _deviceHeartbeatTimer = Timer.periodic(const Duration(seconds: 8), (_) {
@@ -326,6 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _tunnelWatcherTimer?.cancel();
     _tunnelUrlSub?.cancel();
     _deletionStatusSub?.cancel();
+    _shareTargetSub?.cancel();
     _tunnelService.dispose();
     _clipboardService.dispose();
     _fileShareService.dispose();

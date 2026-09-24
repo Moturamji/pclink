@@ -20,6 +20,12 @@ class DeskPocketApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           home: const SplashScreen(),
+          onGenerateRoute: (settings) => MaterialPageRoute(
+            builder: (context) => const SplashScreen(),
+          ),
+          onUnknownRoute: (settings) => MaterialPageRoute(
+            builder: (context) => const SplashScreen(),
+          ),
         );
       },
     );

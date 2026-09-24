@@ -41,6 +41,25 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       existing_window = ::FindWindow(L"FLUTTER_RUNNER_WIN32_WINDOW", L"pclink");
     }
     if (existing_window != nullptr) {
+      // Forward any file arguments to the running DeskPocket instance via WM_COPYDATA
+      std::string joined_files;
+      for (const auto& arg : command_line_arguments) {
+        if (arg != "--autostart" && arg != "--hidden" && arg != "-hidden") {
+          if (!joined_files.empty()) {
+            joined_files += "\n";
+          }
+          joined_files += arg;
+        }
+      }
+
+      if (!joined_files.empty()) {
+        COPYDATASTRUCT cds;
+        cds.dwData = 0x4445534B; // 'DESK'
+        cds.cbData = static_cast<DWORD>(joined_files.size() + 1);
+        cds.lpData = const_cast<char*>(joined_files.c_str());
+        ::SendMessage(existing_window, WM_COPYDATA, reinterpret_cast<WPARAM>(existing_window), reinterpret_cast<LPARAM>(&cds));
+      }
+
       ::PostMessage(existing_window, kDeskPocketShowWindowMessage, 0, 0);
       ::ShowWindow(existing_window, SW_SHOW);
       ::ShowWindow(existing_window, SW_RESTORE);
