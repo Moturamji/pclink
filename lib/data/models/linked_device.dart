@@ -11,6 +11,8 @@ class LinkedDevice {
   final DateTime? lastSeen;
   final bool isOnline;
 
+  final String? sessionId;
+
   const LinkedDevice({
     required this.platformKey,
     required this.deviceId,
@@ -19,6 +21,7 @@ class LinkedDevice {
     required this.ipAddress,
     this.lastSeen,
     this.isOnline = false,
+    this.sessionId,
   });
 
   bool get isWindows => platformKey.toLowerCase() == 'windows';
@@ -41,6 +44,7 @@ class LinkedDevice {
       ipAddress: (map['ipAddress'] as String?) ?? 'Unknown IP',
       lastSeen: parsedLastSeen,
       isOnline: (map['isOnline'] as bool?) ?? false,
+      sessionId: map['sessionId'] as String?,
     );
   }
 
@@ -64,6 +68,7 @@ class LinkedDevice {
     String? ipAddress,
     DateTime? lastSeen,
     bool? isOnline,
+    String? sessionId,
   }) {
     return LinkedDevice(
       platformKey: platformKey ?? this.platformKey,
@@ -73,6 +78,7 @@ class LinkedDevice {
       ipAddress: ipAddress ?? this.ipAddress,
       lastSeen: lastSeen ?? this.lastSeen,
       isOnline: isOnline ?? this.isOnline,
+      sessionId: sessionId ?? this.sessionId,
     );
   }
 
@@ -84,6 +90,7 @@ class LinkedDevice {
       'ipAddress': ipAddress,
       'lastSeen': lastSeen?.toIso8601String() ?? DateTime.now().toIso8601String(),
       'isOnline': isOnline,
+      if (sessionId != null) 'sessionId': sessionId,
     };
   }
 
@@ -97,7 +104,8 @@ class LinkedDevice {
           deviceName == other.deviceName &&
           osVersion == other.osVersion &&
           ipAddress == other.ipAddress &&
-          isOnline == other.isOnline;
+          isOnline == other.isOnline &&
+          sessionId == other.sessionId;
 
   @override
   int get hashCode =>
@@ -106,5 +114,6 @@ class LinkedDevice {
       deviceName.hashCode ^
       osVersion.hashCode ^
       ipAddress.hashCode ^
-      isOnline.hashCode;
+      isOnline.hashCode ^
+      sessionId.hashCode;
 }

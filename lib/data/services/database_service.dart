@@ -40,6 +40,7 @@ class DatabaseService {
   Future<void> syncUserAndDevice({
     required User user,
     required DeviceDetails details,
+    String? sessionId,
   }) async {
     try {
       final token = await user.getIdToken();
@@ -83,23 +84,147 @@ class DatabaseService {
       final deviceUri = Uri.parse(
           '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
 
+      final patchData = <String, dynamic>{
+        'deviceId': details.deviceId,
+        'deviceName': details.deviceName,
+        'osVersion': details.osVersion,
+        'ipAddress': details.primaryIp,
+        'lastSeen': {'.sv': 'timestamp'},
+        'isOnline': true,
+      };
+      if (sessionId != null && sessionId.isNotEmpty) {
+        patchData['sessionId'] = sessionId;
+      }
+
       final devResp = await _client.patch(
         deviceUri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'deviceId': details.deviceId,
-          'deviceName': details.deviceName,
-          'osVersion': details.osVersion,
-          'ipAddress': details.primaryIp,
-          'lastSeen': {'.sv': 'timestamp'},
-          'isOnline': true,
-        }),
+        body: jsonEncode(patchData),
       );
       debugPrint(
           'DatabaseService: Synced $platformKey device node with status ${devResp.statusCode}');
     } catch (e) {
       debugPrint('DatabaseService sync exception: $e');
     }
+  }
+
+  /// Fetches the active session ID for the given platform key (windows/android).
+  Future<String?> getDeviceSessionId({
+    required User user,
+    required String platformKey,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/sessionId.json$authQuery');
+      final response = await _safeGet(uri);
+
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getDeviceSessionId error: $e');
+    }
+    return null;
+  }
+
+  /// Fetches the hardware deviceId assigned to the given platform slot.
+  Future<String?> getDeviceSlotDeviceId({
+    required User user,
+    required String platformKey,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/deviceId.json$authQuery');
+      final response = await _safeGet(uri);
+
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getDeviceSlotDeviceId error: $e');
+    }
+    return null;
+  }
+
+  /// Overwrites the active session node for this platform slot, immediately invalidating older logins.
+  Future<void> registerDeviceSession({
+    required User user,
+    required String platformKey,
+    required String sessionId,
+    required String deviceId,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+
+      await _client.patch(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sessionId': sessionId,
+          'deviceId': deviceId,
+          'isOnline': true,
+          'lastSeen': {'.sv': 'timestamp'},
+        }),
+      );
+      debugPrint(
+        'DatabaseService: Registered session $sessionId for $platformKey ($deviceId)',
+      );
+    } catch (e) {
+      debugPrint('DatabaseService registerDeviceSession error: $e');
+    }
+  }
+
+  /// Streams real-time updates for the platform slot session ID to detect when superseded by another device.
+  Stream<String?> listenDeviceSession({
+    required User user,
+    required String platformKey,
+    Duration interval = const Duration(seconds: 3),
+  }) {
+    late final StreamController<String?> controller;
+    Timer? timer;
+
+    Future<void> poll() async {
+      try {
+        final sid = await getDeviceSessionId(user: user, platformKey: platformKey);
+        if (!controller.isClosed) {
+          controller.add(sid);
+        }
+      } catch (e) {
+        debugPrint('DatabaseService listenDeviceSession error: $e');
+      }
+    }
+
+    controller = StreamController<String?>.broadcast(
+      onListen: () {
+        poll();
+        timer = Timer.periodic(interval, (_) => poll());
+      },
+      onCancel: () {
+        timer?.cancel();
+        timer = null;
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Updates the local Windows server information in Firebase RTDB.

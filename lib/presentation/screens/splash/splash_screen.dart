@@ -5,12 +5,26 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/widgets/universal/app_logo.dart';
 import '../../../data/services/auth_service.dart';
+import '../../../data/services/database_service.dart';
+import '../../../data/services/device_service.dart';
+import '../../../data/services/session_service.dart';
 import '../auth/auth_screen.dart';
 import '../home/home_screen.dart';
 
 /// Animated splash screen with cute, premium, modern styling and official logo.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  final AuthService? authService;
+  final DeviceService? deviceService;
+  final DatabaseService? databaseService;
+  final SessionService? sessionService;
+
+  const SplashScreen({
+    super.key,
+    this.authService,
+    this.deviceService,
+    this.databaseService,
+    this.sessionService,
+  });
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -21,11 +35,19 @@ class _SplashScreenState extends State<SplashScreen>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
   late final Animation<double> _scaleAnimation;
-  final AuthService _authService = AuthService();
+  late final AuthService _authService;
+  late final DeviceService _deviceService;
+  late final DatabaseService _databaseService;
+  late final SessionService _sessionService;
 
   @override
   void initState() {
     super.initState();
+    _authService = widget.authService ?? AuthService();
+    _deviceService = widget.deviceService ?? DeviceService();
+    _databaseService = widget.databaseService ?? DatabaseService();
+    _sessionService = widget.sessionService ?? SessionService();
+
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -52,8 +74,47 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final user = _authService.currentUser;
+    if (user != null) {
+      final isWindows = !kIsWeb && Platform.isWindows;
+      final platformKey = isWindows ? 'windows' : 'android';
+      try {
+        final details = await _deviceService.getDeviceDetails();
+        final isValid = await _sessionService.isSessionValid(
+          user: user,
+          platformKey: platformKey,
+          deviceId: details.deviceId,
+          databaseService: _databaseService,
+        );
+
+        if (!isValid) {
+          debugPrint('SplashScreen: Session invalid (superseded by another login). Logging out.');
+          await _sessionService.clearLocalSession();
+          await _authService.signOut();
+          if (!mounted) return;
+          final deviceType = isWindows ? 'PC' : 'phone';
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  AuthScreen(
+                sessionExpiredMessage:
+                    'Your session expired because another $deviceType logged in.',
+              ),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) =>
+                      FadeTransition(opacity: animation, child: child),
+              transitionDuration: const Duration(milliseconds: 350),
+            ),
+          );
+          return;
+        }
+      } catch (e) {
+        debugPrint('SplashScreen session validation warning: $e');
+      }
+    }
+
     final targetScreen = user != null ? const HomeScreen() : const AuthScreen();
 
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) => targetScreen,

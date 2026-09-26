@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
@@ -8,6 +9,9 @@ import '../../../core/widgets/universal/app_logo.dart';
 import '../../../core/widgets/universal/bounceable.dart';
 import '../../../core/widgets/universal/theme_toggle_button.dart';
 import '../../../data/services/auth_service.dart';
+import '../../../data/services/database_service.dart';
+import '../../../data/services/device_service.dart';
+import '../../../data/services/session_service.dart';
 import '../home/home_screen.dart';
 import 'widgets/auth_header.dart';
 import 'widgets/forgot_password_dialog.dart';
@@ -16,8 +20,19 @@ import 'widgets/forgot_password_dialog.dart';
 /// Responsive studio split-view on desktop and tactile ergonomic layout on mobile.
 class AuthScreen extends StatefulWidget {
   final AuthService? authService;
+  final DeviceService? deviceService;
+  final DatabaseService? databaseService;
+  final SessionService? sessionService;
+  final String? sessionExpiredMessage;
 
-  const AuthScreen({super.key, this.authService});
+  const AuthScreen({
+    super.key,
+    this.authService,
+    this.deviceService,
+    this.databaseService,
+    this.sessionService,
+    this.sessionExpiredMessage,
+  });
 
   @override
   State<AuthScreen> createState() => _AuthScreenState();
@@ -26,6 +41,9 @@ class AuthScreen extends StatefulWidget {
 class _AuthScreenState extends State<AuthScreen> {
   final _formKey = GlobalKey<FormState>();
   late final AuthService _authService;
+  late final DeviceService _deviceService;
+  late final DatabaseService _databaseService;
+  late final SessionService _sessionService;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -44,6 +62,10 @@ class _AuthScreenState extends State<AuthScreen> {
   void initState() {
     super.initState();
     _authService = widget.authService ?? AuthService();
+    _deviceService = widget.deviceService ?? DeviceService();
+    _databaseService = widget.databaseService ?? DatabaseService();
+    _sessionService = widget.sessionService ?? SessionService();
+    _errorMessage = widget.sessionExpiredMessage;
   }
 
   @override
@@ -63,16 +85,33 @@ class _AuthScreenState extends State<AuthScreen> {
     });
 
     try {
+      UserCredential userCred;
       if (_isSignUp) {
-        await _authService.signUpWithEmailAndPassword(
+        userCred = await _authService.signUpWithEmailAndPassword(
           email: _emailController.text,
           password: _passwordController.text,
         );
       } else {
-        await _authService.signInWithEmailAndPassword(
+        userCred = await _authService.signInWithEmailAndPassword(
           email: _emailController.text,
           password: _passwordController.text,
         );
+      }
+
+      final user = userCred.user;
+      if (user != null) {
+        try {
+          final details = await _deviceService.getDeviceDetails();
+          final platformKey = details.isWindows ? 'windows' : 'android';
+          await _sessionService.registerNewSession(
+            user: user,
+            platformKey: platformKey,
+            deviceId: details.deviceId,
+            databaseService: _databaseService,
+          );
+        } catch (sessionErr) {
+          debugPrint('AuthScreen: session registration warning: $sessionErr');
+        }
       }
 
       if (!mounted) return;

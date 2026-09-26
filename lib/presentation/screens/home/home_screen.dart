@@ -16,6 +16,7 @@ import '../../../data/services/notification_service.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
 import '../../../data/models/user_deletion_status.dart';
+import '../../../data/services/session_service.dart';
 import '../../../data/services/share_target_service.dart';
 import '../../../data/services/windows_permission_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
@@ -33,6 +34,7 @@ class HomeScreen extends StatefulWidget {
   final DatabaseService? databaseService;
   final ServerService? serverService;
   final ClipboardService? clipboardService;
+  final SessionService? sessionService;
 
   const HomeScreen({
     super.key,
@@ -41,6 +43,7 @@ class HomeScreen extends StatefulWidget {
     this.databaseService,
     this.serverService,
     this.clipboardService,
+    this.sessionService,
   });
 
   @override
@@ -55,6 +58,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final ClipboardService _clipboardService;
   late final FileShareService _fileShareService;
   late final TunnelService _tunnelService;
+  late final SessionService _sessionService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
   DeviceDetails? _cachedDeviceDetails;
@@ -66,6 +70,8 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<String?>? _tunnelUrlSub;
   Timer? _serverHeartbeatTimer;
   Timer? _deviceHeartbeatTimer;
+  StreamSubscription<String?>? _sessionSub;
+  bool _isSupersededLoggingOut = false;
   AppLifecycleListener? _lifecycleListener;
   bool _isRefreshing = false;
   bool _wasServerLive = false;
@@ -82,6 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _databaseService = widget.databaseService ?? DatabaseService();
     _serverService = widget.serverService ?? ServerService();
     _clipboardService = widget.clipboardService ?? ClipboardService();
+    _sessionService = widget.sessionService ?? SessionService();
     _fileShareService = FileShareService();
     _tunnelService = TunnelService();
 
@@ -371,6 +378,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _lifecycleListener?.dispose();
+    _sessionSub?.cancel();
+    _sessionSub = null;
     _serverHeartbeatTimer?.cancel();
     _deviceHeartbeatTimer?.cancel();
     _serverSub?.cancel();
@@ -402,13 +411,27 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _syncWithCloudAndStartServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (user != null) {
+      final platformKey = details.isWindows ? 'windows' : 'android';
       try {
+        await _sessionService.init();
+        var currentSession = _sessionService.currentSessionId;
+        if (currentSession == null || currentSession.isEmpty) {
+          currentSession = await _sessionService.registerNewSession(
+            user: user,
+            platformKey: platformKey,
+            deviceId: details.deviceId,
+            databaseService: _databaseService,
+          );
+        }
+
         await _databaseService.syncUserAndDevice(
           user: user,
           details: details,
+          sessionId: currentSession,
         );
 
-        _startDeviceHeartbeat(user, details.isWindows ? 'windows' : 'android');
+        _startDeviceHeartbeat(user, platformKey);
+        _startSessionWatcher(user, platformKey);
 
         // Windows only: Automatically launch lightweight local server and announce to RTDB
         if (!kIsWeb && details.isWindows) {
@@ -630,12 +653,15 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
+              _sessionSub?.cancel();
+              _sessionSub = null;
               await _cleanupAndMarkOffline();
               _tunnelWatcherTimer?.cancel();
               _tunnelWatcherTimer = null;
               _tunnelUrlSub?.cancel();
               _tunnelUrlSub = null;
               await _tunnelService.stop();
+              await _sessionService.clearLocalSession();
               await _authService.signOut();
               if (mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
@@ -648,6 +674,76 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  void _startSessionWatcher(User user, String platformKey) {
+    _sessionSub?.cancel();
+    _sessionSub = _databaseService
+        .listenDeviceSession(user: user, platformKey: platformKey)
+        .listen((remoteSessionId) {
+      if (!mounted || _isSupersededLoggingOut) return;
+      final localSessionId = _sessionService.currentSessionId;
+      if (localSessionId != null &&
+          localSessionId.isNotEmpty &&
+          remoteSessionId != null &&
+          remoteSessionId.isNotEmpty &&
+          remoteSessionId != localSessionId) {
+        debugPrint(
+          'HomeScreen: Session on $platformKey superseded ($remoteSessionId != $localSessionId). Evicting older session.',
+        );
+        _handleSupersededSession();
+      }
+    });
+  }
+
+  Future<void> _handleSupersededSession() async {
+    if (_isSupersededLoggingOut) return;
+    _isSupersededLoggingOut = true;
+
+    final isWindows = !kIsWeb && Platform.isWindows;
+    final deviceType = isWindows ? 'PC' : 'phone';
+    final message =
+        'You were logged out because this account was logged into another $deviceType.';
+
+    _sessionSub?.cancel();
+    _sessionSub = null;
+    _serverHeartbeatTimer?.cancel();
+    _serverHeartbeatTimer = null;
+    _deviceHeartbeatTimer?.cancel();
+    _deviceHeartbeatTimer = null;
+    _tunnelWatcherTimer?.cancel();
+    _tunnelWatcherTimer = null;
+    _tunnelUrlSub?.cancel();
+    _tunnelUrlSub = null;
+    _deletionStatusSub?.cancel();
+    _deletionStatusSub = null;
+    _shareTargetSub?.cancel();
+    _shareTargetSub = null;
+
+    if (isWindows && _serverService.isRunning) {
+      try {
+        await _serverService.stopServer();
+      } catch (_) {}
+    } else {
+      _stopAndroidServices();
+    }
+    try {
+      await _tunnelService.stop();
+    } catch (_) {}
+
+    await _sessionService.clearLocalSession();
+    await _authService.signOut();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => AuthScreen(
+          sessionExpiredMessage: message,
+        ),
+      ),
+      (route) => false,
     );
   }
 
@@ -718,6 +814,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _handleExpiredAccountPurge(User user) async {
+    _sessionSub?.cancel();
+    _sessionSub = null;
+    await _sessionService.clearLocalSession();
     await _databaseService.purgeExpiredAccount(user: user);
     await _cleanupAndMarkOffline();
     _tunnelWatcherTimer?.cancel();
