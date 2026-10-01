@@ -66,6 +66,46 @@ class DeviceService {
         additionalDetails['RAM (MB)'] = windowsInfo.systemMemoryInMegabytes.toString();
         additionalDetails['Build Number'] = windowsInfo.buildNumber.toString();
         additionalDetails['Major Version'] = windowsInfo.majorVersion.toString();
+      } else if (Platform.isMacOS) {
+        platform = 'macOS';
+        final MacOsDeviceInfo macInfo = await _deviceInfoPlugin.macOsInfo;
+
+        deviceId = (macInfo.systemGUID != null && macInfo.systemGUID!.isNotEmpty)
+            ? macInfo.systemGUID!
+            : macInfo.computerName;
+
+        deviceName = macInfo.computerName.isNotEmpty
+            ? macInfo.computerName
+            : macInfo.hostName;
+        osVersion =
+            'macOS ${macInfo.osRelease} (Build ${macInfo.majorVersion}.${macInfo.minorVersion}.${macInfo.patchVersion})';
+
+        additionalDetails['Computer Name'] = macInfo.computerName;
+        additionalDetails['Host Name'] = macInfo.hostName;
+        additionalDetails['Model'] = macInfo.model;
+        additionalDetails['Architecture'] = macInfo.arch;
+        additionalDetails['Kernel'] = macInfo.kernelVersion;
+        additionalDetails['CPU Cores'] = macInfo.activeCPUs.toString();
+        additionalDetails['RAM (MB)'] =
+            (macInfo.memorySize / (1024 * 1024)).round().toString();
+      } else if (Platform.isIOS) {
+        platform = 'iOS';
+        final IosDeviceInfo iosInfo = await _deviceInfoPlugin.iosInfo;
+
+        deviceId = (iosInfo.identifierForVendor != null &&
+                iosInfo.identifierForVendor!.isNotEmpty)
+            ? iosInfo.identifierForVendor!
+            : iosInfo.name;
+
+        deviceName = iosInfo.name;
+        osVersion = '${iosInfo.systemName} ${iosInfo.systemVersion}';
+
+        additionalDetails['Model'] = iosInfo.model;
+        additionalDetails['Localized Model'] = iosInfo.localizedModel;
+        additionalDetails['System Name'] = iosInfo.systemName;
+        additionalDetails['Machine'] = iosInfo.utsname.machine;
+        additionalDetails['Is Physical Device'] =
+            iosInfo.isPhysicalDevice.toString();
       } else {
         platform = Platform.operatingSystem;
         deviceId = 'Unsupported Platform';

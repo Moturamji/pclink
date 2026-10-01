@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'windows_shell_service.dart';
+import 'mac_shell_service.dart';
 
 /// Unified service managing incoming shared files and media across both Android
 /// (system share sheet intents) and Windows (Explorer SendTo & context menus).
@@ -74,6 +76,27 @@ class ShareTargetService {
 
       // Automatically ensure Windows SendTo shortcut and Context Menu are registered
       unawaited(WindowsShellService.registerAll());
+    } else if (Platform.isMacOS) {
+      _windowsChannel.setMethodCallHandler((call) async {
+        if (call.method == 'onSharedFilesReceived') {
+          final rawFiles = call.arguments;
+          if (rawFiles is List) {
+            final filePaths = rawFiles
+                .map((e) => e.toString())
+                .where((p) => p.isNotEmpty)
+                .toList();
+            if (filePaths.isNotEmpty) {
+              debugPrint(
+                'ShareTargetService: macOS received ${filePaths.length} live shared file(s)',
+              );
+              _sharedFilesController.add(filePaths);
+            }
+          }
+        }
+      });
+
+      // Automatically register macOS Finder Quick Action
+      unawaited(MacShellService.registerAll());
     }
   }
 
@@ -83,7 +106,7 @@ class ShareTargetService {
 
     final collected = <String>{};
 
-    // 1. Collect launch arguments (e.g. Windows Explorer SendTo)
+    // 1. Collect launch arguments (e.g. Windows Explorer SendTo / macOS CLI args)
     if (_initialFiles.isNotEmpty) {
       collected.addAll(_initialFiles);
       _initialFiles.clear();
@@ -97,11 +120,27 @@ class ShareTargetService {
         if (files != null) {
           collected.addAll(files.map((e) => e.toString()).where((p) => p.isNotEmpty));
         }
-      } else if (Platform.isWindows) {
+      } else if (Platform.isWindows || Platform.isMacOS) {
         final List<dynamic>? files =
             await _windowsChannel.invokeMethod('getPendingSharedFiles');
         if (files != null) {
           collected.addAll(files.map((e) => e.toString()).where((p) => p.isNotEmpty));
+        }
+      } else if (Platform.isIOS) {
+        // Check iOS Documents/Inbox directory populated when users choose "Open in DeskPocket"
+        try {
+          final docsDir = await getApplicationDocumentsDirectory();
+          final inbox = Directory('${docsDir.path}/Inbox');
+          if (await inbox.exists()) {
+            final inboxFiles = inbox.listSync();
+            for (final entity in inboxFiles) {
+              if (entity is File && entity.existsSync()) {
+                collected.add(entity.path);
+              }
+            }
+          }
+        } catch (e) {
+          debugPrint('ShareTargetService: Error inspecting iOS Documents/Inbox: $e');
         }
       }
     } catch (e) {

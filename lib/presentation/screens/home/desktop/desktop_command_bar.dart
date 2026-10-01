@@ -43,6 +43,21 @@ class DesktopCommandBar extends StatelessWidget {
           await Process.run('explorer.exe', [dirPath]);
           return;
         }
+      } else if (!kIsWeb && Platform.isMacOS) {
+        final home = Platform.environment['HOME'];
+        if (home != null && home.isNotEmpty) {
+          final candidate = Directory('$home/Downloads/DeskPocket');
+          if (await candidate.exists()) {
+            dirPath = candidate.path;
+          } else {
+            dirPath = '$home/Downloads';
+          }
+        }
+        dirPath ??= (await getDownloadsDirectory())?.path;
+        if (dirPath != null) {
+          await Process.run('open', [dirPath]);
+          return;
+        }
       }
       dirPath ??= (await getDownloadsDirectory())?.path;
 

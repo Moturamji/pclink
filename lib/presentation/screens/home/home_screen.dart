@@ -13,6 +13,7 @@ import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
 import '../../../data/services/file_share_service.dart';
 import '../../../data/services/notification_service.dart';
+import '../../../data/services/platform_helpers.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
 import '../../../data/models/user_deletion_status.dart';
@@ -129,8 +130,10 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     }
 
-    if (!kIsWeb && Platform.isWindows) {
-      _checkWindowsPermissions();
+    if (isDesktopHost) {
+      if (Platform.isWindows) {
+        _checkWindowsPermissions();
+      }
       _currentServerInfo = _serverService.currentServerInfo;
       _serverSub = _serverService.serverStateStream.listen((info) {
         if (mounted) {
@@ -170,19 +173,19 @@ class _HomeScreenState extends State<HomeScreen> {
           });
 
           if (!isLiveNow) {
-            _stopAndroidServices();
+            _stopMobileServices();
             NotificationService.cancelServerLiveNotification();
           } else {
             if (becameLive) {
               NotificationService.showServerLiveNotification(
-                hostName: 'Windows PC',
+                hostName: 'Desktop Host',
                 ipAddress: info.url,
                 publicUrl: info.publicUrl,
               );
             }
 
             if (!_clipboardService.isListening && _cachedDeviceDetails != null) {
-              _startAndroidServices(_cachedDeviceDetails!);
+              _startMobileServices(_cachedDeviceDetails!);
             } else if (_clipboardService.isListening) {
               _clipboardService.onServerInfoPublished();
             }
@@ -215,8 +218,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _setupShareTargetListener();
   }
 
-  void _startAndroidServices(DeviceDetails details) {
-    if (kIsWeb || Platform.isWindows) return;
+  void _startMobileServices(DeviceDetails details) {
+    if (isDesktopHost) return;
     _cachedDeviceDetails = details;
     if (_clipboardService.isListening) {
       _clipboardService.onServerInfoPublished();
@@ -243,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
       onConnectionLost: () {
         debugPrint('HomeScreen: Connection lost detected by ClipboardService');
-        _stopAndroidServices();
+        _stopMobileServices();
       },
     );
   }
@@ -277,8 +280,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _stopAndroidServices() {
-    if (kIsWeb || Platform.isWindows) return;
+  void _stopMobileServices() {
+    if (isDesktopHost) return;
     _fileShareService.cancelActiveTransfers();
     _clipboardService.stopListening();
   }
@@ -292,14 +295,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final user = _authService.currentUser;
     if (user == null) return;
 
-    final isWindows = !kIsWeb && Platform.isWindows;
-    final platformKey = isWindows ? 'windows' : 'android';
+    final isDesktop = isDesktopHost;
+    final currentPlatformKey = platformKey;
 
     final futures = <Future<void>>[
-      _databaseService.setDeviceOffline(user: user, platformKey: platformKey),
+      _databaseService.setDeviceOffline(user: user, platformKey: currentPlatformKey),
     ];
 
-    if (isWindows && _serverService.isRunning) {
+    if (isDesktop && _serverService.isRunning) {
       futures.add(_databaseService.setServerOffline(user: user));
       futures.add(_serverService.stopServer());
     }
@@ -325,18 +328,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _handleIncomingSharedFiles(List<String> files) {
     if (files.isEmpty) return;
-    final isWindows = !kIsWeb && Platform.isWindows;
+    final isDesktop = isDesktopHost;
 
-    if (isWindows) {
+    if (isDesktop) {
       _serverService.enqueueLocalSharedFiles(
         sourcePaths: files,
-        deviceName: 'Windows PC',
+        deviceName: 'Desktop Host',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'DeskPocket: Added ${files.length} shared file(s) for phone access.',
+              'DeskPocket: Added ${files.length} shared file(s) for mobile access.',
             ),
             backgroundColor: AppColors.accentPurple,
             behavior: SnackBarBehavior.floating,
@@ -393,7 +396,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _clipboardService.dispose();
     _fileShareService.dispose();
     _cleanupAndMarkOffline();
-    if (!kIsWeb && Platform.isWindows) {
+    if (isDesktopHost) {
       _serverService.dispose();
     }
     super.dispose();
@@ -411,14 +414,14 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _syncWithCloudAndStartServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (user != null) {
-      final platformKey = details.isWindows ? 'windows' : 'android';
+      final currentPlatformKey = platformKey;
       try {
         await _sessionService.init();
         var currentSession = _sessionService.currentSessionId;
         if (currentSession == null || currentSession.isEmpty) {
           currentSession = await _sessionService.registerNewSession(
             user: user,
-            platformKey: platformKey,
+            platformKey: currentPlatformKey,
             deviceId: details.deviceId,
             databaseService: _databaseService,
           );
@@ -430,11 +433,11 @@ class _HomeScreenState extends State<HomeScreen> {
           sessionId: currentSession,
         );
 
-        _startDeviceHeartbeat(user, platformKey);
-        _startSessionWatcher(user, platformKey);
+        _startDeviceHeartbeat(user, currentPlatformKey);
+        _startSessionWatcher(user, currentPlatformKey);
 
-        // Windows only: Automatically launch lightweight local server and announce to RTDB
-        if (!kIsWeb && details.isWindows) {
+        // Desktop host: Automatically launch lightweight local server and announce to RTDB
+        if (details.isDesktop) {
           _serverService.setAuthorizedAndroidDeviceId(
             await _databaseService.getAndroidDeviceId(user: user),
           );
@@ -460,7 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
 
-          // Windows: Start direct server-routed clipboard handler
+          // Desktop host: Start direct server-routed clipboard handler
           _clipboardService.startListening(
             deviceName: details.deviceName,
             isWindows: true,
@@ -491,13 +494,13 @@ class _HomeScreenState extends State<HomeScreen> {
           deviceName: details.deviceName,
         );
 
-        if (!kIsWeb && !details.isWindows) {
+        if (details.isMobile) {
           NotificationService.initialize(
             user: user,
             databaseService: _databaseService,
           );
           if (_currentServerInfo?.isLive ?? false) {
-            _startAndroidServices(details);
+            _startMobileServices(details);
           }
         }
       } catch (_) {
@@ -546,7 +549,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startAutomatedTunnel(User user) {
-    if (kIsWeb || !Platform.isWindows) return;
+    if (kIsWeb || !isDesktopHost) return;
 
     _tunnelUrlSub?.cancel();
     _tunnelUrlSub = _tunnelService.urlStream.listen((url) {
@@ -701,8 +704,8 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_isSupersededLoggingOut) return;
     _isSupersededLoggingOut = true;
 
-    final isWindows = !kIsWeb && Platform.isWindows;
-    final deviceType = isWindows ? 'PC' : 'phone';
+    final isDesktop = isDesktopHost;
+    final deviceType = isDesktop ? 'computer' : 'phone';
     final message =
         'You were logged out because this account was logged into another $deviceType.';
 
@@ -721,12 +724,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _shareTargetSub?.cancel();
     _shareTargetSub = null;
 
-    if (isWindows && _serverService.isRunning) {
+    if (isDesktop && _serverService.isRunning) {
       try {
         await _serverService.stopServer();
       } catch (_) {}
     } else {
-      _stopAndroidServices();
+      _stopMobileServices();
     }
     try {
       await _tunnelService.stop();
@@ -895,7 +898,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         final details = snapshot.data!;
-        final isDesktop = (!kIsWeb && Platform.isWindows) ||
+        final isDesktop = isDesktopHost ||
             MediaQuery.sizeOf(context).width >= 900;
 
         if (isDesktop) {
@@ -916,17 +919,17 @@ class _HomeScreenState extends State<HomeScreen> {
             onUndeleteAccount: _handleUndeleteAccount,
             onToggleServer: () => _toggleServer(details),
             onConnectionStateChanged: (isConnected) {
-              if (!details.isWindows) {
+              if (!details.isDesktop) {
                 if (isConnected) {
-                  _startAndroidServices(details);
+                  _startMobileServices(details);
                 } else {
-                  _stopAndroidServices();
+                  _stopMobileServices();
                 }
               }
             },
             onDisconnectRequested: () {
-              if (!details.isWindows) {
-                _stopAndroidServices();
+              if (!details.isDesktop) {
+                _stopMobileServices();
               }
             },
           );
@@ -949,17 +952,17 @@ class _HomeScreenState extends State<HomeScreen> {
           onUndeleteAccount: _handleUndeleteAccount,
           onToggleServer: () => _toggleServer(details),
           onConnectionStateChanged: (isConnected) {
-            if (!details.isWindows) {
+            if (!details.isDesktop) {
               if (isConnected) {
-                _startAndroidServices(details);
+                _startMobileServices(details);
               } else {
-                _stopAndroidServices();
+                _stopMobileServices();
               }
             }
           },
           onDisconnectRequested: () {
-            if (!details.isWindows) {
-              _stopAndroidServices();
+            if (!details.isDesktop) {
+              _stopMobileServices();
             }
           },
         );

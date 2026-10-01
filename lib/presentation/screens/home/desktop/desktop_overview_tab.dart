@@ -55,7 +55,7 @@ class _DesktopOverviewTabState extends State<DesktopOverviewTab> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     ServerControlCard(
-                      isWindows: widget.details.isWindows,
+                      isWindows: widget.details.isDesktop,
                       currentServerInfo: widget.currentServerInfo,
                       serverStream: widget.user != null
                           ? widget.databaseService
@@ -86,14 +86,14 @@ class _DesktopOverviewTabState extends State<DesktopOverviewTab> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     PlatformHeader(details: widget.details),
-                    if (widget.details.isWindows) ...[
+                    if (widget.details.isDesktop) ...[
                       const SizedBox(height: 16),
                       const WindowsSystemCard(),
                     ],
                     const SizedBox(height: 16),
                     SecurityStatusCard(
                       isConnected: widget.details.isConnected,
-                      isWindows: widget.details.isWindows,
+                      isWindows: widget.details.isDesktop,
                     ),
                     const SizedBox(height: 16),
                     SpecsCard(details: widget.details),

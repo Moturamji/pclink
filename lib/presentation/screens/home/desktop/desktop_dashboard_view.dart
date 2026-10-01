@@ -177,15 +177,15 @@ class _DesktopDashboardViewState extends State<DesktopDashboardView> {
         );
       case DesktopNavTab.fileStudio:
         return DesktopFilesTab(
-          isWindows: widget.details.isWindows,
+          isWindows: widget.details.isDesktop,
           serverService:
-              widget.details.isWindows ? widget.serverService : null,
+              widget.details.isDesktop ? widget.serverService : null,
           fileShareService:
-              widget.details.isWindows ? null : widget.fileShareService,
+              widget.details.isDesktop ? null : widget.fileShareService,
         );
       case DesktopNavTab.clipboard:
         return DesktopClipboardTab(
-          isWindows: widget.details.isWindows,
+          isWindows: widget.details.isDesktop,
           user: widget.user,
           databaseService: widget.databaseService,
           clipboardService: widget.clipboardService,

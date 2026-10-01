@@ -1664,6 +1664,19 @@ class FileShareService {
 
   /// Resolves (and lazily creates) the standard device Downloads/PCLink folder.
   Future<Directory> _getPCLinkDownloadDir() async {
+    if (!kIsWeb && Platform.isIOS) {
+      try {
+        final docs = await getApplicationDocumentsDirectory();
+        final iosDir = Directory('${docs.path}/DeskPocket');
+        if (!await iosDir.exists()) {
+          await iosDir.create(recursive: true);
+        }
+        return iosDir;
+      } catch (e) {
+        debugPrint('FileShareService: iOS Documents dir error: $e');
+      }
+    }
+
     if (!kIsWeb && Platform.isAndroid) {
       // 1. Try native Android environment API for Downloads
       try {

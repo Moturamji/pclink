@@ -2,6 +2,11 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import '../../core/constants/server_constants.dart';
 
+typedef ProcessRunner = Future<ProcessResult> Function(
+  String executable,
+  List<String> arguments,
+);
+
 /// Result of executing a system power command.
 class PowerActionResult {
   final bool success;
@@ -28,43 +33,80 @@ class PowerActionResult {
       'PowerActionResult(success: $success, action: $action, message: $message, exitCode: $exitCode)';
 }
 
-/// Service dedicated to executing Windows system power operations
-/// (Sleep, Shutdown, Restart, Lock Workstation, Abort Shutdown).
+/// Service dedicated to executing desktop system power operations
+/// (Sleep, Shutdown, Restart, Lock Workstation, Abort Shutdown) on Windows and macOS.
 class SystemPowerService {
+  /// Customizable command runner for testing and security isolation.
+  static ProcessRunner processRunner = Process.run;
+
   /// Executes a requested power action by name.
   static Future<PowerActionResult> executeAction({
     required String action,
     int timeoutSeconds = 0,
     bool force = true,
     String? comment,
+    bool? isWindowsOverride,
+    bool? isMacOSOverride,
   }) async {
-    if (!kIsWeb && !Platform.isWindows) {
+    final isWin = isWindowsOverride ?? (!kIsWeb && Platform.isWindows);
+    final isMac = isMacOSOverride ?? (!kIsWeb && Platform.isMacOS);
+
+    if (!isWin && !isMac) {
       return PowerActionResult(
         success: false,
         action: action,
-        message: 'System power commands are only supported on Windows host systems.',
+        message: 'System power commands are only supported on Windows and macOS host systems.',
       );
     }
 
-    switch (action.toLowerCase().trim()) {
+    final normalized = action.toLowerCase().trim();
+
+    if (normalized != ServerConstants.actionSleep &&
+        normalized != ServerConstants.actionShutdown &&
+        normalized != ServerConstants.actionRestart &&
+        normalized != ServerConstants.actionLock &&
+        normalized != ServerConstants.actionAbort) {
+      return PowerActionResult(
+        success: false,
+        action: action,
+        message: 'Unknown power action: $action',
+      );
+    }
+
+    if (isMac) {
+      switch (normalized) {
+        case ServerConstants.actionSleep:
+          return _macSleep();
+        case ServerConstants.actionShutdown:
+          return _macShutdown();
+        case ServerConstants.actionRestart:
+          return _macRestart();
+        case ServerConstants.actionLock:
+          return _macLock();
+        case ServerConstants.actionAbort:
+          return _macAbort();
+      }
+    }
+
+    switch (normalized) {
       case ServerConstants.actionSleep:
-        return sleep();
+        return _windowsSleep();
       case ServerConstants.actionShutdown:
-        return shutdown(
+        return _windowsShutdown(
           timeoutSeconds: timeoutSeconds,
           force: force,
           comment: comment ?? 'Remote shutdown initiated via DeskPocket',
         );
       case ServerConstants.actionRestart:
-        return restart(
+        return _windowsRestart(
           timeoutSeconds: timeoutSeconds,
           force: force,
           comment: comment ?? 'Remote restart initiated via DeskPocket',
         );
       case ServerConstants.actionLock:
-        return lockWorkstation();
+        return _windowsLock();
       case ServerConstants.actionAbort:
-        return abortShutdown();
+        return _windowsAbort();
       default:
         return PowerActionResult(
           success: false,
@@ -74,12 +116,186 @@ class SystemPowerService {
     }
   }
 
-  /// Puts the Windows PC into true Sleep (Suspend to RAM) state.
+  /// Puts the host into Sleep (Suspend) state.
   static Future<PowerActionResult> sleep() async {
+    if (!kIsWeb && Platform.isMacOS) {
+      return _macSleep();
+    }
+    return _windowsSleep();
+  }
+
+  /// Shuts down the host PC/Mac.
+  static Future<PowerActionResult> shutdown({
+    int timeoutSeconds = 0,
+    bool force = true,
+    String? comment,
+  }) async {
+    if (!kIsWeb && Platform.isMacOS) {
+      return _macShutdown();
+    }
+    return _windowsShutdown(
+      timeoutSeconds: timeoutSeconds,
+      force: force,
+      comment: comment,
+    );
+  }
+
+  /// Reboots the host PC/Mac.
+  static Future<PowerActionResult> restart({
+    int timeoutSeconds = 0,
+    bool force = true,
+    String? comment,
+  }) async {
+    if (!kIsWeb && Platform.isMacOS) {
+      return _macRestart();
+    }
+    return _windowsRestart(
+      timeoutSeconds: timeoutSeconds,
+      force: force,
+      comment: comment,
+    );
+  }
+
+  /// Locks the workstation/desktop screen.
+  static Future<PowerActionResult> lockWorkstation() async {
+    if (!kIsWeb && Platform.isMacOS) {
+      return _macLock();
+    }
+    return _windowsLock();
+  }
+
+  /// Cancels scheduled shutdown if supported.
+  static Future<PowerActionResult> abortShutdown() async {
+    if (!kIsWeb && Platform.isMacOS) {
+      return _macAbort();
+    }
+    return _windowsAbort();
+  }
+
+  // --- macOS Implementations ---
+
+  static Future<PowerActionResult> _macSleep() async {
+    try {
+      debugPrint('SystemPowerService: Initiating macOS sleep...');
+      final result = await processRunner('pmset', const ['sleepnow']);
+      final isSuccess = result.exitCode == 0;
+      return PowerActionResult(
+        success: isSuccess,
+        action: ServerConstants.actionSleep,
+        message: isSuccess ? 'Mac entering sleep mode.' : 'Failed to put Mac to sleep: ${result.stderr}'.trim(),
+        exitCode: result.exitCode,
+      );
+    } catch (e) {
+      debugPrint('SystemPowerService: Mac sleep exception: $e');
+      return PowerActionResult(
+        success: false,
+        action: ServerConstants.actionSleep,
+        message: 'Mac sleep command error: $e',
+      );
+    }
+  }
+
+  static Future<PowerActionResult> _macShutdown() async {
+    try {
+      debugPrint('SystemPowerService: Initiating macOS shutdown...');
+      final result = await processRunner('osascript', const [
+        '-e',
+        'tell application "System Events" to shut down',
+      ]);
+      final isSuccess = result.exitCode == 0;
+      return PowerActionResult(
+        success: isSuccess,
+        action: ServerConstants.actionShutdown,
+        message: isSuccess ? 'Mac shutting down.' : 'Failed to shut down Mac: ${result.stderr}'.trim(),
+        exitCode: result.exitCode,
+      );
+    } catch (e) {
+      debugPrint('SystemPowerService: Mac shutdown exception: $e');
+      return PowerActionResult(
+        success: false,
+        action: ServerConstants.actionShutdown,
+        message: 'Mac shutdown command error: $e',
+      );
+    }
+  }
+
+  static Future<PowerActionResult> _macRestart() async {
+    try {
+      debugPrint('SystemPowerService: Initiating macOS restart...');
+      final result = await processRunner('osascript', const [
+        '-e',
+        'tell application "System Events" to restart',
+      ]);
+      final isSuccess = result.exitCode == 0;
+      return PowerActionResult(
+        success: isSuccess,
+        action: ServerConstants.actionRestart,
+        message: isSuccess ? 'Mac restarting.' : 'Failed to restart Mac: ${result.stderr}'.trim(),
+        exitCode: result.exitCode,
+      );
+    } catch (e) {
+      debugPrint('SystemPowerService: Mac restart exception: $e');
+      return PowerActionResult(
+        success: false,
+        action: ServerConstants.actionRestart,
+        message: 'Mac restart command error: $e',
+      );
+    }
+  }
+
+  static Future<PowerActionResult> _macLock() async {
+    try {
+      debugPrint('SystemPowerService: Locking macOS screen...');
+      await processRunner('pmset', const ['displaysleepnow']);
+      final result = await processRunner('osascript', const [
+        '-e',
+        'tell application "System Events" to keystroke "q" using {control down, command down}',
+      ]);
+      final isSuccess = result.exitCode == 0;
+      return PowerActionResult(
+        success: isSuccess,
+        action: ServerConstants.actionLock,
+        message: isSuccess ? 'Mac screen locked successfully.' : 'Failed to lock Mac: ${result.stderr}'.trim(),
+        exitCode: result.exitCode,
+      );
+    } catch (e) {
+      debugPrint('SystemPowerService: Mac lock exception: $e');
+      return PowerActionResult(
+        success: false,
+        action: ServerConstants.actionLock,
+        message: 'Mac lock command error: $e',
+      );
+    }
+  }
+
+  static Future<PowerActionResult> _macAbort() async {
+    try {
+      debugPrint('SystemPowerService: Aborting macOS shutdown (best-effort)...');
+      final result = await processRunner('killall', const ['shutdown']);
+      return PowerActionResult(
+        success: result.exitCode == 0,
+        action: ServerConstants.actionAbort,
+        message: result.exitCode == 0
+            ? 'Scheduled shutdown cancelled.'
+            : 'No scheduled macOS shutdown was found to abort.',
+        exitCode: result.exitCode,
+      );
+    } catch (e) {
+      debugPrint('SystemPowerService: Mac abort exception: $e');
+      return PowerActionResult(
+        success: false,
+        action: ServerConstants.actionAbort,
+        message: 'Mac abort command error: $e',
+      );
+    }
+  }
+
+  // --- Windows Implementations ---
+
+  static Future<PowerActionResult> _windowsSleep() async {
     try {
       debugPrint('SystemPowerService: Initiating Windows Sleep (Suspend)...');
-      // Use PowerShell to trigger true Suspend (Sleep) rather than Hibernation
-      final result = await Process.run('powershell', [
+      final result = await processRunner('powershell', const [
         '-NoProfile',
         '-NonInteractive',
         '-Command',
@@ -95,9 +311,8 @@ class SystemPowerService {
         );
       }
 
-      // Fallback to rundll32 if PowerShell fails
       debugPrint('SystemPowerService: PowerShell sleep exited with ${result.exitCode}, trying fallback...');
-      final fallback = await Process.run('rundll32.exe', [
+      final fallback = await processRunner('rundll32.exe', const [
         'powrprof.dll,SetSuspendState',
         '0,1,0',
       ]);
@@ -120,8 +335,7 @@ class SystemPowerService {
     }
   }
 
-  /// Shuts down the Windows PC, optionally with a countdown and comment.
-  static Future<PowerActionResult> shutdown({
+  static Future<PowerActionResult> _windowsShutdown({
     int timeoutSeconds = 0,
     bool force = true,
     String? comment,
@@ -135,7 +349,7 @@ class SystemPowerService {
       }
 
       debugPrint('SystemPowerService: Executing shutdown with args: $args');
-      final result = await Process.run('shutdown', args);
+      final result = await processRunner('shutdown', args);
 
       final isSuccess = result.exitCode == 0;
       return PowerActionResult(
@@ -158,8 +372,7 @@ class SystemPowerService {
     }
   }
 
-  /// Reboots the Windows PC, optionally with a countdown.
-  static Future<PowerActionResult> restart({
+  static Future<PowerActionResult> _windowsRestart({
     int timeoutSeconds = 0,
     bool force = true,
     String? comment,
@@ -173,7 +386,7 @@ class SystemPowerService {
       }
 
       debugPrint('SystemPowerService: Executing restart with args: $args');
-      final result = await Process.run('shutdown', args);
+      final result = await processRunner('shutdown', args);
 
       final isSuccess = result.exitCode == 0;
       return PowerActionResult(
@@ -196,11 +409,10 @@ class SystemPowerService {
     }
   }
 
-  /// Instantly locks the Windows Workstation screen.
-  static Future<PowerActionResult> lockWorkstation() async {
+  static Future<PowerActionResult> _windowsLock() async {
     try {
       debugPrint('SystemPowerService: Locking Windows Workstation...');
-      final result = await Process.run('rundll32.exe', [
+      final result = await processRunner('rundll32.exe', const [
         'user32.dll,LockWorkStation',
       ]);
 
@@ -223,11 +435,10 @@ class SystemPowerService {
     }
   }
 
-  /// Cancels an active scheduled shutdown or restart.
-  static Future<PowerActionResult> abortShutdown() async {
+  static Future<PowerActionResult> _windowsAbort() async {
     try {
       debugPrint('SystemPowerService: Aborting scheduled shutdown/restart...');
-      final result = await Process.run('shutdown', ['/a']);
+      final result = await processRunner('shutdown', const ['/a']);
 
       final isSuccess = result.exitCode == 0;
       return PowerActionResult(

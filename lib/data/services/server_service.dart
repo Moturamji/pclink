@@ -16,6 +16,7 @@ import '../../features/file_share/models/shared_file.dart';
 import '../../features/file_share/models/transfer_progress.dart';
 import '../models/server_info.dart';
 import 'database_service.dart';
+import 'platform_helpers.dart';
 import 'system_power_service.dart';
 import 'screen_share_service.dart';
 
@@ -314,6 +315,12 @@ class ServerService {
         final candidate = Directory('$userProfile\\Downloads\\DeskPocket');
         targetDir = candidate;
       }
+    } else if (!kIsWeb && Platform.isMacOS) {
+      final home = Platform.environment['HOME'];
+      if (home != null && home.isNotEmpty) {
+        final candidate = Directory('$home/Downloads/DeskPocket');
+        targetDir = candidate;
+      }
     }
 
     try {
@@ -397,8 +404,8 @@ class ServerService {
     int port = ServerConstants.defaultPort,
     String? authorizedAndroidDeviceId,
   }) async {
-    if (kIsWeb || !Platform.isWindows) {
-      debugPrint('ServerService: Server is only supported on Windows.');
+    if (kIsWeb || !isDesktopHost) {
+      debugPrint('ServerService: Server is only supported on desktop hosts (Windows/macOS).');
       return null;
     }
 
@@ -441,7 +448,7 @@ class ServerService {
       _loadPersistedSharedFiles();
 
       debugPrint(
-        'ServerService: Windows server listening on $serverUrl (Public address: ${publicUrl ?? publicIp ?? 'LAN only'})',
+        'ServerService: Host server listening on $serverUrl (Public address: ${publicUrl ?? publicIp ?? 'LAN only'})',
       );
       return _currentInfo;
     } catch (e) {
@@ -1935,6 +1942,7 @@ class ServerService {
   /// Best-effort attempt to add a Windows Firewall inbound rule for the server port.
   /// Requires admin privileges — if it fails, logs a helpful message for the user.
   void _ensureFirewallRule(int port) async {
+    if (kIsWeb || !Platform.isWindows) return;
     try {
       // Check if rule already exists
       final checkResult = await Process.run('netsh', [

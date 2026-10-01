@@ -114,10 +114,18 @@ class NotificationService {
 
   /// Pre-registers local notifications and the Android channel early at app startup.
   static Future<void> initializeEarly() async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     try {
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const initSettings = InitializationSettings(android: androidSettings);
+      const darwinSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: darwinSettings,
+      );
       await _localNotifications.initialize(
         settings: initSettings,
         onDidReceiveNotificationResponse: (details) {
@@ -125,11 +133,23 @@ class NotificationService {
         },
       );
 
-      final androidPlugin = _localNotifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-      if (androidPlugin != null) {
-        await androidPlugin.createNotificationChannel(_androidChannel);
-        await androidPlugin.requestNotificationsPermission();
+      if (Platform.isAndroid) {
+        final androidPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+        if (androidPlugin != null) {
+          await androidPlugin.createNotificationChannel(_androidChannel);
+          await androidPlugin.requestNotificationsPermission();
+        }
+      } else if (Platform.isIOS) {
+        final iosPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+        if (iosPlugin != null) {
+          await iosPlugin.requestPermissions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+        }
       }
     } catch (e) {
       debugPrint('NotificationService initializeEarly error: $e');
@@ -141,7 +161,7 @@ class NotificationService {
     User? user,
     DatabaseService? databaseService,
   }) async {
-    if (kIsWeb || !Platform.isAndroid) {
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
       return;
     }
 
@@ -231,7 +251,7 @@ class NotificationService {
     String? ipAddress,
     String? publicUrl,
   }) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
 
     try {
       final endpointSummary = (publicUrl != null && publicUrl.isNotEmpty)
@@ -246,7 +266,7 @@ class NotificationService {
         '• Endpoint: $endpointSummary\n\n'
         'Tap to open DeskPocket and sync clipboard or transfer files.',
         htmlFormatBigText: false,
-        contentTitle: '🖥️ Windows PC is Online & Ready',
+        contentTitle: '🖥️ Desktop Host is Online & Ready',
         htmlFormatContentTitle: false,
         summaryText: 'DeskPocket Live Server',
         htmlFormatSummaryText: false,
@@ -268,11 +288,20 @@ class NotificationService {
         autoCancel: true,
       );
 
-      final platformDetails = NotificationDetails(android: androidDetails);
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final platformDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
 
       await _localNotifications.show(
         id: serverLiveNotificationId,
-        title: '🖥️ Windows PC is Online & Ready',
+        title: '🖥️ Desktop Host is Online & Ready',
         body: '$hostName is live • $endpointSummary',
         notificationDetails: platformDetails,
         payload: 'home',
@@ -284,7 +313,7 @@ class NotificationService {
 
   /// Cancels the server live notification (e.g. when PC turns offline)
   static Future<void> cancelServerLiveNotification() async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     try {
       await _localNotifications.cancel(id: serverLiveNotificationId);
     } catch (e) {
@@ -310,7 +339,14 @@ class NotificationService {
       enableVibration: true,
     );
 
-    const platformDetails = NotificationDetails(android: androidDetails);
+    const platformDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
 
     await _localNotifications.show(
       id: message.hashCode,

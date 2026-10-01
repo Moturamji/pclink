@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'app.dart';
 import 'core/theme/theme_service.dart';
+import 'data/services/mac_autostart_service.dart';
 import 'data/services/notification_service.dart';
 import 'data/services/screen_share_service.dart';
 import 'data/services/share_target_service.dart';
@@ -45,16 +46,21 @@ void main(List<String> args) async {
     // Initialize Share Target Service for system share sheets (Android) and Explorer (Windows)
     await ShareTargetService().initialize();
 
-    // Register FCM Background Handler, early Notification Channels & Foreground Clipboard Task on Android
+    // Register FCM Background Handler, early Notification Channels & Foreground Clipboard Task on Android / Mobile
     if (!kIsWeb && Platform.isAndroid) {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       await NotificationService.initializeEarly();
       await ClipboardService.initForegroundTask();
+    } else if (!kIsWeb && Platform.isIOS) {
+      await NotificationService.initializeEarly();
     }
 
-    // Initialize live Windows system features directly from registry & persistence
+    // Initialize live desktop system features directly from registry & persistence
     if (!kIsWeb && Platform.isWindows) {
       await WindowsAutostartService.isAutostartEnabled();
+      await ScreenShareService.isConsentGranted();
+    } else if (!kIsWeb && Platform.isMacOS) {
+      await MacAutostartService.isAutostartEnabled();
       await ScreenShareService.isConsentGranted();
     }
 

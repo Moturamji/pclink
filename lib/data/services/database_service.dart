@@ -879,6 +879,11 @@ class DatabaseService {
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             ],
+            if (Platform.isMacOS && Platform.environment.containsKey('HOME')) ...[
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/firebase_service_account.json'),
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            ],
           ];
 
           // Also scan candidate directories for any other downloaded adminsdk json
@@ -887,6 +892,8 @@ class DatabaseService {
             File(Platform.resolvedExecutable).parent,
             if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
               Directory('${Platform.environment['APPDATA']}\\pclink'),
+            if (Platform.isMacOS && Platform.environment.containsKey('HOME'))
+              Directory('${Platform.environment['HOME']}/Library/Application Support/pclink'),
           ];
           for (final dir in searchDirs) {
             try {
@@ -933,6 +940,8 @@ class DatabaseService {
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}fcm_server_key.txt'),
             if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
               File('${Platform.environment['APPDATA']}\\pclink\\fcm_server_key.txt'),
+            if (Platform.isMacOS && Platform.environment.containsKey('HOME'))
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/fcm_server_key.txt'),
           ];
           for (final keyFile in keyCandidates) {
             if (keyFile.existsSync()) {

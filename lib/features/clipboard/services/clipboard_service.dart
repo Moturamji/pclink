@@ -159,14 +159,17 @@ class ClipboardService with WidgetsBindingObserver {
       };
       _history.addAll(_serverService!.clipboardHistory);
       _historyController.add(List.from(_history));
-    } else {
-      // Android: Poll latest clip from Windows server (2s interval with smart backoff)
-      _remoteFetchTimer = Timer.periodic(
-        const Duration(seconds: 2),
-        (_) async {
-          await _fetchLatestRemoteClipFromWindowsServer();
-        },
-      );
+      // Mobile client:
+      // On iOS, background timers are terminated or cause battery penalty.
+      // Instead, iOS clipboard sync relies on app resume lifecycle or manual trigger.
+      if (!kIsWeb && !Platform.isIOS) {
+        _remoteFetchTimer = Timer.periodic(
+          const Duration(seconds: 2),
+          (_) async {
+            await _fetchLatestRemoteClipFromWindowsServer();
+          },
+        );
+      }
 
       // Start Android Foreground Service with 1-tap notification action
       if (!kIsWeb && Platform.isAndroid) {
@@ -360,7 +363,7 @@ void _onForegroundDataReceived(dynamic data) {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Whenever app focus changes or resumes, check clipboard immediately
     _checkLocalClipboard();
-    if (_currentPlatformName == 'android') {
+    if (!kIsWeb && !Platform.isWindows && !Platform.isMacOS) {
       _consecutiveFailures = 0; // Reset backoff on app resume
       _fetchLatestRemoteClipFromWindowsServer();
     }
@@ -659,6 +662,10 @@ void _onForegroundDataReceived(dynamic data) {
   /// Manually triggers a clipboard read and push.
   Future<void> triggerManualSync() async {
     await _checkLocalClipboard();
+    if (!kIsWeb && !Platform.isWindows && !Platform.isMacOS) {
+      _consecutiveFailures = 0;
+      await _fetchLatestRemoteClipFromWindowsServer();
+    }
   }
 
   /// Stops clipboard listener and background tasks.

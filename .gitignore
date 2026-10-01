@@ -53,3 +53,5 @@ pclink-*-firebase-adminsdk-*.json
 firebase_service_account.json
 credentials_backup.zip
 fcm_server_key.txt
+macos-ios-implementation-plan.md
+PLATFORM_AUDIT_MACOS_IOS.md

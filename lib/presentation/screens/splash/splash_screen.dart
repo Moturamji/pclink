@@ -7,6 +7,7 @@ import '../../../core/widgets/universal/app_logo.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
+import '../../../data/services/platform_helpers.dart';
 import '../../../data/services/session_service.dart';
 import '../auth/auth_screen.dart';
 import '../home/home_screen.dart';
@@ -75,13 +76,13 @@ class _SplashScreenState extends State<SplashScreen>
 
     final user = _authService.currentUser;
     if (user != null) {
-      final isWindows = !kIsWeb && Platform.isWindows;
-      final platformKey = isWindows ? 'windows' : 'android';
+      final isDesktop = isDesktopHost;
+      final currentPlatformKey = platformKey;
       try {
         final details = await _deviceService.getDeviceDetails();
         final isValid = await _sessionService.isSessionValid(
           user: user,
-          platformKey: platformKey,
+          platformKey: currentPlatformKey,
           deviceId: details.deviceId,
           databaseService: _databaseService,
         );
@@ -91,7 +92,7 @@ class _SplashScreenState extends State<SplashScreen>
           await _sessionService.clearLocalSession();
           await _authService.signOut();
           if (!mounted) return;
-          final deviceType = isWindows ? 'PC' : 'phone';
+          final deviceType = isDesktop ? 'computer' : 'phone';
           Navigator.of(context).pushReplacement(
             PageRouteBuilder(
               pageBuilder: (context, animation, secondaryAnimation) =>

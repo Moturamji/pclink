@@ -4,20 +4,26 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../../core/constants/server_constants.dart';
+import 'platform_helpers.dart';
 
-/// Fully-automated public tunnel for the Windows clipboard server.
+/// Fully-automated public tunnel for the desktop clipboard and file server.
 ///
 /// Zero user setup: on first use it downloads the free, token-less
-/// `cloudflared` CLI from GitHub into `%APPDATA%/pclink/`, then spawns
+/// `cloudflared` CLI from GitHub into system app data, then spawns
 /// `cloudflared tunnel --url http://127.0.0.1:<port>`, extracts the ephemeral
 /// `https://*.trycloudflare.com` address from its output, and exposes it
 /// through [urlStream] so the app can publish it to Firebase. The phone then
-/// reaches the PC from any network - no port-forwarding, no account, no
+/// reaches the host from any network - no port-forwarding, no account, no
 /// manual configuration. If anything fails, the app silently falls back to
 /// the WAN/LAN route.
 class TunnelService {
-  static const String downloadUrl =
-      'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
+  static String get downloadUrl {
+    if (!kIsWeb && Platform.isMacOS) {
+      return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz';
+    }
+    return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
+  }
+
   static final RegExp _urlPattern =
       RegExp('https://[a-zA-Z0-9-]+[.]trycloudflare[.]com');
 
@@ -48,8 +54,8 @@ class TunnelService {
   /// public URL, or `null` if it couldn't be established (the app keeps the
   /// WAN/LAN fallback in that case).
   Future<String?> start() async {
-    if (kIsWeb || !Platform.isWindows) {
-      debugPrint('TunnelService: Tunnels are only supported on Windows.');
+    if (kIsWeb || !isDesktopHost) {
+      debugPrint('TunnelService: Tunnels are only supported on desktop hosts (Windows/macOS).');
       return null;
     }
 
@@ -198,28 +204,50 @@ void _watchProcess(Process process) {
 
   Future<bool> _downloadBinary() async {
     try {
-      final appData = Platform.environment['APPDATA'];
-      final baseDir = (appData != null && appData.isNotEmpty)
-          ? '$appData\\pclink'
-          : '.';
-      final binPath = '$baseDir\\pclink-relay.exe';
-      final oldBinPath = '$baseDir\\cloudflared.exe';
+      String baseDir;
+      String binPath;
+      if (!kIsWeb && Platform.isWindows) {
+        final appData = Platform.environment['APPDATA'];
+        baseDir = (appData != null && appData.isNotEmpty)
+            ? '$appData\\pclink'
+            : '.';
+        binPath = '$baseDir\\pclink-relay.exe';
+        final oldBinPath = '$baseDir\\cloudflared.exe';
 
-      // Auto-migrate previous binary name if present
-      final file = File(binPath);
-      final oldFile = File(oldBinPath);
+        // Auto-migrate previous binary name if present
+        final file = File(binPath);
+        final oldFile = File(oldBinPath);
 
-      if (!await file.exists() && await oldFile.exists()) {
-        try {
-          await oldFile.rename(binPath);
-          debugPrint('TunnelService: Migrated binary to $binPath');
-        } catch (_) {
+        if (!await file.exists() && await oldFile.exists()) {
           try {
-            await oldFile.copy(binPath);
-          } catch (_) {}
+            await oldFile.rename(binPath);
+            debugPrint('TunnelService: Migrated binary to $binPath');
+          } catch (_) {
+            try {
+              await oldFile.copy(binPath);
+            } catch (_) {}
+          }
         }
+      } else if (!kIsWeb && Platform.isMacOS) {
+        for (final sysPath in [
+          '/opt/homebrew/bin/cloudflared',
+          '/usr/local/bin/cloudflared',
+        ]) {
+          if (File(sysPath).existsSync()) {
+            _binaryPath = sysPath;
+            _binaryParent = File(sysPath).parent.path;
+            debugPrint('TunnelService: Using system cloudflared at $sysPath');
+            return true;
+          }
+        }
+        final home = Platform.environment['HOME'] ?? '.';
+        baseDir = '$home/Library/Application Support/pclink';
+        binPath = '$baseDir/pclink-relay';
+      } else {
+        return false;
       }
 
+      final file = File(binPath);
       if (await file.exists()) {
         _binaryPath = binPath;
         _binaryParent = baseDir;
@@ -229,8 +257,6 @@ void _watchProcess(Process process) {
 
       debugPrint(
           'TunnelService: First run - downloading DeskPocket Relay service (one time only)...');
-      // Stream to disk in chunks instead of buffering the whole ~30 MB
-      // binary in memory via response.bodyBytes.
       final request = http.Request('GET', Uri.parse(downloadUrl));
       final streamed = await _client.send(request).timeout(
             const Duration(minutes: 10),
@@ -246,7 +272,9 @@ void _watchProcess(Process process) {
         await dir.create(recursive: true);
       }
 
-      final tmp = File('$binPath.download');
+      final isArchive =
+          downloadUrl.endsWith('.tgz') || downloadUrl.endsWith('.tar.gz');
+      final tmp = File(isArchive ? '$binPath.tgz' : '$binPath.download');
       final sink = tmp.openWrite();
       try {
         await for (final chunk in streamed.stream) {
@@ -255,7 +283,24 @@ void _watchProcess(Process process) {
       } finally {
         await sink.close();
       }
-      await tmp.rename(binPath);
+
+      if (isArchive) {
+        await Process.run('tar', ['-xzf', tmp.path, '-C', baseDir]);
+        final extracted = File('$baseDir/cloudflared');
+        if (await extracted.exists()) {
+          if (await file.exists()) await file.delete();
+          await extracted.rename(binPath);
+        }
+        try {
+          await tmp.delete();
+        } catch (_) {}
+      } else {
+        await tmp.rename(binPath);
+      }
+
+      if (!kIsWeb && Platform.isMacOS) {
+        await Process.run('chmod', ['+x', binPath]);
+      }
 
       _binaryPath = binPath;
       _binaryParent = baseDir;

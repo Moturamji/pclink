@@ -388,13 +388,15 @@ class _FileShareCardState extends State<FileShareCard> {
     try {
       if (!kIsWeb && Platform.isWindows) {
         await Process.run('cmd', ['/c', 'start', '', path]);
+      } else if (!kIsWeb && Platform.isMacOS) {
+        await Process.run('open', [path]);
       }
     } catch (e) {
       _showSnack('Could not open file: $e', isError: true);
     }
   }
 
-  /// Reveal file in Windows Explorer
+  /// Reveal file in Windows Explorer or macOS Finder
   Future<void> _showInFolder(SharedFile file) async {
     final path = file.filePath;
     if (path == null) {
@@ -404,6 +406,8 @@ class _FileShareCardState extends State<FileShareCard> {
     try {
       if (!kIsWeb && Platform.isWindows) {
         await Process.run('explorer.exe', ['/select,', path]);
+      } else if (!kIsWeb && Platform.isMacOS) {
+        await Process.run('open', ['-R', path]);
       }
     } catch (e) {
       _showSnack('Could not show in folder: $e', isError: true);
