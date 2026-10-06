@@ -51,6 +51,10 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
         });
       }
     });
+
+    if (!widget.isWindows && widget.clipboardService.isListening) {
+      widget.clipboardService.refreshHistory();
+    }
   }
 
   @override

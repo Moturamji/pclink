@@ -209,6 +209,8 @@ void main() {
       expect(newInfo, isNotNull);
       final newStartTime = newInfo!.startedAt!.toIso8601String();
       final newServerUrl = 'http://127.0.0.1:${newInfo.port}';
+      serverUrl = newServerUrl;
+      serverStartTime = newStartTime;
 
       final client = http.Client();
       final uri = Uri.parse('$newServerUrl${ServerConstants.clipboardEndpoint}');
@@ -246,6 +248,65 @@ void main() {
         }),
       );
       expect(respNew.statusCode, equals(200));
+    });
+  });
+
+  group('Mobile Client ClipboardService Initialization & Sync Tests', () {
+    test('Mobile startListening correctly initiates connectivity check and marks server reachable', () async {
+      final mobileService = ClipboardService();
+      expect(mobileService.isListening, isFalse);
+      expect(mobileService.isServerReachable, isFalse);
+
+      mobileService.startListening(
+        deviceName: 'Pixel 9',
+        isWindows: false,
+        deviceId: testDeviceId,
+        getTargetServerUrls: () => [serverUrl],
+        getServerStartTime: () => serverStartTime,
+      );
+
+      expect(mobileService.isListening, isTrue);
+
+      // Allow background HTTP check to complete
+      await Future.delayed(const Duration(milliseconds: 300));
+
+      expect(mobileService.isServerReachable, isTrue);
+      expect(mobileService.lastError, isNull);
+
+      mobileService.stopListening();
+      mobileService.dispose();
+    });
+
+    test('Mobile client refreshes and populates history from Windows server', () async {
+      final item = ClipboardItem(
+        id: 'server_history_test_item',
+        text: 'PC item for mobile history fetch',
+        sourcePlatform: 'windows',
+        sourceDeviceName: 'Mohit PC',
+        timestamp: DateTime.now(),
+      );
+      serverService.addLocalClipboardItem(item);
+
+      final mobileService = ClipboardService();
+      mobileService.startListening(
+        deviceName: 'Pixel 9',
+        isWindows: false,
+        deviceId: testDeviceId,
+        getTargetServerUrls: () => [serverUrl],
+        getServerStartTime: () => serverStartTime,
+      );
+
+      await Future.delayed(const Duration(milliseconds: 300));
+      await mobileService.refreshHistory();
+
+      expect(mobileService.isServerReachable, isTrue);
+      expect(
+        mobileService.currentHistory.any((c) => c.text == 'PC item for mobile history fetch'),
+        isTrue,
+      );
+
+      mobileService.stopListening();
+      mobileService.dispose();
     });
   });
 }

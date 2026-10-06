@@ -245,8 +245,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return info?.startedAt?.toIso8601String();
       },
       onConnectionLost: () {
-        debugPrint('HomeScreen: Connection lost detected by ClipboardService');
-        _stopMobileServices();
+        debugPrint(
+          'HomeScreen: Transient connection loss detected by ClipboardService; retrying in background...',
+        );
       },
     );
   }

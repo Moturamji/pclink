@@ -159,6 +159,7 @@ class ClipboardService with WidgetsBindingObserver {
       };
       _history.addAll(_serverService!.clipboardHistory);
       _historyController.add(List.from(_history));
+    } else {
       // Mobile client:
       // On iOS, background timers are terminated or cause battery penalty.
       // Instead, iOS clipboard sync relies on app resume lifecycle or manual trigger.
@@ -364,6 +365,7 @@ void _onForegroundDataReceived(dynamic data) {
     // Whenever app focus changes or resumes, check clipboard immediately
     _checkLocalClipboard();
     if (!kIsWeb && !Platform.isWindows && !Platform.isMacOS) {
+      _deadUrls.clear();
       _consecutiveFailures = 0; // Reset backoff on app resume
       _fetchLatestRemoteClipFromWindowsServer();
     }
