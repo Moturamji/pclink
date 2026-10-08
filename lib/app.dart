@@ -4,9 +4,9 @@ import 'core/theme/app_theme.dart';
 import 'core/theme/theme_service.dart';
 import 'presentation/screens/splash/splash_screen.dart';
 
-/// Root application widget for PCLink supporting both Light and Dark modes.
-class PCLinkApp extends StatelessWidget {
-  const PCLinkApp({super.key});
+/// Root application widget for DeskPocket supporting both Light and Dark modes.
+class DeskPocketApp extends StatelessWidget {
+  const DeskPocketApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -20,8 +20,17 @@ class PCLinkApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           home: const SplashScreen(),
+          onGenerateRoute: (settings) => MaterialPageRoute(
+            builder: (context) => const SplashScreen(),
+          ),
+          onUnknownRoute: (settings) => MaterialPageRoute(
+            builder: (context) => const SplashScreen(),
+          ),
         );
       },
     );
   }
 }
+
+/// Backwards compatibility alias for PCLinkApp.
+typedef PCLinkApp = DeskPocketApp;

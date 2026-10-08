@@ -13,6 +13,7 @@ import '../../core/utils/transfer_fingerprint.dart';
 import '../../core/utils/transfer_integrity.dart';
 import '../../features/file_share/models/shared_file.dart';
 import '../../features/file_share/models/transfer_progress.dart';
+import 'foreground_transfer_manager.dart';
 import 'screen_share_start_result.dart';
 
 /// Android client for the Windows temporary server's file-sharing API.
@@ -31,6 +32,9 @@ class FileShareService {
   String? _deviceId;
   String? _currentDeviceName;
 
+  final Set<String> _processedDownloadIds = <String>{};
+  Timer? _autoSyncTimer;
+
   // Real-time file transfer progress broadcast stream (active uploads/downloads)
   TransferProgress? _currentProgress;
   final StreamController<TransferProgress?> _progressController =
@@ -41,12 +45,20 @@ class FileShareService {
   final StreamController<Map<String, TransferProgress>> _allTransfersController =
       StreamController<Map<String, TransferProgress>>.broadcast();
 
+  // Persistent queues for strict 1-at-a-time concurrency
+  final List<({String path, String? matchingId, Completer<bool> completer})> _uploadQueue = [];
+  int _runningUploads = 0;
+
+  final List<({SharedFile file, Completer<File?> completer})> _downloadQueue = [];
+  int _runningDownloads = 0;
+
   Stream<TransferProgress?> get progressStream => _progressController.stream;
   Stream<Map<String, TransferProgress>> get allTransfersStream =>
       _allTransfersController.stream;
   TransferProgress? get currentProgress => _currentProgress;
   Map<String, TransferProgress> get activeTransfers =>
       Map.unmodifiable(_activeTransfers);
+  Map<String, TransferProgress> get allTransfers => activeTransfers;
 
   void _emitProgress(TransferProgress? progress) {
     if (progress != null) {
@@ -62,6 +74,20 @@ class FileShareService {
         return;
       }
       _activeTransfers[progress.fileId] = progress;
+      if (progress.isActive) {
+        final activeCount =
+            _activeTransfers.values.where((t) => t.isActive).length;
+        ForegroundTransferManager.instance.updateProgress(
+          progress,
+          activeCount: activeCount,
+        );
+      } else if (_activeTransfers.values.isNotEmpty &&
+          _activeTransfers.values.every((t) => !t.isActive)) {
+        ForegroundTransferManager.instance.onTransfersFinished(
+          success: _activeTransfers.values
+              .every((t) => t.status == TransferStatus.completed),
+        );
+      }
       if (progress.status == TransferStatus.completed ||
           progress.status == TransferStatus.failed ||
           progress.status == TransferStatus.cancelled) {
@@ -109,6 +135,22 @@ class FileShareService {
     if (token != null) {
       token.cancel();
     }
+    // Remove from upload queue if pending
+    _uploadQueue.removeWhere((item) {
+      if (item.matchingId == transferId) {
+        if (!item.completer.isCompleted) item.completer.complete(false);
+        return true;
+      }
+      return false;
+    });
+    // Remove from download queue if pending
+    _downloadQueue.removeWhere((item) {
+      if (item.file.id == transferId) {
+        if (!item.completer.isCompleted) item.completer.complete(null);
+        return true;
+      }
+      return false;
+    });
     final existing = _activeTransfers[transferId];
     if (existing != null && existing.isActive) {
       _emitProgress(
@@ -123,6 +165,15 @@ class FileShareService {
 
   /// Cancels all active upload or download transfers immediately.
   void cancelActiveTransfers() {
+    for (final item in _uploadQueue) {
+      if (!item.completer.isCompleted) item.completer.complete(false);
+    }
+    _uploadQueue.clear();
+    for (final item in _downloadQueue) {
+      if (!item.completer.isCompleted) item.completer.complete(null);
+    }
+    _downloadQueue.clear();
+
     for (final token in List.of(_activeTokens.values)) {
       token.cancel();
     }
@@ -160,7 +211,25 @@ class FileShareService {
   /// process. Purging happens once instead of on every download attempt.
   bool _purgedStaleParts = false;
 
-  /// All candidate PC server URLs (public WAN first, then LAN), deduplicated.
+  /// Returns true for direct local network URLs (Wi-Fi/Ethernet/localhost).
+  bool _isDirectLanUrl(String url) {
+    if (!url.startsWith('http://')) return false;
+    final uri = Uri.tryParse(url);
+    if (uri == null) return false;
+    final host = uri.host;
+    if (host == 'localhost' || host == '127.0.0.1') return true;
+    if (host.startsWith('192.168.') || host.startsWith('10.')) return true;
+    if (host.startsWith('172.')) {
+      final parts = host.split('.');
+      if (parts.length >= 2) {
+        final second = int.tryParse(parts[1]);
+        if (second != null && second >= 16 && second <= 31) return true;
+      }
+    }
+    return false;
+  }
+
+  /// All candidate PC server URLs (direct LAN first, then WAN/tunnel), deduplicated.
   List<String> _candidateUrls() {
     final list = _getTargetServerUrls?.call();
     if (list == null || list.isEmpty) return const <String>[];
@@ -179,6 +248,14 @@ class FileShareService {
         if (!result.contains(s)) result.add(s);
       }
     }
+    // High-speed LAN routes (Wi-Fi/Ethernet) always tried before rate-limited cloud relays
+    result.sort((a, b) {
+      final aLan = _isDirectLanUrl(a);
+      final bLan = _isDirectLanUrl(b);
+      if (aLan && !bLan) return -1;
+      if (!aLan && bLan) return 1;
+      return 0;
+    });
     return result;
   }
 
@@ -422,14 +499,222 @@ class FileShareService {
   /// Industry-style acknowledged upload: a bounded segment is confirmed by the
   /// PC before the next is read.  This avoids one long tunnel request being the
   /// single point of failure for videos, while keeping memory pressure bounded.
+  /// Immediately registers and enqueues multiple upload files with controlled concurrency.
+  /// All transfer cards appear immediately in queued state.
+  Future<List<bool>> enqueueUploadFiles(List<String> filePaths) async {
+    final first = filePaths.isNotEmpty
+        ? filePaths.first.split(RegExp(r'[\\/]')).last
+        : null;
+    ForegroundTransferManager.instance.ensureForegroundActive(
+      initialFileName: first,
+    );
+
+    final futures = <Future<bool>>[];
+
+    for (final path in filePaths) {
+      final file = File(path);
+      if (!file.existsSync()) continue;
+      final totalBytes = file.lengthSync();
+      final name = path.split(RegExp(r'[\\/]')).last;
+      final transferId =
+          'tx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+      final token = CancellationToken();
+      _activeTokens[transferId] = token;
+
+      final initial = TransferProgress(
+        fileId: transferId,
+        fileName: name,
+        bytesTransferred: 0,
+        totalBytes: totalBytes,
+        senderBytes: 0,
+        receiverBytes: 0,
+        speedBytesPerSec: 0,
+        isUpload: true,
+        status: TransferStatus.queued,
+        timestamp: DateTime.now(),
+      );
+      _activeTransfers[transferId] = initial;
+
+      final completer = Completer<bool>();
+      _uploadQueue.add((path: path, matchingId: transferId, completer: completer));
+      futures.add(completer.future);
+    }
+
+    if (futures.isEmpty) {
+      return [];
+    }
+
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.add(Map.from(_activeTransfers));
+    }
+    if (_currentProgress == null && _activeTransfers.isNotEmpty) {
+      _currentProgress = _activeTransfers.values.last;
+      if (!_progressController.isClosed) {
+        _progressController.add(_currentProgress);
+      }
+    }
+
+    _pumpUploadQueue();
+    return Future.wait(futures);
+  }
+
+  void _pumpUploadQueue() {
+    const maxConcurrent = 1;
+    while (_runningUploads < maxConcurrent && _uploadQueue.isNotEmpty) {
+      final item = _uploadQueue.removeAt(0);
+      _runningUploads++;
+      uploadFile(item.path, customTransferId: item.matchingId).then((success) {
+        if (!item.completer.isCompleted) item.completer.complete(success);
+        _runningUploads--;
+        _pumpUploadQueue();
+      }).catchError((e) {
+        if (!item.completer.isCompleted) item.completer.complete(false);
+        _runningUploads--;
+        _pumpUploadQueue();
+      });
+    }
+  }
+
+  /// Immediately registers and enqueues multiple download files with controlled concurrency.
+  /// Transfers 1 file at a time for 100% full speed, keeping remaining files queued.
+  Future<List<File?>> enqueueDownloadFiles(List<SharedFile> files) async {
+    final first = files.isNotEmpty ? files.first.name : null;
+    ForegroundTransferManager.instance.ensureForegroundActive(
+      initialFileName: first,
+    );
+
+    final futures = <Future<File?>>[];
+
+    for (final file in files) {
+      if (_processedDownloadIds.contains(file.id)) continue;
+      final existing = _activeTransfers[file.id];
+      if (existing != null &&
+          (existing.status == TransferStatus.transferring ||
+              existing.status == TransferStatus.resuming ||
+              existing.status == TransferStatus.queued ||
+              existing.status == TransferStatus.completed)) {
+        continue;
+      }
+
+      final transferId = file.id;
+      final token = CancellationToken();
+      _activeTokens[transferId] = token;
+
+      final initial = TransferProgress(
+        fileId: transferId,
+        fileName: file.name,
+        bytesTransferred: 0,
+        totalBytes: file.size,
+        senderBytes: 0,
+        receiverBytes: 0,
+        speedBytesPerSec: 0,
+        isUpload: false,
+        status: TransferStatus.queued,
+        timestamp: DateTime.now(),
+      );
+      _activeTransfers[transferId] = initial;
+
+      final completer = Completer<File?>();
+      _downloadQueue.add((file: file, completer: completer));
+      futures.add(completer.future);
+    }
+
+    if (futures.isEmpty) {
+      return [];
+    }
+
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.add(Map.from(_activeTransfers));
+    }
+    if (_currentProgress == null && _activeTransfers.isNotEmpty) {
+      _currentProgress = _activeTransfers.values.last;
+      if (!_progressController.isClosed) {
+        _progressController.add(_currentProgress);
+      }
+    }
+
+    _pumpDownloadQueue();
+    return Future.wait(futures);
+  }
+
+  void _pumpDownloadQueue() {
+    const maxConcurrent = 1;
+    while (_runningDownloads < maxConcurrent && _downloadQueue.isNotEmpty) {
+      final item = _downloadQueue.removeAt(0);
+      _runningDownloads++;
+      downloadFile(item.file, customTransferId: item.file.id).then((dest) {
+        if (!item.completer.isCompleted) item.completer.complete(dest);
+        _runningDownloads--;
+        _pumpDownloadQueue();
+      }).catchError((e) {
+        if (!item.completer.isCompleted) item.completer.complete(null);
+        _runningDownloads--;
+        _pumpDownloadQueue();
+      });
+    }
+  }
+
+  /// Checks for any PC-queued files that have not yet been downloaded by this phone
+  /// and automatically enqueues them for sequential download.
+  Future<void> syncPendingDownloads({List<TransferProgress>? remoteTransfers}) async {
+    if (_candidateUrls().isEmpty) return;
+    try {
+      final transfers = remoteTransfers ?? await listRemoteTransfers();
+      final queuedFromPC = transfers.where((t) =>
+          t.status == TransferStatus.queued &&
+          !_processedDownloadIds.contains(t.fileId) &&
+          (!_activeTransfers.containsKey(t.fileId) ||
+              _activeTransfers[t.fileId]?.status == TransferStatus.failed)).toList();
+
+      if (queuedFromPC.isEmpty) return;
+
+      final files = await listSharedFiles();
+      final toDownload = <SharedFile>[];
+
+      for (final tx in queuedFromPC) {
+        final match = files.firstWhere(
+          (f) => f.id == tx.fileId,
+          orElse: () => SharedFile(
+            id: tx.fileId,
+            name: tx.fileName,
+            size: tx.totalBytes,
+            sourcePlatform: 'windows',
+            sourceDeviceName: 'Windows PC',
+            timestamp: tx.timestamp,
+          ),
+        );
+        toDownload.add(match);
+      }
+
+      if (toDownload.isNotEmpty) {
+        debugPrint(
+          'FileShareService: Auto-pulling ${toDownload.length} PC-queued file(s)...',
+        );
+        unawaited(enqueueDownloadFiles(toDownload));
+      }
+    } catch (e) {
+      debugPrint('FileShareService syncPendingDownloads error: $e');
+    }
+  }
+
+  /// Starts a periodic background monitor that detects PC-queued files and pulls them.
+  void startAutoSync({Duration interval = const Duration(seconds: 3)}) {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = Timer.periodic(interval, (_) => syncPendingDownloads());
+  }
+
+  /// Stops the periodic background monitor.
+  void stopAutoSync() {
+    _autoSyncTimer?.cancel();
+    _autoSyncTimer = null;
+  }
+
+  /// High-throughput chunked upload with persistent keep-alive and incremental CRC-32.
   Future<bool> uploadFile(
     String filePath, {
     CancellationToken? cancelToken,
     String? customTransferId,
   }) async {
-    // 2 MB is large enough to keep Wi-Fi/tunnel throughput healthy but small
-    // enough to retry cheaply on a phone with limited memory.
-    const segmentSize = 2 * 1024 * 1024;
     final urls = _candidateUrls();
     if (urls.isEmpty) return false;
 
@@ -451,6 +736,8 @@ class FileShareService {
         fileName: name,
         bytesTransferred: 0,
         totalBytes: totalBytes,
+        senderBytes: 0,
+        receiverBytes: 0,
         isUpload: true,
         status: TransferStatus.preparing,
         timestamp: DateTime.now(),
@@ -474,18 +761,46 @@ class FileShareService {
     for (final baseUrl in urls) {
       if (token.isCancelled) break;
       try {
+        final isLan = _isDirectLanUrl(baseUrl);
+        // High-throughput 16 MB chunks on local LAN (Wi-Fi/Ethernet); 4 MB on WAN tunnel
+        final segmentSize = isLan ? (16 * 1024 * 1024) : (4 * 1024 * 1024);
         var offset = 0;
         final checkUri = Uri.parse(
           '$baseUrl${ServerConstants.filesUploadEndpoint}?checkOffset=true&name=$encodedName&size=$totalBytes&fileKey=${encodedName}_$totalBytes&fingerprint=$fingerprint',
         );
+        final checkTimeout = Duration(milliseconds: isLan ? 2500 : 6000);
         final check = await _client
             .get(checkUri, headers: _authHeaders())
-            .timeout(const Duration(seconds: 5));
+            .timeout(checkTimeout);
         if (check.statusCode == HttpStatus.ok) {
           final data = jsonDecode(check.body);
           final savedOffset = data is Map ? data['offset'] : null;
           if (savedOffset is int && savedOffset >= 0 && savedOffset < totalBytes) {
             offset = savedOffset;
+          }
+        }
+
+        // Initialize incremental CRC32 calculator on sender
+        final cumulativeSourceCrc = TransferCrc32();
+        if (offset > 0) {
+          final rafResume = await file.open(mode: FileMode.read);
+          try {
+            var toHash = offset;
+            const bSize = 1024 * 1024;
+            final b = Uint8List(bSize);
+            while (toHash > 0) {
+              final r = min(bSize, toHash);
+              final bytesRead = await rafResume.readInto(b, 0, r);
+              if (bytesRead <= 0) break;
+              cumulativeSourceCrc.update(
+                bytesRead == b.length
+                    ? b
+                    : Uint8List.sublistView(b, 0, bytesRead),
+              );
+              toHash -= bytesRead;
+            }
+          } finally {
+            await rafResume.close();
           }
         }
 
@@ -495,6 +810,8 @@ class FileShareService {
             fileName: name,
             bytesTransferred: offset,
             totalBytes: totalBytes,
+            senderBytes: offset,
+            receiverBytes: offset,
             isUpload: true,
             status: offset > 0 ? TransferStatus.resuming : TransferStatus.transferring,
             timestamp: DateTime.now(),
@@ -507,6 +824,7 @@ class FileShareService {
             await source.setPosition(offset);
             final bytes = await source.read(min(segmentSize, totalBytes - offset));
             if (bytes.isEmpty) throw const FileSystemException('Source file ended early');
+            cumulativeSourceCrc.update(bytes);
             final nextOffset = offset + bytes.length;
             final isFinalSegment = nextOffset == totalBytes;
             final uri = Uri.parse(
@@ -515,30 +833,31 @@ class FileShareService {
             final request = http.Request('POST', uri)
               ..bodyBytes = bytes
               ..headers.addAll(_authHeaders(contentType: 'application/octet-stream'));
-            final chunkCrc = TransferCrc32()..update(bytes);
-            request.headers['X-Chunk-Checksum'] = chunkCrc.hexString;
-
-            // Keep the status honest during the receiver's final validation.
-            final Future<String>? sourceChecksum = isFinalSegment
-                ? TransferCrc32.checksumFile(file)
-                : null;
             if (isFinalSegment) {
-              _emitProgress(
-                TransferProgress(
-                  fileId: transferId,
-                  fileName: name,
-                  bytesTransferred: offset,
-                  totalBytes: totalBytes,
-                  isUpload: true,
-                  status: TransferStatus.verifying,
-                  timestamp: DateTime.now(),
-                ),
-              );
+              request.headers['x-transfer-checksum'] = cumulativeSourceCrc.hexString;
             }
+
+            // Emit dual progress as chunk is dispatched onto wire
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: name,
+                bytesTransferred: offset,
+                totalBytes: totalBytes,
+                senderBytes: nextOffset,
+                receiverBytes: offset,
+                speedBytesPerSec: stopwatch.elapsedMilliseconds > 0
+                    ? offset / (stopwatch.elapsedMilliseconds / 1000)
+                    : 0,
+                isUpload: true,
+                status: isFinalSegment
+                    ? TransferStatus.verifying
+                    : TransferStatus.transferring,
+                timestamp: DateTime.now(),
+              ),
+            );
+
             final response = await _client.send(request).timeout(
-              // Each segment is intentionally short-lived. Failing over after
-              // 35 seconds is better than leaving a phone stuck on one dead
-              // tunnel request for minutes.
               const Duration(seconds: 35),
             );
             final responseBody = await response.stream.bytesToString();
@@ -559,6 +878,8 @@ class FileShareService {
                 fileName: name,
                 bytesTransferred: offset,
                 totalBytes: totalBytes,
+                senderBytes: nextOffset,
+                receiverBytes: offset,
                 speedBytesPerSec: seconds > 0 ? offset / seconds : 0,
                 isUpload: true,
                 status: response.statusCode == HttpStatus.ok
@@ -569,7 +890,9 @@ class FileShareService {
             );
             if (response.statusCode == HttpStatus.ok) {
               final serverCrc = payload is Map ? payload['crc32'] : null;
-              final sourceCrc = await sourceChecksum!;
+              final sourceCrc = (cumulativeSourceCrc.bytesProcessed == totalBytes && totalBytes > 0)
+                  ? cumulativeSourceCrc.hexString
+                  : await TransferCrc32.checksumFile(file);
               if (serverCrc is! String || serverCrc.toLowerCase() != sourceCrc.toLowerCase()) {
                 throw const HttpException('The received file did not pass integrity verification');
               }
@@ -579,6 +902,9 @@ class FileShareService {
                   fileName: name,
                   bytesTransferred: totalBytes,
                   totalBytes: totalBytes,
+                  senderBytes: totalBytes,
+                  receiverBytes: totalBytes,
+                  speedBytesPerSec: 0,
                   isUpload: true,
                   status: TransferStatus.completed,
                   timestamp: DateTime.now(),
@@ -608,7 +934,7 @@ class FileShareService {
           totalBytes: totalBytes,
           isUpload: true,
           status: TransferStatus.failed,
-          errorMessage: 'Connection interrupted. You can retry and PCLink will resume.',
+          errorMessage: 'Connection interrupted. You can retry and DeskPocket will resume.',
           timestamp: DateTime.now(),
         ),
       );
@@ -1022,6 +1348,9 @@ class FileShareService {
     CancellationToken? cancelToken,
     String? customTransferId,
   }) async {
+    ForegroundTransferManager.instance.ensureForegroundActive(
+      initialFileName: item.name,
+    );
     final urls = _candidateUrls();
     if (urls.isEmpty) {
       debugPrint('FileShareService: No server URLs configured for download');
@@ -1030,7 +1359,9 @@ class FileShareService {
 
     final totalBytes = item.size;
     final transferId = customTransferId ??
-        'rx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+        (item.id.isNotEmpty
+            ? item.id
+            : 'rx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}');
     final token = cancelToken ?? CancellationToken();
     _activeTokens[transferId] = token;
 
@@ -1082,6 +1413,7 @@ class FileShareService {
                 timestamp: DateTime.now(),
               ),
             );
+            _processedDownloadIds.add(item.id);
             return finalDest;
           }
         }
@@ -1169,6 +1501,8 @@ class FileShareService {
                   fileName: item.name,
                   bytesTransferred: currentTotal,
                   totalBytes: totalBytes,
+                  senderBytes: currentTotal,
+                  receiverBytes: currentTotal,
                   speedBytesPerSec: speed,
                   isUpload: false,
                   status: TransferStatus.transferring,
@@ -1195,6 +1529,8 @@ class FileShareService {
               fileName: item.name,
               bytesTransferred: startOffset + bytesReceivedThisSession,
               totalBytes: totalBytes,
+              senderBytes: startOffset + bytesReceivedThisSession,
+              receiverBytes: startOffset + bytesReceivedThisSession,
               speedBytesPerSec: 0,
               isUpload: false,
               status: TransferStatus.cancelled,
@@ -1212,6 +1548,8 @@ class FileShareService {
               fileName: item.name,
               bytesTransferred: totalDownloaded,
               totalBytes: totalBytes,
+              senderBytes: totalDownloaded,
+              receiverBytes: totalDownloaded,
               speedBytesPerSec: 0,
               isUpload: false,
               status: TransferStatus.failed,
@@ -1229,6 +1567,8 @@ class FileShareService {
             fileName: item.name,
             bytesTransferred: totalBytes,
             totalBytes: totalBytes,
+            senderBytes: totalBytes,
+            receiverBytes: totalBytes,
             speedBytesPerSec: lastSpeedBytesPerSec,
             isUpload: false,
             status: TransferStatus.verifying,
@@ -1242,6 +1582,8 @@ class FileShareService {
             fileName: item.name,
             bytesTransferred: totalBytes,
             totalBytes: totalBytes,
+            senderBytes: totalBytes,
+            receiverBytes: totalBytes,
             speedBytesPerSec: lastSpeedBytesPerSec,
             isUpload: false,
             status: TransferStatus.finalizing,
@@ -1262,6 +1604,8 @@ class FileShareService {
             fileName: finalSavedName,
             bytesTransferred: totalBytes,
             totalBytes: totalBytes,
+            senderBytes: totalBytes,
+            receiverBytes: totalBytes,
             speedBytesPerSec: 0,
             isUpload: false,
             status: TransferStatus.completed,
@@ -1276,6 +1620,7 @@ class FileShareService {
         });
 
 
+        _processedDownloadIds.add(item.id);
         return finalDest;
       } catch (e) {
         debugPrint('FileShareService: Download from $baseUrl failed: $e');
@@ -1288,6 +1633,8 @@ class FileShareService {
         fileName: item.name,
         bytesTransferred: 0,
         totalBytes: totalBytes,
+        senderBytes: 0,
+        receiverBytes: 0,
         speedBytesPerSec: 0,
         isUpload: false,
         status: TransferStatus.failed,
@@ -1317,6 +1664,19 @@ class FileShareService {
 
   /// Resolves (and lazily creates) the standard device Downloads/PCLink folder.
   Future<Directory> _getPCLinkDownloadDir() async {
+    if (!kIsWeb && Platform.isIOS) {
+      try {
+        final docs = await getApplicationDocumentsDirectory();
+        final iosDir = Directory('${docs.path}/DeskPocket');
+        if (!await iosDir.exists()) {
+          await iosDir.create(recursive: true);
+        }
+        return iosDir;
+      } catch (e) {
+        debugPrint('FileShareService: iOS Documents dir error: $e');
+      }
+    }
+
     if (!kIsWeb && Platform.isAndroid) {
       // 1. Try native Android environment API for Downloads
       try {
@@ -1334,7 +1694,7 @@ class FileShareService {
       }
 
       // 2. Direct Android primary storage Download folder
-      final androidDownload = Directory('/storage/emulated/0/Download/PCLink');
+      final androidDownload = Directory('/storage/emulated/0/Download/DeskPocket');
       try {
         if (!await androidDownload.exists()) {
           await androidDownload.create(recursive: true);
@@ -1342,7 +1702,7 @@ class FileShareService {
         return androidDownload;
       } catch (e) {
         debugPrint(
-          'FileShareService: Falling back from /storage/emulated/0/Download/PCLink: $e',
+          'FileShareService: Falling back from /storage/emulated/0/Download/DeskPocket: $e',
         );
       }
 
@@ -1353,7 +1713,7 @@ class FileShareService {
         );
         if (extDirs != null && extDirs.isNotEmpty) {
           final candidate =
-              Directory('${extDirs.first.path}${Platform.pathSeparator}PCLink');
+              Directory('${extDirs.first.path}${Platform.pathSeparator}DeskPocket');
           if (!await candidate.exists()) {
             await candidate.create(recursive: true);
           }
@@ -1370,20 +1730,20 @@ class FileShareService {
       final downloads = await getDownloadsDirectory();
       if (downloads != null) {
         targetDir = Directory(
-          '${downloads.path}${Platform.pathSeparator}PCLink',
+          '${downloads.path}${Platform.pathSeparator}DeskPocket',
         );
       }
     } catch (_) {}
 
-    // 5. Fallback to Documents/PCLink
+    // 5. Fallback to Documents/DeskPocket
     try {
       final docs = await getApplicationDocumentsDirectory();
       targetDir ??= Directory(
-        '${docs.path}${Platform.pathSeparator}PCLink',
+        '${docs.path}${Platform.pathSeparator}DeskPocket',
       );
     } catch (_) {}
 
-    targetDir ??= Directory('.${Platform.pathSeparator}PCLink');
+    targetDir ??= Directory('.${Platform.pathSeparator}DeskPocket');
 
     if (!await targetDir.exists()) {
       await targetDir.create(recursive: true);
@@ -1392,9 +1752,13 @@ class FileShareService {
   }
 
   void dispose() {
+    stopAutoSync();
     _client.close();
     if (!_progressController.isClosed) {
       _progressController.close();
+    }
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.close();
     }
   }
 }

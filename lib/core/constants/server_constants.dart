@@ -32,11 +32,11 @@ abstract final class ServerConstants {
 
   // Handshake Messages
   static const String msgServerRunning =
-      'PCLink Windows Server is live and ready.';
+      'DeskPocket Windows Server is live and ready.';
   static const String msgAuthSuccess =
       'Authentication successful. Connection established.';
   static const String msgAuthFailed =
       'Unauthorized: Invalid Android Device ID.';
   static const String msgStartTimeMismatch =
-      'Unauthorized: Invalid server start time (password). Restart PCLink on the PC and reconnect.';
+      'Unauthorized: Invalid server start time (password). Restart DeskPocket on the PC and reconnect.';
 }

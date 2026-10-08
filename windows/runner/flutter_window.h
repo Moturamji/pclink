@@ -46,6 +46,7 @@ class FlutterWindow : public Win32Window {
   bool tray_icon_created_ = false;
 
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> window_channel_;
+  std::vector<std::string> pending_shared_files_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

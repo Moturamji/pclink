@@ -59,6 +59,10 @@ class DeviceDetails {
 
   bool get isWindows => platform == 'Windows';
   bool get isAndroid => platform == 'Android';
+  bool get isMacOS => platform == 'macOS' || platform == 'MacOS';
+  bool get isIOS => platform == 'iOS';
+  bool get isDesktop => isWindows || isMacOS;
+  bool get isMobile => isAndroid || isIOS;
   bool get isConnected => primaryIp != 'Not Connected' && primaryIp != '127.0.0.1';
 
   @override

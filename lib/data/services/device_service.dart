@@ -66,6 +66,46 @@ class DeviceService {
         additionalDetails['RAM (MB)'] = windowsInfo.systemMemoryInMegabytes.toString();
         additionalDetails['Build Number'] = windowsInfo.buildNumber.toString();
         additionalDetails['Major Version'] = windowsInfo.majorVersion.toString();
+      } else if (Platform.isMacOS) {
+        platform = 'macOS';
+        final MacOsDeviceInfo macInfo = await _deviceInfoPlugin.macOsInfo;
+
+        deviceId = (macInfo.systemGUID != null && macInfo.systemGUID!.isNotEmpty)
+            ? macInfo.systemGUID!
+            : macInfo.computerName;
+
+        deviceName = macInfo.computerName.isNotEmpty
+            ? macInfo.computerName
+            : macInfo.hostName;
+        osVersion =
+            'macOS ${macInfo.osRelease} (Build ${macInfo.majorVersion}.${macInfo.minorVersion}.${macInfo.patchVersion})';
+
+        additionalDetails['Computer Name'] = macInfo.computerName;
+        additionalDetails['Host Name'] = macInfo.hostName;
+        additionalDetails['Model'] = macInfo.model;
+        additionalDetails['Architecture'] = macInfo.arch;
+        additionalDetails['Kernel'] = macInfo.kernelVersion;
+        additionalDetails['CPU Cores'] = macInfo.activeCPUs.toString();
+        additionalDetails['RAM (MB)'] =
+            (macInfo.memorySize / (1024 * 1024)).round().toString();
+      } else if (Platform.isIOS) {
+        platform = 'iOS';
+        final IosDeviceInfo iosInfo = await _deviceInfoPlugin.iosInfo;
+
+        deviceId = (iosInfo.identifierForVendor != null &&
+                iosInfo.identifierForVendor!.isNotEmpty)
+            ? iosInfo.identifierForVendor!
+            : iosInfo.name;
+
+        deviceName = iosInfo.name;
+        osVersion = '${iosInfo.systemName} ${iosInfo.systemVersion}';
+
+        additionalDetails['Model'] = iosInfo.model;
+        additionalDetails['Localized Model'] = iosInfo.localizedModel;
+        additionalDetails['System Name'] = iosInfo.systemName;
+        additionalDetails['Machine'] = iosInfo.utsname.machine;
+        additionalDetails['Is Physical Device'] =
+            iosInfo.isPhysicalDevice.toString();
       } else {
         platform = Platform.operatingSystem;
         deviceId = 'Unsupported Platform';
@@ -224,6 +264,21 @@ class DeviceService {
     return interfaces;
   }
 
+  bool _isVirtualInterface(String name) {
+    final lower = name.toLowerCase();
+    return lower.contains('vethernet') ||
+        lower.contains('wsl') ||
+        lower.contains('virtual') ||
+        lower.contains('vmware') ||
+        lower.contains('vbox') ||
+        lower.contains('hyper-v') ||
+        lower.contains('docker') ||
+        lower.contains('tailscale') ||
+        lower.contains('zerotier') ||
+        lower.contains('tap') ||
+        lower.contains('tun');
+  }
+
   String _determinePrimaryIp(List<NetworkAddressInfo> interfaces) {
     if (interfaces.isEmpty) return 'Not Connected';
 
@@ -237,9 +292,23 @@ class DeviceService {
       return interfaces.first.address;
     }
 
-    // Prefer a typical site-local LAN address (192.168.x, 10.x, 172.16-31.x)
-    // and skip virtual-adapter / link-local ranges so we don't advertise a
-    // Docker/Hyper-V/VPN NIC that the phone can never reach.
+    // Prioritize physical Wi-Fi / Ethernet adapters over virtual switches (WSL, Hyper-V, Docker)
+    nonLoopbackIpv4.sort((a, b) {
+      final aVirt = _isVirtualInterface(a.interfaceName);
+      final bVirt = _isVirtualInterface(b.interfaceName);
+      if (!aVirt && bVirt) return -1;
+      if (aVirt && !bVirt) return 1;
+
+      // Prefer typical home/office LAN subnets: 192.168.x first, then 10.x, then 172.x
+      int subnetRank(String ip) {
+        if (ip.startsWith('192.168.')) return 0;
+        if (ip.startsWith('10.')) return 1;
+        if (ip.startsWith('172.')) return 2;
+        return 3;
+      }
+      return subnetRank(a.address).compareTo(subnetRank(b.address));
+    });
+
     for (final info in nonLoopbackIpv4) {
       if (_isUsableSiteLocalAddress(info.address)) {
         return info.address;

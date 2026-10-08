@@ -83,7 +83,7 @@ class ScreenShareConsentDialog extends StatelessWidget {
 
               // Description
               Text(
-                'PCLink can let your linked phone view this PC\'s screen '
+                'DeskPocket can let your linked phone view this PC\'s screen '
                 'in read-only mode. This is a security feature — you\'ll '
                 'always know what\'s happening on your PC.',
                 style: TextStyle(

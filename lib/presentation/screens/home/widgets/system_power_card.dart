@@ -84,7 +84,7 @@ class _SystemPowerCardState extends State<SystemPowerCard> {
         final result = await SystemPowerService.executeAction(
           action: action,
           timeoutSeconds: timeoutSeconds,
-          comment: 'Initiated via PCLink Desktop Controls',
+          comment: 'Initiated via DeskPocket Desktop Controls',
         );
 
         if (!mounted) return;
@@ -130,7 +130,7 @@ class _SystemPowerCardState extends State<SystemPowerCard> {
           serverStartTime: startTime,
           action: action,
           timeoutSeconds: timeoutSeconds,
-          comment: 'Remote $action initiated via PCLink Android',
+          comment: 'Remote $action initiated via DeskPocket Android',
         );
 
         if (!mounted) return;
@@ -348,7 +348,7 @@ class _SystemPowerCardState extends State<SystemPowerCard> {
     return Container(
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(

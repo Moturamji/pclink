@@ -14,7 +14,7 @@ This document lists all sensitive credential files used by PCLink for authentica
 | :--- | :--- | :--- | :--- |
 | **`pclink-34bfa-firebase-adminsdk-fbsvc-*.json`** | `./` (Root) | `%APPDATA%\pclink\` & `./` | Google Cloud IAM Service Account private key (`type: service_account`, `project_id: pclink-34bfa`). Kept locally on Windows only and never committed. |
 | **`firebase_service_account.json`** | `./` (Root) & `%APPDATA%\pclink\` | `.\firebase_service_account.json`<br>`%APPDATA%\pclink\firebase_service_account.json` | Standard copy of the Firebase Service Account JSON. Auto-detected by `DatabaseService` at runtime on Windows. |
-| **`fcm_server_key.txt`** | `%APPDATA%\pclink\` | `%APPDATA%\pclink\fcm_server_key.txt` | Cloud messaging key string. Kept locally in `%APPDATA%\pclink\` for the Windows desktop app to dispatch push alerts. Never committed to Git. |
+| **`fcm_server_key.txt`** | `./` (Root) & `%APPDATA%\pclink\` | `.\fcm_server_key.txt`<br>`%APPDATA%\pclink\fcm_server_key.txt` | Cloud messaging key string. Kept locally in `%APPDATA%\pclink\` or project root for the desktop app to dispatch push alerts. Never committed to Git. |
 | **`google-services.json`** | `android/app/` | `android\app\google-services.json` | Android Firebase client configuration file containing project number, mobile SDK app ID, and API keys. |
 | **`firebase_options.dart`** | `lib/` | `lib\firebase_options.dart` | FlutterFire generated configuration containing client API keys, project ID, Realtime Database URL, and Storage bucket URLs. |
 

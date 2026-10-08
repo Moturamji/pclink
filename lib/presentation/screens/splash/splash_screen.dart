@@ -5,12 +5,27 @@ import '../../../core/constants/app_colors.dart';
 import '../../../core/constants/app_strings.dart';
 import '../../../core/widgets/universal/app_logo.dart';
 import '../../../data/services/auth_service.dart';
+import '../../../data/services/database_service.dart';
+import '../../../data/services/device_service.dart';
+import '../../../data/services/platform_helpers.dart';
+import '../../../data/services/session_service.dart';
 import '../auth/auth_screen.dart';
 import '../home/home_screen.dart';
 
 /// Animated splash screen with cute, premium, modern styling and official logo.
 class SplashScreen extends StatefulWidget {
-  const SplashScreen({super.key});
+  final AuthService? authService;
+  final DeviceService? deviceService;
+  final DatabaseService? databaseService;
+  final SessionService? sessionService;
+
+  const SplashScreen({
+    super.key,
+    this.authService,
+    this.deviceService,
+    this.databaseService,
+    this.sessionService,
+  });
 
   @override
   State<SplashScreen> createState() => _SplashScreenState();
@@ -21,11 +36,19 @@ class _SplashScreenState extends State<SplashScreen>
   late final AnimationController _animController;
   late final Animation<double> _fadeAnimation;
   late final Animation<double> _scaleAnimation;
-  final AuthService _authService = AuthService();
+  late final AuthService _authService;
+  late final DeviceService _deviceService;
+  late final DatabaseService _databaseService;
+  late final SessionService _sessionService;
 
   @override
   void initState() {
     super.initState();
+    _authService = widget.authService ?? AuthService();
+    _deviceService = widget.deviceService ?? DeviceService();
+    _databaseService = widget.databaseService ?? DatabaseService();
+    _sessionService = widget.sessionService ?? SessionService();
+
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -52,8 +75,47 @@ class _SplashScreenState extends State<SplashScreen>
     if (!mounted) return;
 
     final user = _authService.currentUser;
+    if (user != null) {
+      final isDesktop = isDesktopHost;
+      final currentPlatformKey = platformKey;
+      try {
+        final details = await _deviceService.getDeviceDetails();
+        final isValid = await _sessionService.isSessionValid(
+          user: user,
+          platformKey: currentPlatformKey,
+          deviceId: details.deviceId,
+          databaseService: _databaseService,
+        );
+
+        if (!isValid) {
+          debugPrint('SplashScreen: Session invalid (superseded by another login). Logging out.');
+          await _sessionService.clearLocalSession();
+          await _authService.signOut();
+          if (!mounted) return;
+          final deviceType = isDesktop ? 'computer' : 'phone';
+          Navigator.of(context).pushReplacement(
+            PageRouteBuilder(
+              pageBuilder: (context, animation, secondaryAnimation) =>
+                  AuthScreen(
+                sessionExpiredMessage:
+                    'Your session expired because another $deviceType logged in.',
+              ),
+              transitionsBuilder:
+                  (context, animation, secondaryAnimation, child) =>
+                      FadeTransition(opacity: animation, child: child),
+              transitionDuration: const Duration(milliseconds: 350),
+            ),
+          );
+          return;
+        }
+      } catch (e) {
+        debugPrint('SplashScreen session validation warning: $e');
+      }
+    }
+
     final targetScreen = user != null ? const HomeScreen() : const AuthScreen();
 
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (context, animation, secondaryAnimation) => targetScreen,
@@ -85,34 +147,24 @@ class _SplashScreenState extends State<SplashScreen>
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Cute Animated App Logo with Neon Aura Glow
+                // Cute Animated App Logo with subtle soft depth
                 const AppLogo(
-                  size: 96,
-                  borderRadius: 24,
+                  size: 88,
+                  borderRadius: 22,
                   showGlow: true,
                   isAnimated: true,
                 ),
-                const SizedBox(height: 28),
-                ShaderMask(
-                  shaderCallback: (bounds) => LinearGradient(
-                    colors: [
-                      colors.textPrimary,
-                      colors.primaryLight,
-                    ],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ).createShader(bounds),
-                  child: const Text(
-                    AppStrings.appName,
-                    style: TextStyle(
-                      fontSize: 34,
-                      fontWeight: FontWeight.w900,
-                      letterSpacing: 2.0,
-                      color: Colors.white,
-                    ),
+                const SizedBox(height: 24),
+                Text(
+                  AppStrings.appName,
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    color: colors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -120,15 +172,16 @@ class _SplashScreenState extends State<SplashScreen>
                   ),
                   decoration: BoxDecoration(
                     color: colors.cardSurface,
-                    borderRadius: BorderRadius.circular(20),
+                    borderRadius: BorderRadius.circular(9999),
                     border: Border.all(
-                      color: colors.primary.withValues(alpha: 0.25),
-                      width: 1.1,
+                      color: colors.cardBorder,
+                      width: 0.8,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: colors.primary.withValues(alpha: 0.08),
-                        blurRadius: 12,
+                        color: colors.shadowColor,
+                        blurRadius: 10,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -139,19 +192,19 @@ class _SplashScreenState extends State<SplashScreen>
                     style: TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3,
+                      letterSpacing: 0.2,
                       color: colors.textSecondary,
                     ),
                   ),
                 ),
-                const SizedBox(height: 48),
-                const SizedBox(
-                  width: 24,
-                  height: 24,
+                const SizedBox(height: 44),
+                SizedBox(
+                  width: 22,
+                  height: 22,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.2,
                     valueColor: AlwaysStoppedAnimation<Color>(
-                      AppColors.primaryLight,
+                      colors.primary,
                     ),
                   ),
                 ),

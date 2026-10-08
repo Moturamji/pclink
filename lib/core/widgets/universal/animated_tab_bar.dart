@@ -37,18 +37,17 @@ class AnimatedTabBar extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
-        color: colors.cardSurface.withValues(alpha: colors.isDark ? 0.92 : 0.96),
-        borderRadius: BorderRadius.circular(28),
+        color: colors.cardSurface.withValues(alpha: colors.isDark ? 0.94 : 0.98),
+        borderRadius: BorderRadius.circular(24),
         border: Border.all(
           color: colors.cardBorder,
-          width: 1,
+          width: 0.8,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.35 : 0.08),
-            blurRadius: 24,
-            spreadRadius: 2,
-            offset: const Offset(0, 8),
+            color: Colors.black.withValues(alpha: colors.isDark ? 0.18 : 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -61,17 +60,17 @@ class AnimatedTabBar extends StatelessWidget {
 
           return Expanded(
             child: Bounceable(
-              scaleFactor: 0.94,
+              scaleFactor: 0.96,
               onTap: () => onTabSelected(index),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
+                duration: const Duration(milliseconds: 220),
                 curve: Curves.easeOutCubic,
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? activeColor.withValues(alpha: colors.isDark ? 0.2 : 0.12)
-                      : activeColor.withValues(alpha: 0.0),
-                  borderRadius: BorderRadius.circular(20),
+                      ? activeColor.withValues(alpha: colors.isDark ? 0.16 : 0.10)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(18),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

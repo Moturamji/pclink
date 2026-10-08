@@ -33,7 +33,7 @@ class _StatusBadgeState extends State<StatusBadge>
       duration: const Duration(milliseconds: 1800),
     );
 
-    _pulseAnimation = Tween<double>(begin: 0.3, end: 0.85).animate(
+    _pulseAnimation = Tween<double>(begin: 0.2, end: 0.55).animate(
       CurvedAnimation(
         parent: _pulseController,
         curve: Curves.easeInOutCubic,
@@ -90,8 +90,7 @@ class _StatusBadgeState extends State<StatusBadge>
                     boxShadow: [
                       BoxShadow(
                         color: color.withValues(alpha: _pulseAnimation.value),
-                        blurRadius: 6,
-                        spreadRadius: 1,
+                        blurRadius: 4,
                       ),
                     ],
                   ),

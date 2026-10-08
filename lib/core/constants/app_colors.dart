@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 /// Design system color palette: Precision Hardware-Link Console meets Friendly Studio Fluidity.
 /// Bespoke, accessible (WCAG AA), and harmonious across Dark (Obsidian) and Light (Nordic) modes.
 abstract final class AppColors {
-  // Brand & Primary Accents (Electric Cyan-Azure)
-  static const Color primary = Color(0xFF0284C7); // Electric Cyan-Azure
-  static const Color primaryLight = Color(0xFF38BDF8); // Luminous Azure
+  // Brand & Primary Accents (Friendly Royal-Cyan / Studio Azure)
+  static const Color primary = Color(0xFF0284C7); // Tactile Studio Cyan-Azure
+  static const Color primaryLight = Color(0xFF38BDF8); // Soft Luminous Azure
   static const Color primaryDark = Color(0xFF0369A1); // Deep Cerulean
   static const Color primaryPastel = Color(0xFFE0F2FE); // Delicate Sky Mist
 
@@ -34,29 +34,29 @@ abstract final class AppColors {
   static const Color error = Color(0xFFF43F5E);
   static const Color warning = Color(0xFFF59E0B);
 
-  // --- Dark Mode Surface & Palette (Obsidian Midnight, Precision Slate) ---
-  static const Color darkBackground = Color(0xFF0B0F19); // Obsidian Canvas
-  static const Color darkSurface = Color(0xFF111827); // Charcoal Slate
-  static const Color darkCardSurface = Color(0xFF162032); // Elevated Card Workbench
-  static const Color darkCardSurfaceHover = Color(0xFF1E2B42); // Interactive Lift
-  static const Color darkSurfaceSubtle = Color(0xFF1E293B); // Input / Chip Container
-  static const Color darkCardBorder = Color(0xFF1F293D); // Hairline 1px Rule
-  static const Color darkCardBorderGlow = Color(0x2438BDF8); // Subtle Halo Accent
-  static const Color darkTextPrimary = Color(0xFFF8FAFC); // Alabaster (14.8:1 contrast)
-  static const Color darkTextSecondary = Color(0xFF94A3B8); // Soft Silver (7.1:1 contrast)
-  static const Color darkTextMuted = Color(0xFF64748B); // Muted Slate (4.6:1 contrast)
+  // --- Dark Mode Surface & Palette (Velvety Soft Slate, Calm Precision) ---
+  static const Color darkBackground = Color(0xFF111622); // Velvety Soft Slate Canvas
+  static const Color darkSurface = Color(0xFF171F2C); // Soft Elevated Surface
+  static const Color darkCardSurface = Color(0xFF1E2738); // Card Workbench Surface
+  static const Color darkCardSurfaceHover = Color(0xFF263246); // Subtle Hover Lift
+  static const Color darkSurfaceSubtle = Color(0xFF222D3E); // Soft Input / Chip Surface
+  static const Color darkCardBorder = Color(0xFF2B374C); // Delicate Hairline 0.8px Rule
+  static const Color darkCardBorderGlow = Colors.transparent; // No harsh artificial glows
+  static const Color darkTextPrimary = Color(0xFFF1F5F9); // Soft Alabaster
+  static const Color darkTextSecondary = Color(0xFF94A3B8); // Soft Slate Silver
+  static const Color darkTextMuted = Color(0xFF64748B); // Muted Slate
 
-  // --- Light Mode Surface & Palette (Nordic Alabaster, High Contrast) ---
-  static const Color lightBackground = Color(0xFFF8FAFC); // Silky Snow Mist
-  static const Color lightSurface = Color(0xFFF1F5F9); // Soft Alabaster Container
-  static const Color lightCardSurface = Color(0xFFFFFFFF); // Crisp White Sheet
+  // --- Light Mode Surface & Palette (Warm Silky Alabaster, Crisp Legibility) ---
+  static const Color lightBackground = Color(0xFFF8F9FD); // Silky Warm Mist
+  static const Color lightSurface = Color(0xFFF0F3F8); // Soft Alabaster Container
+  static const Color lightCardSurface = Color(0xFFFFFFFF); // Crisp Pure White Card
   static const Color lightCardSurfaceHover = Color(0xFFF8FAFC);
-  static const Color lightSurfaceSubtle = Color(0xFFEDF2F7);
-  static const Color lightCardBorder = Color(0xFFE2E8F0); // Delicate Hairline Rule
-  static const Color lightCardBorderGlow = Color(0x180284C7);
-  static const Color lightTextPrimary = Color(0xFF0F172A); // Deep Charcoal (15.2:1 contrast)
-  static const Color lightTextSecondary = Color(0xFF334155); // Slate Navy (9.4:1 contrast)
-  static const Color lightTextMuted = Color(0xFF64748B); // Medium Slate (4.6:1 contrast)
+  static const Color lightSurfaceSubtle = Color(0xFFEDF2F7); // Input / Chip Surface
+  static const Color lightCardBorder = Color(0xFFE2E7F0); // Delicate Hairline Rule
+  static const Color lightCardBorderGlow = Colors.transparent; // No artificial glows
+  static const Color lightTextPrimary = Color(0xFF0F172A); // Deep Slate Charcoal
+  static const Color lightTextSecondary = Color(0xFF475569); // High-Legibility Slate
+  static const Color lightTextMuted = Color(0xFF64748B); // Medium Slate
 
   // Legacy Default Aliases (Dark Theme default)
   static const Color background = darkBackground;
@@ -98,6 +98,7 @@ class AppThemeColors {
   final Color accentWarm;
   final Color error;
   final Color success;
+  final Color shadowColor;
 
   const AppThemeColors({
     required this.isDark,
@@ -105,7 +106,7 @@ class AppThemeColors {
     required this.surface,
     required this.cardSurface,
     required this.cardSurfaceHover,
-    this.surfaceSubtle = const Color(0xFF1E293B),
+    this.surfaceSubtle = const Color(0xFF222D3E),
     required this.cardBorder,
     required this.cardBorderGlow,
     required this.textPrimary,
@@ -120,6 +121,7 @@ class AppThemeColors {
     required this.accentWarm,
     required this.error,
     required this.success,
+    required this.shadowColor,
   });
 
   static const AppThemeColors dark = AppThemeColors(
@@ -143,6 +145,7 @@ class AppThemeColors {
     accentWarm: AppColors.accentWarm,
     error: AppColors.error,
     success: AppColors.success,
+    shadowColor: Color(0x20000000),
   );
 
   static const AppThemeColors light = AppThemeColors(
@@ -166,6 +169,7 @@ class AppThemeColors {
     accentWarm: AppColors.accentWarm,
     error: AppColors.error,
     success: AppColors.success,
+    shadowColor: Color(0x0A0F172A),
   );
 }
 

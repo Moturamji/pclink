@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screen_capture/flutter_screen_capture.dart';
 import 'package:image/image.dart' as image;
+import 'platform_helpers.dart';
 
 /// Task payload passed to background worker isolate for JPEG encoding.
 class _FrameEncodeTask {
@@ -163,15 +164,27 @@ class ScreenShareService {
       );
 
   static String get _appDataDir {
-    final appData = Platform.environment['APPDATA'];
-    return appData == null || appData.isEmpty ? '.' : '$appData\\pclink';
+    if (!kIsWeb && Platform.isWindows) {
+      final appData = Platform.environment['APPDATA'];
+      return appData == null || appData.isEmpty ? '.' : '$appData\\pclink';
+    } else if (!kIsWeb && Platform.isMacOS) {
+      final home = Platform.environment['HOME'];
+      return home == null || home.isEmpty
+          ? '.'
+          : '$home/Library/Application Support/pclink';
+    }
+    return '.';
   }
 
-  static File get _preferenceFile =>
-      File('$_appDataDir\\$_preferenceFileName');
+  static File get _preferenceFile {
+    if (!kIsWeb && Platform.isWindows) {
+      return File('$_appDataDir\\$_preferenceFileName');
+    }
+    return File('$_appDataDir/$_preferenceFileName');
+  }
 
   static Future<bool> hasConsentPreference() async {
-    if (kIsWeb || !Platform.isWindows) return false;
+    if (kIsWeb || !isDesktopHost) return false;
     try {
       return await _preferenceFile.exists();
     } catch (_) {
@@ -180,7 +193,7 @@ class ScreenShareService {
   }
 
   static Future<bool> isConsentGranted() async {
-    if (kIsWeb || !Platform.isWindows) return false;
+    if (kIsWeb || !isDesktopHost) return false;
     try {
       if (await _preferenceFile.exists()) {
         final content = (await _preferenceFile.readAsString()).trim().toLowerCase();
@@ -196,7 +209,7 @@ class ScreenShareService {
   }
 
   static Future<void> setConsentGranted(bool granted) async {
-    if (kIsWeb || !Platform.isWindows) return;
+    if (kIsWeb || !isDesktopHost) return;
     final dir = Directory(_appDataDir);
     if (!await dir.exists()) await dir.create(recursive: true);
     await _preferenceFile.writeAsString(granted ? 'enabled' : 'disabled');
@@ -329,10 +342,10 @@ class ScreenShareService {
     required int maxWidth,
     required int quality,
   }) async {
-    if (!_isCapturing || kIsWeb || !Platform.isWindows) return null;
+    if (!_isCapturing || kIsWeb || !isDesktopHost) return null;
 
     // 1. Try Native Windows GDI + GDI+ SIMD hardware compression
-    if (_useNativeCapture) {
+    if (Platform.isWindows && _useNativeCapture) {
       try {
         final result = await _nativeChannel.invokeMethod<Uint8List>(
           'captureFrame',
@@ -371,7 +384,7 @@ class ScreenShareService {
   }
 
   Future<void> _captureFallbackFrame() async {
-    if (!_isCapturing || kIsWeb || !Platform.isWindows) return;
+    if (!_isCapturing || kIsWeb || !isDesktopHost) return;
     final frame = await _captureFrame(maxWidth: 1920, quality: 85);
     if (frame != null && _isCapturing) {
       _latestFrame = frame;
@@ -381,7 +394,7 @@ class ScreenShareService {
   }
 
   Future<void> _runStreamingLoop() async {
-    while (_isCapturing && !kIsWeb && Platform.isWindows) {
+    while (_isCapturing && !kIsWeb && isDesktopHost) {
       if (_wsClients.isEmpty) {
         // No active WebSocket streams, yield
         await Future.delayed(const Duration(milliseconds: 100));

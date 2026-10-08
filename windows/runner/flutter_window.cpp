@@ -2,15 +2,20 @@
 
 #include <optional>
 #include <shellapi.h>
+#include <sstream>
+#include <string>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "native_screen_share.h"
 #include "resource.h"
 
 static const UINT g_show_window_message =
+    ::RegisterWindowMessage(L"DeskPocket_ShowWindow_Broadcast_Message");
+static const UINT g_show_window_message_legacy =
     ::RegisterWindowMessage(L"PCLink_ShowWindow_Broadcast_Message");
 
-#define WM_PCLINK_TRAY_CALLBACK (WM_USER + 101)
+#define WM_DESKPOCKET_TRAY_CALLBACK (WM_USER + 101)
 #define IDM_TRAY_SHOW (WM_USER + 102)
 #define IDM_TRAY_HIDE (WM_USER + 103)
 #define IDM_TRAY_EXIT (WM_USER + 104)
@@ -55,6 +60,16 @@ bool FlutterWindow::OnCreate() {
         } else if (call.method_name() == "hideWindow") {
           this->HideWindowToTray();
           result->Success();
+        } else if (call.method_name() == "getPendingSharedFiles") {
+          std::vector<flutter::EncodableValue> encodables;
+          for (const auto& file_path : this->pending_shared_files_) {
+            encodables.push_back(flutter::EncodableValue(file_path));
+          }
+          this->pending_shared_files_.clear();
+          result->Success(flutter::EncodableValue(encodables));
+        } else if (call.method_name() == "clearPendingSharedFiles") {
+          this->pending_shared_files_.clear();
+          result->Success(flutter::EncodableValue(true));
         } else {
           result->NotImplemented();
         }
@@ -103,13 +118,13 @@ void FlutterWindow::SetupTrayIcon() {
   nid_.hWnd = hwnd;
   nid_.uID = 1;
   nid_.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
-  nid_.uCallbackMessage = WM_PCLINK_TRAY_CALLBACK;
+  nid_.uCallbackMessage = WM_DESKPOCKET_TRAY_CALLBACK;
 
   nid_.hIcon = (HICON)GetClassLongPtr(hwnd, GCLP_HICON);
   if (!nid_.hIcon) {
     nid_.hIcon = LoadIcon(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDI_APP_ICON));
   }
-  wcscpy_s(nid_.szTip, L"PCLink - Live Sync & Server");
+  wcscpy_s(nid_.szTip, L"DeskPocket - Live Sync & Server");
 
   Shell_NotifyIcon(NIM_ADD, &nid_);
   tray_icon_created_ = true;
@@ -143,13 +158,43 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   // 1. Handle broadcast wake-up message from a secondary instance launch
-  if (message == g_show_window_message) {
+  if (message == g_show_window_message || message == g_show_window_message_legacy) {
     ShowWindowAndBringToFront();
     return 0;
   }
 
+  // 1b. Handle shared files sent via WM_COPYDATA from another instance
+  if (message == WM_COPYDATA) {
+    COPYDATASTRUCT* cds = reinterpret_cast<COPYDATASTRUCT*>(lparam);
+    if (cds != nullptr && cds->dwData == 0x4445534B && cds->lpData != nullptr) {
+      const char* raw_str = reinterpret_cast<const char*>(cds->lpData);
+      std::string data(raw_str);
+      std::vector<std::string> files;
+      std::istringstream stream(data);
+      std::string line;
+      while (std::getline(stream, line)) {
+        if (!line.empty()) {
+          files.push_back(line);
+          pending_shared_files_.push_back(line);
+        }
+      }
+
+      if (window_channel_ && !files.empty()) {
+        std::vector<flutter::EncodableValue> encodable_files;
+        for (const auto& f : files) {
+          encodable_files.push_back(flutter::EncodableValue(f));
+        }
+        window_channel_->InvokeMethod(
+            "onSharedFilesReceived",
+            std::make_unique<flutter::EncodableValue>(encodable_files));
+      }
+      ShowWindowAndBringToFront();
+      return TRUE;
+    }
+  }
+
   // 2. Handle System Tray interactions
-  if (message == WM_PCLINK_TRAY_CALLBACK) {
+  if (message == WM_DESKPOCKET_TRAY_CALLBACK) {
     if (lparam == WM_LBUTTONUP || lparam == WM_LBUTTONDBLCLK) {
       ShowWindowAndBringToFront();
       return 0;
@@ -157,10 +202,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       POINT pt;
       GetCursorPos(&pt);
       HMENU hMenu = CreatePopupMenu();
-      AppendMenu(hMenu, MF_STRING, IDM_TRAY_SHOW, L"Open PCLink");
+      AppendMenu(hMenu, MF_STRING, IDM_TRAY_SHOW, L"Open DeskPocket");
       AppendMenu(hMenu, MF_STRING, IDM_TRAY_HIDE, L"Hide to Tray");
       AppendMenu(hMenu, MF_SEPARATOR, 0, nullptr);
-      AppendMenu(hMenu, MF_STRING, IDM_TRAY_EXIT, L"Exit PCLink");
+      AppendMenu(hMenu, MF_STRING, IDM_TRAY_EXIT, L"Exit DeskPocket");
 
       SetForegroundWindow(hwnd);
       int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_NONOTIFY, pt.x, pt.y, 0, hwnd, nullptr);

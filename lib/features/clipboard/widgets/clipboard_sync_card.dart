@@ -51,6 +51,10 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
         });
       }
     });
+
+    if (!widget.isWindows && widget.clipboardService.isListening) {
+      widget.clipboardService.refreshHistory();
+    }
   }
 
   @override
@@ -129,7 +133,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
       padding: const EdgeInsets.all(20.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: colors.cardBorder, width: 0.8),
         boxShadow: [
           BoxShadow(
@@ -196,7 +200,7 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
                           : (_serverReachable
                               ? 'Connected to your PC. Copies sync in real time.'
                               : (_syncError ??
-                                  'PC server is not reachable. Make sure PCLink is running on the PC.')),
+                                  'PC server is not reachable. Make sure DeskPocket is running on the PC.')),
                       style: TextStyle(
                         fontSize: 12,
                         height: 1.35,

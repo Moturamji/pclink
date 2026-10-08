@@ -110,7 +110,7 @@ class LinkedDevicesCard extends StatelessWidget {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'No other devices connected yet. Open PCLink on your Windows PC or Android phone to link them.',
+                            'No other devices connected yet. Open DeskPocket on your Windows PC or Android phone to link them.',
                             style: TextStyle(
                               fontSize: 12,
                               height: 1.4,

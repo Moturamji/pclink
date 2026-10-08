@@ -8,13 +8,15 @@ import 'package:http/http.dart' as http;
 import '../models/device_details.dart';
 import '../models/linked_device.dart';
 import '../models/server_info.dart';
+import '../models/user_deletion_status.dart';
 
 /// Service managing user, device, and local server synchronization with Firebase Realtime Database via REST API.
 class DatabaseService {
   static const String _dbBaseUrl =
       'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-  static String fcmServerKey = '16d727ddb293fdb8905bc668b1f1e61ed62ed072';
+  static String fcmServerKey =
+      const String.fromEnvironment('FCM_SERVER_KEY', defaultValue: '');
 
   final http.Client _client;
 
@@ -38,6 +40,7 @@ class DatabaseService {
   Future<void> syncUserAndDevice({
     required User user,
     required DeviceDetails details,
+    String? sessionId,
   }) async {
     try {
       final token = await user.getIdToken();
@@ -81,23 +84,147 @@ class DatabaseService {
       final deviceUri = Uri.parse(
           '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
 
+      final patchData = <String, dynamic>{
+        'deviceId': details.deviceId,
+        'deviceName': details.deviceName,
+        'osVersion': details.osVersion,
+        'ipAddress': details.primaryIp,
+        'lastSeen': {'.sv': 'timestamp'},
+        'isOnline': true,
+      };
+      if (sessionId != null && sessionId.isNotEmpty) {
+        patchData['sessionId'] = sessionId;
+      }
+
       final devResp = await _client.patch(
         deviceUri,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'deviceId': details.deviceId,
-          'deviceName': details.deviceName,
-          'osVersion': details.osVersion,
-          'ipAddress': details.primaryIp,
-          'lastSeen': {'.sv': 'timestamp'},
-          'isOnline': true,
-        }),
+        body: jsonEncode(patchData),
       );
       debugPrint(
           'DatabaseService: Synced $platformKey device node with status ${devResp.statusCode}');
     } catch (e) {
       debugPrint('DatabaseService sync exception: $e');
     }
+  }
+
+  /// Fetches the active session ID for the given platform key (windows/android).
+  Future<String?> getDeviceSessionId({
+    required User user,
+    required String platformKey,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/sessionId.json$authQuery');
+      final response = await _safeGet(uri);
+
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getDeviceSessionId error: $e');
+    }
+    return null;
+  }
+
+  /// Fetches the hardware deviceId assigned to the given platform slot.
+  Future<String?> getDeviceSlotDeviceId({
+    required User user,
+    required String platformKey,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/deviceId.json$authQuery');
+      final response = await _safeGet(uri);
+
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final decoded = jsonDecode(response.body);
+        if (decoded is String && decoded.isNotEmpty) {
+          return decoded;
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getDeviceSlotDeviceId error: $e');
+    }
+    return null;
+  }
+
+  /// Overwrites the active session node for this platform slot, immediately invalidating older logins.
+  Future<void> registerDeviceSession({
+    required User user,
+    required String platformKey,
+    required String sessionId,
+    required String deviceId,
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+
+      await _client.patch(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'sessionId': sessionId,
+          'deviceId': deviceId,
+          'isOnline': true,
+          'lastSeen': {'.sv': 'timestamp'},
+        }),
+      );
+      debugPrint(
+        'DatabaseService: Registered session $sessionId for $platformKey ($deviceId)',
+      );
+    } catch (e) {
+      debugPrint('DatabaseService registerDeviceSession error: $e');
+    }
+  }
+
+  /// Streams real-time updates for the platform slot session ID to detect when superseded by another device.
+  Stream<String?> listenDeviceSession({
+    required User user,
+    required String platformKey,
+    Duration interval = const Duration(seconds: 3),
+  }) {
+    late final StreamController<String?> controller;
+    Timer? timer;
+
+    Future<void> poll() async {
+      try {
+        final sid = await getDeviceSessionId(user: user, platformKey: platformKey);
+        if (!controller.isClosed) {
+          controller.add(sid);
+        }
+      } catch (e) {
+        debugPrint('DatabaseService listenDeviceSession error: $e');
+      }
+    }
+
+    controller = StreamController<String?>.broadcast(
+      onListen: () {
+        poll();
+        timer = Timer.periodic(interval, (_) => poll());
+      },
+      onCancel: () {
+        timer?.cancel();
+        timer = null;
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Updates the local Windows server information in Firebase RTDB.
@@ -475,7 +602,7 @@ class DatabaseService {
 
     return {
       'success': false,
-      'error': 'Connection timed out. Ensure the Windows PC is running PCLink.',
+      'error': 'Connection timed out. Ensure the Windows PC is running DeskPocket.',
     };
   }
 
@@ -653,7 +780,7 @@ class DatabaseService {
         body: jsonEncode({
           'id': 'notif_${DateTime.now().millisecondsSinceEpoch}',
           'title': 'Windows PC is Live',
-          'body': '$pcHostName is running PCLink and ready for secure connection.',
+          'body': '$pcHostName is running DeskPocket and ready for secure connection.',
           'timestamp': DateTime.now().toIso8601String(),
           'type': 'server_live',
           'hostName': pcHostName,
@@ -667,7 +794,7 @@ class DatabaseService {
       await sendDirectFcmPush(
         user: user,
         title: 'Windows PC is Live',
-        body: '$pcHostName is running PCLink and ready for secure connection.',
+        body: '$pcHostName is running DeskPocket and ready for secure connection.',
         hostName: pcHostName,
       );
     } catch (e) {
@@ -752,6 +879,11 @@ class DatabaseService {
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             ],
+            if (Platform.isMacOS && Platform.environment.containsKey('HOME')) ...[
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/firebase_service_account.json'),
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            ],
           ];
 
           // Also scan candidate directories for any other downloaded adminsdk json
@@ -760,6 +892,8 @@ class DatabaseService {
             File(Platform.resolvedExecutable).parent,
             if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
               Directory('${Platform.environment['APPDATA']}\\pclink'),
+            if (Platform.isMacOS && Platform.environment.containsKey('HOME'))
+              Directory('${Platform.environment['HOME']}/Library/Application Support/pclink'),
           ];
           for (final dir in searchDirs) {
             try {
@@ -806,6 +940,8 @@ class DatabaseService {
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}fcm_server_key.txt'),
             if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
               File('${Platform.environment['APPDATA']}\\pclink\\fcm_server_key.txt'),
+            if (Platform.isMacOS && Platform.environment.containsKey('HOME'))
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/fcm_server_key.txt'),
           ];
           for (final keyFile in keyCandidates) {
             if (keyFile.existsSync()) {
@@ -932,6 +1068,148 @@ class DatabaseService {
       return false;
     } finally {
       authClient?.close();
+    }
+  }
+
+  /// Requests scheduled account deletion with a 15-day waiting period.
+  /// Updates `delete: true` and `deleteRequestedAt` in the database.
+  Future<bool> requestAccountDeletion({
+    required User user,
+    Duration gracePeriod = const Duration(days: 15),
+  }) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final now = DateTime.now();
+      final effectiveAt = now.add(gracePeriod);
+
+      final resp = await _client.patch(
+        userUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'delete': true,
+          'deleteRequestedAt': now.toIso8601String(),
+          'deleteEffectiveAt': effectiveAt.toIso8601String(),
+          // Explicitly clear any legacy unused fields so the database node remains clean
+          'isDeleted': null,
+          'deleteRequested': null,
+        }),
+      );
+      debugPrint('DatabaseService: Account deletion requested, status: ${resp.statusCode}');
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService requestAccountDeletion error: $e');
+      return false;
+    }
+  }
+
+  /// Cancels a pending account deletion request, fully restoring the user account.
+  /// Updates `delete: false`, clears deletion timestamps, and records `undeletedAt`.
+  Future<bool> cancelAccountDeletion({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final now = DateTime.now();
+
+      final resp = await _client.patch(
+        userUri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'delete': false,
+          'deleteRequestedAt': null,
+          'deleteEffectiveAt': null,
+          'undeletedAt': now.toIso8601String(),
+          'isDeleted': null,
+          'deleteRequested': null,
+        }),
+      );
+      debugPrint('DatabaseService: Account deletion cancelled (undeleted), status: ${resp.statusCode}');
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService cancelAccountDeletion error: $e');
+      return false;
+    }
+  }
+
+  /// Fetches the user's current account deletion status from Firebase RTDB.
+  Future<UserDeletionStatus> getAccountDeletionStatus({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final response = await _safeGet(userUri);
+      if (response != null &&
+          response.statusCode == 200 &&
+          response.body.isNotEmpty &&
+          response.body != 'null') {
+        final dynamic data = jsonDecode(response.body);
+        if (data is Map) {
+          return UserDeletionStatus.fromJson(Map<String, dynamic>.from(data));
+        }
+      }
+    } catch (e) {
+      debugPrint('DatabaseService getAccountDeletionStatus error: $e');
+    }
+    return const UserDeletionStatus(isDeleteRequested: false);
+  }
+
+  /// Real-time stream providing periodic updates of the account deletion status
+  /// to ensure both PC and mobile devices immediately synchronize deletion state.
+  Stream<UserDeletionStatus> listenAccountDeletionStatus(
+    User user, {
+    Duration interval = const Duration(seconds: 4),
+  }) {
+    late final StreamController<UserDeletionStatus> controller;
+    Timer? timer;
+
+    Future<void> poll() async {
+      try {
+        final status = await getAccountDeletionStatus(user: user);
+        if (!controller.isClosed) {
+          controller.add(status);
+        }
+      } catch (e) {
+        debugPrint('DatabaseService listenAccountDeletionStatus poll error: $e');
+      }
+    }
+
+    controller = StreamController<UserDeletionStatus>.broadcast(
+      onListen: () {
+        poll();
+        timer = Timer.periodic(interval, (_) => poll());
+      },
+      onCancel: () {
+        timer?.cancel();
+        timer = null;
+      },
+    );
+
+    return controller.stream;
+  }
+
+  /// Permanently purges user account data from the server if the 15-day grace period expired.
+  Future<bool> purgeExpiredAccount({required User user}) async {
+    try {
+      final token = await user.getIdToken();
+      final authQuery = token != null ? '?auth=$token' : '';
+      final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
+
+      final resp = await _client.delete(userUri);
+      debugPrint('DatabaseService: Purged expired account from DB, status: ${resp.statusCode}');
+      try {
+        await user.delete();
+      } catch (e) {
+        debugPrint('DatabaseService: Note - auth user delete fallback: $e');
+      }
+      return resp.statusCode == 200;
+    } catch (e) {
+      debugPrint('DatabaseService purgeExpiredAccount error: $e');
+      return false;
     }
   }
 }

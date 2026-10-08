@@ -1,6 +1,5 @@
-import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
+import 'platform_helpers.dart';
 
 /// Service responsible for managing user authentication state via FirebaseAuth.
 class AuthService {
@@ -45,11 +44,11 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    if (!kIsWeb && Platform.isWindows) {
+    if (isDesktopHost) {
       throw FirebaseAuthException(
         code: 'operation-not-allowed',
         message:
-            'Account registration is only permitted on the Android mobile app. Please register on your mobile device first.',
+            'Account registration is only permitted on the mobile app. Please register on your mobile device first.',
       );
     }
 

@@ -7,30 +7,47 @@ import 'package:flutter/foundation.dart';
 class WindowsAutostartService {
   static const String _registryKey =
       r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';
-  static const String _valueName = 'PCLink';
+  static const String _valueName = 'DeskPocket';
+  static const String _legacyValueName = 'PCLink';
   static const String _serializeKey =
       r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Serialize';
   static const String _startupDelayValue = 'StartupDelayInMSec';
-  static const String _taskName = 'PCLink';
+  static const String _taskName = 'DeskPocket';
+  static const String _legacyTaskName = 'PCLink';
 
   /// Live reactive notifier for Windows autostart status
   static final ValueNotifier<bool> autostartNotifier = ValueNotifier<bool>(false);
 
-  /// Resolves the actual executable path for PCLink.
+  /// Resolves the actual executable path for DeskPocket.
   static String get _executablePath => Platform.resolvedExecutable;
 
-  /// Checks if PCLink is registered to start with Windows directly in HKCU\...\Run
+  /// Checks if DeskPocket is registered to start with Windows directly in HKCU\...\Run
   /// and not marked as disabled in Windows Task Manager / Explorer StartupApproved.
   static Future<bool> isAutostartEnabled() async {
     if (kIsWeb || !Platform.isWindows) return false;
 
     try {
-      final result = await Process.run('reg', [
+      var result = await Process.run('reg', [
         'query',
         _registryKey,
         '/v',
         _valueName,
       ]);
+
+      var activeValueName = _valueName;
+      if (result.exitCode != 0) {
+        // Fallback to check legacy registration
+        final legacyResult = await Process.run('reg', [
+          'query',
+          _registryKey,
+          '/v',
+          _legacyValueName,
+        ]);
+        if (legacyResult.exitCode == 0) {
+          result = legacyResult;
+          activeValueName = _legacyValueName;
+        }
+      }
 
       if (result.exitCode == 0) {
         // Now check whether Windows Task Manager / Explorer marked it as disabled
@@ -38,7 +55,7 @@ class WindowsAutostartService {
           'query',
           r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
           '/v',
-          _valueName,
+          activeValueName,
         ]);
 
         if (approvedResult.exitCode == 0) {
@@ -96,6 +113,23 @@ class WindowsAutostartService {
 
         final success = result.exitCode == 0;
         if (success) {
+          // Clean up legacy PCLink registry value and task if present
+          try {
+            await Process.run('reg', [
+              'delete',
+              _registryKey,
+              '/v',
+              _legacyValueName,
+              '/f',
+            ]);
+            await Process.run('schtasks', [
+              '/delete',
+              '/tn',
+              _legacyTaskName,
+              '/f',
+            ]);
+          } catch (_) {}
+
           // If Windows Task Manager previously recorded a disabled state, remove it
           try {
             await Process.run('reg', [
@@ -154,6 +188,15 @@ class WindowsAutostartService {
           _valueName,
           '/f',
         ]);
+        try {
+          await Process.run('reg', [
+            'delete',
+            _registryKey,
+            '/v',
+            _legacyValueName,
+            '/f',
+          ]);
+        } catch (_) {}
 
         try {
           await Process.run('reg', [
@@ -161,6 +204,13 @@ class WindowsAutostartService {
             r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
             '/v',
             _valueName,
+            '/f',
+          ]);
+          await Process.run('reg', [
+            'delete',
+            r'HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run',
+            '/v',
+            _legacyValueName,
             '/f',
           ]);
         } catch (_) {}
@@ -171,6 +221,14 @@ class WindowsAutostartService {
             '/delete',
             '/tn',
             _taskName,
+            '/f',
+          ]);
+        } catch (_) {}
+        try {
+          await Process.run('schtasks', [
+            '/delete',
+            '/tn',
+            _legacyTaskName,
             '/f',
           ]);
         } catch (_) {}

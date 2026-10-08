@@ -5,14 +5,16 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'app.dart';
 import 'core/theme/theme_service.dart';
+import 'data/services/mac_autostart_service.dart';
 import 'data/services/notification_service.dart';
 import 'data/services/screen_share_service.dart';
+import 'data/services/share_target_service.dart';
 import 'data/services/windows_autostart_service.dart';
 import 'features/clipboard/services/clipboard_service.dart';
 import 'firebase_options.dart';
 
-/// Application bootstrap entry point.
-void main() async {
+/// Application bootstrap entry point with command line argument support.
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Safety handler for platform crashes
@@ -25,21 +27,40 @@ void main() async {
     return true; // prevent unhandled crash
   };
 
+  // Parse any file paths passed via CLI / Explorer SendTo / Context Menu
+  if (args.isNotEmpty) {
+    final validFiles = args.where((arg) {
+      if (arg.startsWith('-')) return false;
+      return File(arg).existsSync() || Directory(arg).existsSync();
+    }).toList();
+    if (validFiles.isNotEmpty) {
+      ShareTargetService.setInitialFiles(validFiles);
+    }
+  }
+
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
 
-    // Register FCM Background Handler, early Notification Channels & Foreground Clipboard Task on Android
+    // Initialize Share Target Service for system share sheets (Android) and Explorer (Windows)
+    await ShareTargetService().initialize();
+
+    // Register FCM Background Handler, early Notification Channels & Foreground Clipboard Task on Android / Mobile
     if (!kIsWeb && Platform.isAndroid) {
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       await NotificationService.initializeEarly();
       await ClipboardService.initForegroundTask();
+    } else if (!kIsWeb && Platform.isIOS) {
+      await NotificationService.initializeEarly();
     }
 
-    // Initialize live Windows system features directly from registry & persistence
+    // Initialize live desktop system features directly from registry & persistence
     if (!kIsWeb && Platform.isWindows) {
       await WindowsAutostartService.isAutostartEnabled();
+      await ScreenShareService.isConsentGranted();
+    } else if (!kIsWeb && Platform.isMacOS) {
+      await MacAutostartService.isAutostartEnabled();
       await ScreenShareService.isConsentGranted();
     }
 
@@ -49,5 +70,5 @@ void main() async {
     debugPrint('Initialization warning: $e\n$stack');
   }
 
-  runApp(const PCLinkApp());
+  runApp(const DeskPocketApp());
 }

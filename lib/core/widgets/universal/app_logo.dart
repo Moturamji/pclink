@@ -104,17 +104,12 @@ class _AppLogoState extends State<AppLogo> with SingleTickerProviderStateMixin {
         builder: (context, child) {
           return Container(
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(widget.borderRadius + 2),
+              borderRadius: BorderRadius.circular(widget.borderRadius + 1),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.primary.withValues(alpha: _glowAnimation.value),
-                  blurRadius: widget.size * 0.45,
-                  spreadRadius: widget.size * 0.08,
-                ),
-                BoxShadow(
-                  color: AppColors.secondary.withValues(alpha: _glowAnimation.value * 0.5),
-                  blurRadius: widget.size * 0.65,
-                  spreadRadius: widget.size * 0.04,
+                  color: colors.primary.withValues(alpha: context.isDark ? 0.12 : 0.06),
+                  blurRadius: widget.size * 0.25,
+                  offset: const Offset(0, 2),
                 ),
               ],
             ),
@@ -127,12 +122,12 @@ class _AppLogoState extends State<AppLogo> with SingleTickerProviderStateMixin {
 
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(widget.borderRadius + 2),
+        borderRadius: BorderRadius.circular(widget.borderRadius + 1),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.22),
-            blurRadius: widget.size * 0.35,
-            spreadRadius: 2,
+            color: colors.primary.withValues(alpha: context.isDark ? 0.10 : 0.05),
+            blurRadius: widget.size * 0.2,
+            offset: const Offset(0, 2),
           ),
         ],
       ),

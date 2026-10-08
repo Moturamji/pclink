@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pclink/core/constants/app_strings.dart';
 import 'package:pclink/core/theme/app_theme.dart';
 import 'package:pclink/data/models/device_details.dart';
 import 'package:pclink/data/models/linked_device.dart';
@@ -93,7 +94,9 @@ void main() {
       find.byWidgetPredicate(
         (w) =>
             w is Text &&
-            (w.data == 'Welcome to PCLink' ||
+            (w.data == 'Welcome to DeskPocket' ||
+                w.data == 'Welcome to PCLink' ||
+                w.data == 'DeskPocket Windows Sign In' ||
                 w.data == 'PCLink Windows Sign In'),
       ),
       findsOneWidget,
@@ -109,7 +112,15 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
 
-    expect(find.text('Hardware-Link Console'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data == 'Hardware-Link Console' ||
+                w.data == 'Seamless PC & Phone Link'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Unified PC & Android\nEcosystem.'), findsOneWidget);
 
     addTearDown(tester.view.reset);
@@ -170,8 +181,24 @@ void main() {
 
     expect(find.text('Dashboard & Server Hub'), findsOneWidget);
     expect(find.text('PC LINK SERVICE'), findsOneWidget);
-    expect(find.text('SYSTEM SPECIFICATIONS'), findsOneWidget);
-    expect(find.text('Security & Data Privacy'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data == 'SYSTEM SPECIFICATIONS' ||
+                w.data == AppStrings.systemSpecsTitle),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data == 'Security & Data Privacy' ||
+                w.data == 'Security & Privacy'),
+      ),
+      findsOneWidget,
+    );
 
     addTearDown(tester.view.reset);
   });
@@ -201,7 +228,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
 
     expect(find.text('WINDOWS PC LINK'), findsOneWidget);
-    expect(find.text('SYSTEM SPECIFICATIONS'), findsOneWidget);
+    expect(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Text &&
+            (w.data == 'SYSTEM SPECIFICATIONS' ||
+                w.data == AppStrings.systemSpecsTitle),
+      ),
+      findsOneWidget,
+    );
 
     addTearDown(tester.view.reset);
   });

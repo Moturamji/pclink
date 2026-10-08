@@ -6,6 +6,8 @@ import '../../../../core/widgets/universal/bounceable.dart';
 import '../../../../core/widgets/universal/hoverable.dart';
 import '../../../../core/widgets/universal/theme_toggle_button.dart';
 
+import '../../../../data/models/user_deletion_status.dart';
+
 enum DesktopNavTab { overview, fileStudio, clipboard, devices }
 
 /// Polished Desktop Sidebar Navigation Rail with tactile micro-interactions,
@@ -18,6 +20,9 @@ class DesktopSidebar extends StatelessWidget {
   final bool isRefreshing;
   final VoidCallback onRefresh;
   final VoidCallback onSignOut;
+  final UserDeletionStatus? deletionStatus;
+  final VoidCallback? onDeleteAccount;
+  final VoidCallback? onUndeleteAccount;
 
   const DesktopSidebar({
     super.key,
@@ -28,6 +33,9 @@ class DesktopSidebar extends StatelessWidget {
     required this.isRefreshing,
     required this.onRefresh,
     required this.onSignOut,
+    this.deletionStatus,
+    this.onDeleteAccount,
+    this.onUndeleteAccount,
   });
 
   @override
@@ -51,7 +59,7 @@ class DesktopSidebar extends StatelessWidget {
                 const AppLogo(
                   size: 38,
                   borderRadius: 12,
-                  showGlow: true,
+                  showGlow: false,
                   isAnimated: false,
                 ),
                 const SizedBox(width: 12),
@@ -199,7 +207,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.overview,
                   icon: Icons.dashboard_outlined,
                   activeIcon: Icons.dashboard_rounded,
-                  label: 'Overview',
+                  label: 'Dashboard & Server',
                   accentColor: colors.primary,
                 ),
                 _buildNavItem(
@@ -207,7 +215,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.fileStudio,
                   icon: Icons.folder_open_outlined,
                   activeIcon: Icons.folder_rounded,
-                  label: 'Files',
+                  label: 'File Transfer Studio',
                   accentColor: colors.accentPurple,
                 ),
                 _buildNavItem(
@@ -215,7 +223,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.clipboard,
                   icon: Icons.content_paste_outlined,
                   activeIcon: Icons.content_paste_rounded,
-                  label: 'Clipboard',
+                  label: 'Clipboard Stream',
                   accentColor: colors.secondary,
                 ),
                 _buildNavItem(
@@ -223,7 +231,7 @@ class DesktopSidebar extends StatelessWidget {
                   tab: DesktopNavTab.devices,
                   icon: Icons.devices_outlined,
                   activeIcon: Icons.devices_rounded,
-                  label: 'Devices',
+                  label: 'Devices & Security',
                   accentColor: colors.accentWarm,
                 ),
               ],
@@ -307,7 +315,86 @@ class DesktopSidebar extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
+                if (deletionStatus?.isDeleteRequested == true)
+                  Bounceable(
+                    onTap: onUndeleteAccount,
+                    scaleFactor: 0.98,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.success.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.success.withValues(alpha: 0.35),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.restore_rounded,
+                            size: 15,
+                            color: AppColors.success,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Undelete Account',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.success,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  Bounceable(
+                    onTap: onDeleteAccount,
+                    scaleFactor: 0.98,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: colors.surfaceSubtle,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: colors.cardBorder,
+                          width: 0.8,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.delete_outline_rounded,
+                            size: 15,
+                            color: colors.textSecondary,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Delete Account',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
                 Bounceable(
                   onTap: onSignOut,
                   scaleFactor: 0.98,

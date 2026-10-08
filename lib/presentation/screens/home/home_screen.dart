@@ -13,13 +13,18 @@ import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
 import '../../../data/services/file_share_service.dart';
 import '../../../data/services/notification_service.dart';
+import '../../../data/services/platform_helpers.dart';
 import '../../../data/services/server_service.dart';
 import '../../../data/services/tunnel_service.dart';
+import '../../../data/models/user_deletion_status.dart';
+import '../../../data/services/session_service.dart';
+import '../../../data/services/share_target_service.dart';
 import '../../../data/services/windows_permission_service.dart';
 import '../../../features/clipboard/services/clipboard_service.dart';
 import '../auth/auth_screen.dart';
 import 'desktop/desktop_dashboard_view.dart';
 import 'mobile/mobile_dashboard_view.dart';
+import 'widgets/account_deletion_dialogs.dart';
 import 'widgets/windows_permission_dialog.dart';
 
 /// Main dashboard orchestrator: renders dedicated, distinct UI experiences
@@ -30,6 +35,7 @@ class HomeScreen extends StatefulWidget {
   final DatabaseService? databaseService;
   final ServerService? serverService;
   final ClipboardService? clipboardService;
+  final SessionService? sessionService;
 
   const HomeScreen({
     super.key,
@@ -38,6 +44,7 @@ class HomeScreen extends StatefulWidget {
     this.databaseService,
     this.serverService,
     this.clipboardService,
+    this.sessionService,
   });
 
   @override
@@ -52,6 +59,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final ClipboardService _clipboardService;
   late final FileShareService _fileShareService;
   late final TunnelService _tunnelService;
+  late final SessionService _sessionService;
 
   late Future<DeviceDetails> _deviceDetailsFuture;
   DeviceDetails? _cachedDeviceDetails;
@@ -63,10 +71,15 @@ class _HomeScreenState extends State<HomeScreen> {
   StreamSubscription<String?>? _tunnelUrlSub;
   Timer? _serverHeartbeatTimer;
   Timer? _deviceHeartbeatTimer;
+  StreamSubscription<String?>? _sessionSub;
+  bool _isSupersededLoggingOut = false;
   AppLifecycleListener? _lifecycleListener;
   bool _isRefreshing = false;
   bool _wasServerLive = false;
   String? _lastAlertedNotificationId;
+  UserDeletionStatus? _deletionStatus;
+  StreamSubscription<UserDeletionStatus>? _deletionStatusSub;
+  StreamSubscription<List<String>>? _shareTargetSub;
 
   @override
   void initState() {
@@ -76,6 +89,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _databaseService = widget.databaseService ?? DatabaseService();
     _serverService = widget.serverService ?? ServerService();
     _clipboardService = widget.clipboardService ?? ClipboardService();
+    _sessionService = widget.sessionService ?? SessionService();
     _fileShareService = FileShareService();
     _tunnelService = TunnelService();
 
@@ -100,8 +114,26 @@ class _HomeScreenState extends State<HomeScreen> {
       databaseService: _databaseService,
     );
 
-    if (!kIsWeb && Platform.isWindows) {
-      _checkWindowsPermissions();
+    if (user != null) {
+      _deletionStatusSub = _databaseService
+          .listenAccountDeletionStatus(user)
+          .listen((status) async {
+        if (!mounted) return;
+        setState(() {
+          _deletionStatus = status;
+        });
+
+        // If the 15-day grace period has passed, permanently purge the account
+        if (status.isPermanentlyExpired) {
+          _handleExpiredAccountPurge(user);
+        }
+      });
+    }
+
+    if (isDesktopHost) {
+      if (Platform.isWindows) {
+        _checkWindowsPermissions();
+      }
       _currentServerInfo = _serverService.currentServerInfo;
       _serverSub = _serverService.serverStateStream.listen((info) {
         if (mounted) {
@@ -141,19 +173,19 @@ class _HomeScreenState extends State<HomeScreen> {
           });
 
           if (!isLiveNow) {
-            _stopAndroidServices();
+            _stopMobileServices();
             NotificationService.cancelServerLiveNotification();
           } else {
             if (becameLive) {
               NotificationService.showServerLiveNotification(
-                hostName: 'Windows PC',
+                hostName: 'Desktop Host',
                 ipAddress: info.url,
                 publicUrl: info.publicUrl,
               );
             }
 
             if (!_clipboardService.isListening && _cachedDeviceDetails != null) {
-              _startAndroidServices(_cachedDeviceDetails!);
+              _startMobileServices(_cachedDeviceDetails!);
             } else if (_clipboardService.isListening) {
               _clipboardService.onServerInfoPublished();
             }
@@ -183,10 +215,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     _loadDeviceDetails();
+    _setupShareTargetListener();
   }
 
-  void _startAndroidServices(DeviceDetails details) {
-    if (kIsWeb || Platform.isWindows) return;
+  void _startMobileServices(DeviceDetails details) {
+    if (isDesktopHost) return;
     _cachedDeviceDetails = details;
     if (_clipboardService.isListening) {
       _clipboardService.onServerInfoPublished();
@@ -212,8 +245,9 @@ class _HomeScreenState extends State<HomeScreen> {
         return info?.startedAt?.toIso8601String();
       },
       onConnectionLost: () {
-        debugPrint('HomeScreen: Connection lost detected by ClipboardService');
-        _stopAndroidServices();
+        debugPrint(
+          'HomeScreen: Transient connection loss detected by ClipboardService; retrying in background...',
+        );
       },
     );
   }
@@ -247,8 +281,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _stopAndroidServices() {
-    if (kIsWeb || Platform.isWindows) return;
+  void _stopMobileServices() {
+    if (isDesktopHost) return;
     _fileShareService.cancelActiveTransfers();
     _clipboardService.stopListening();
   }
@@ -262,14 +296,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final user = _authService.currentUser;
     if (user == null) return;
 
-    final isWindows = !kIsWeb && Platform.isWindows;
-    final platformKey = isWindows ? 'windows' : 'android';
+    final isDesktop = isDesktopHost;
+    final currentPlatformKey = platformKey;
 
     final futures = <Future<void>>[
-      _databaseService.setDeviceOffline(user: user, platformKey: platformKey),
+      _databaseService.setDeviceOffline(user: user, platformKey: currentPlatformKey),
     ];
 
-    if (isWindows && _serverService.isRunning) {
+    if (isDesktop && _serverService.isRunning) {
       futures.add(_databaseService.setServerOffline(user: user));
       futures.add(_serverService.stopServer());
     }
@@ -277,6 +311,56 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       await Future.wait(futures).timeout(const Duration(seconds: 2));
     } catch (_) {}
+  }
+
+  void _setupShareTargetListener() {
+    _shareTargetSub?.cancel();
+    _shareTargetSub = ShareTargetService().sharedFilesStream.listen((files) {
+      _handleIncomingSharedFiles(files);
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pending = await ShareTargetService().consumeInitialAndPendingFiles();
+      if (pending.isNotEmpty) {
+        _handleIncomingSharedFiles(pending);
+      }
+    });
+  }
+
+  void _handleIncomingSharedFiles(List<String> files) {
+    if (files.isEmpty) return;
+    final isDesktop = isDesktopHost;
+
+    if (isDesktop) {
+      _serverService.enqueueLocalSharedFiles(
+        sourcePaths: files,
+        deviceName: 'Desktop Host',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'DeskPocket: Added ${files.length} shared file(s) for mobile access.',
+            ),
+            backgroundColor: AppColors.accentPurple,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } else {
+      _fileShareService.enqueueUploadFiles(files);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'DeskPocket: Enqueued ${files.length} shared file(s) for transfer to PC.',
+            ),
+            backgroundColor: AppColors.primary,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
 
   void _startDeviceHeartbeat(User user, String platformKey) {
@@ -298,6 +382,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _lifecycleListener?.dispose();
+    _sessionSub?.cancel();
+    _sessionSub = null;
     _serverHeartbeatTimer?.cancel();
     _deviceHeartbeatTimer?.cancel();
     _serverSub?.cancel();
@@ -305,11 +391,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _notificationSub?.cancel();
     _tunnelWatcherTimer?.cancel();
     _tunnelUrlSub?.cancel();
+    _deletionStatusSub?.cancel();
+    _shareTargetSub?.cancel();
     _tunnelService.dispose();
     _clipboardService.dispose();
     _fileShareService.dispose();
     _cleanupAndMarkOffline();
-    if (!kIsWeb && Platform.isWindows) {
+    if (isDesktopHost) {
       _serverService.dispose();
     }
     super.dispose();
@@ -327,16 +415,30 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _syncWithCloudAndStartServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (user != null) {
+      final currentPlatformKey = platformKey;
       try {
+        await _sessionService.init();
+        var currentSession = _sessionService.currentSessionId;
+        if (currentSession == null || currentSession.isEmpty) {
+          currentSession = await _sessionService.registerNewSession(
+            user: user,
+            platformKey: currentPlatformKey,
+            deviceId: details.deviceId,
+            databaseService: _databaseService,
+          );
+        }
+
         await _databaseService.syncUserAndDevice(
           user: user,
           details: details,
+          sessionId: currentSession,
         );
 
-        _startDeviceHeartbeat(user, details.isWindows ? 'windows' : 'android');
+        _startDeviceHeartbeat(user, currentPlatformKey);
+        _startSessionWatcher(user, currentPlatformKey);
 
-        // Windows only: Automatically launch lightweight local server and announce to RTDB
-        if (!kIsWeb && details.isWindows) {
+        // Desktop host: Automatically launch lightweight local server and announce to RTDB
+        if (details.isDesktop) {
           _serverService.setAuthorizedAndroidDeviceId(
             await _databaseService.getAndroidDeviceId(user: user),
           );
@@ -362,7 +464,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
 
-          // Windows: Start direct server-routed clipboard handler
+          // Desktop host: Start direct server-routed clipboard handler
           _clipboardService.startListening(
             deviceName: details.deviceName,
             isWindows: true,
@@ -393,13 +495,13 @@ class _HomeScreenState extends State<HomeScreen> {
           deviceName: details.deviceName,
         );
 
-        if (!kIsWeb && !details.isWindows) {
+        if (details.isMobile) {
           NotificationService.initialize(
             user: user,
             databaseService: _databaseService,
           );
           if (_currentServerInfo?.isLive ?? false) {
-            _startAndroidServices(details);
+            _startMobileServices(details);
           }
         }
       } catch (_) {
@@ -448,7 +550,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startAutomatedTunnel(User user) {
-    if (kIsWeb || !Platform.isWindows) return;
+    if (kIsWeb || !isDesktopHost) return;
 
     _tunnelUrlSub?.cancel();
     _tunnelUrlSub = _tunnelService.urlStream.listen((url) {
@@ -529,7 +631,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         content: Text(
-          'Are you sure you want to sign out of PCLink?',
+          'Are you sure you want to sign out of DeskPocket?',
           style: TextStyle(
             color: colors.textSecondary,
             fontSize: 13,
@@ -555,12 +657,15 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             onPressed: () async {
               Navigator.of(ctx).pop();
+              _sessionSub?.cancel();
+              _sessionSub = null;
               await _cleanupAndMarkOffline();
               _tunnelWatcherTimer?.cancel();
               _tunnelWatcherTimer = null;
               _tunnelUrlSub?.cancel();
               _tunnelUrlSub = null;
               await _tunnelService.stop();
+              await _sessionService.clearLocalSession();
               await _authService.signOut();
               if (mounted) {
                 Navigator.of(context).pushAndRemoveUntil(
@@ -574,6 +679,169 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  void _startSessionWatcher(User user, String platformKey) {
+    _sessionSub?.cancel();
+    _sessionSub = _databaseService
+        .listenDeviceSession(user: user, platformKey: platformKey)
+        .listen((remoteSessionId) {
+      if (!mounted || _isSupersededLoggingOut) return;
+      final localSessionId = _sessionService.currentSessionId;
+      if (localSessionId != null &&
+          localSessionId.isNotEmpty &&
+          remoteSessionId != null &&
+          remoteSessionId.isNotEmpty &&
+          remoteSessionId != localSessionId) {
+        debugPrint(
+          'HomeScreen: Session on $platformKey superseded ($remoteSessionId != $localSessionId). Evicting older session.',
+        );
+        _handleSupersededSession();
+      }
+    });
+  }
+
+  Future<void> _handleSupersededSession() async {
+    if (_isSupersededLoggingOut) return;
+    _isSupersededLoggingOut = true;
+
+    final isDesktop = isDesktopHost;
+    final deviceType = isDesktop ? 'computer' : 'phone';
+    final message =
+        'You were logged out because this account was logged into another $deviceType.';
+
+    _sessionSub?.cancel();
+    _sessionSub = null;
+    _serverHeartbeatTimer?.cancel();
+    _serverHeartbeatTimer = null;
+    _deviceHeartbeatTimer?.cancel();
+    _deviceHeartbeatTimer = null;
+    _tunnelWatcherTimer?.cancel();
+    _tunnelWatcherTimer = null;
+    _tunnelUrlSub?.cancel();
+    _tunnelUrlSub = null;
+    _deletionStatusSub?.cancel();
+    _deletionStatusSub = null;
+    _shareTargetSub?.cancel();
+    _shareTargetSub = null;
+
+    if (isDesktop && _serverService.isRunning) {
+      try {
+        await _serverService.stopServer();
+      } catch (_) {}
+    } else {
+      _stopMobileServices();
+    }
+    try {
+      await _tunnelService.stop();
+    } catch (_) {}
+
+    await _sessionService.clearLocalSession();
+    await _authService.signOut();
+
+    if (!mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => AuthScreen(
+          sessionExpiredMessage: message,
+        ),
+      ),
+      (route) => false,
+    );
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    final confirmed = await AccountDeletionDialog.show(context);
+    if (!confirmed || !mounted) return;
+
+    final success = await _databaseService.requestAccountDeletion(user: user);
+    if (!mounted) return;
+
+    if (success) {
+      final updated = await _databaseService.getAccountDeletionStatus(user: user);
+      if (!mounted) return;
+      setState(() => _deletionStatus = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Account scheduled for deletion. You have a 15-day grace period to undelete at any time.',
+          ),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to schedule account deletion. Please check connection and try again.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleUndeleteAccount() async {
+    final user = _authService.currentUser;
+    if (user == null) return;
+
+    final confirmed = await AccountUndeleteDialog.show(context);
+    if (!confirmed || !mounted) return;
+
+    final success = await _databaseService.cancelAccountDeletion(user: user);
+    if (!mounted) return;
+
+    if (success) {
+      final updated = await _databaseService.getAccountDeletionStatus(user: user);
+      if (!mounted) return;
+      setState(() => _deletionStatus = updated);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account restored! Scheduled deletion has been cancelled.'),
+          backgroundColor: AppColors.success,
+          duration: Duration(seconds: 4),
+        ),
+      );
+    } else {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Failed to cancel account deletion. Please try again.'),
+          backgroundColor: AppColors.error,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleExpiredAccountPurge(User user) async {
+    _sessionSub?.cancel();
+    _sessionSub = null;
+    await _sessionService.clearLocalSession();
+    await _databaseService.purgeExpiredAccount(user: user);
+    await _cleanupAndMarkOffline();
+    _tunnelWatcherTimer?.cancel();
+    _tunnelUrlSub?.cancel();
+    await _tunnelService.stop();
+    await _authService.signOut();
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AuthScreen()),
+        (route) => false,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Your account has been permanently deleted as the 15-day grace period expired.',
+          ),
+          backgroundColor: AppColors.error,
+          duration: Duration(seconds: 5),
+        ),
+      );
+    }
   }
 
   @override
@@ -631,7 +899,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
 
         final details = snapshot.data!;
-        final isDesktop = (!kIsWeb && Platform.isWindows) ||
+        final isDesktop = isDesktopHost ||
             MediaQuery.sizeOf(context).width >= 900;
 
         if (isDesktop) {
@@ -647,19 +915,22 @@ class _HomeScreenState extends State<HomeScreen> {
             isRefreshing: _isRefreshing,
             onRefresh: _refresh,
             onSignOut: _confirmSignOut,
+            deletionStatus: _deletionStatus,
+            onDeleteAccount: _handleDeleteAccount,
+            onUndeleteAccount: _handleUndeleteAccount,
             onToggleServer: () => _toggleServer(details),
             onConnectionStateChanged: (isConnected) {
-              if (!details.isWindows) {
+              if (!details.isDesktop) {
                 if (isConnected) {
-                  _startAndroidServices(details);
+                  _startMobileServices(details);
                 } else {
-                  _stopAndroidServices();
+                  _stopMobileServices();
                 }
               }
             },
             onDisconnectRequested: () {
-              if (!details.isWindows) {
-                _stopAndroidServices();
+              if (!details.isDesktop) {
+                _stopMobileServices();
               }
             },
           );
@@ -677,19 +948,22 @@ class _HomeScreenState extends State<HomeScreen> {
           isRefreshing: _isRefreshing,
           onRefresh: _refresh,
           onSignOut: _confirmSignOut,
+          deletionStatus: _deletionStatus,
+          onDeleteAccount: _handleDeleteAccount,
+          onUndeleteAccount: _handleUndeleteAccount,
           onToggleServer: () => _toggleServer(details),
           onConnectionStateChanged: (isConnected) {
-            if (!details.isWindows) {
+            if (!details.isDesktop) {
               if (isConnected) {
-                _startAndroidServices(details);
+                _startMobileServices(details);
               } else {
-                _stopAndroidServices();
+                _stopMobileServices();
               }
             }
           },
           onDisconnectRequested: () {
-            if (!details.isWindows) {
-              _stopAndroidServices();
+            if (!details.isDesktop) {
+              _stopMobileServices();
             }
           },
         );

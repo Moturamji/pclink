@@ -99,7 +99,7 @@ class ClipboardService with WidgetsBindingObserver {
       FlutterForegroundTask.init(
         androidNotificationOptions: AndroidNotificationOptions(
           channelId: 'pclink_foreground_sync',
-          channelName: 'PCLink Background Sync',
+          channelName: 'DeskPocket Background Sync',
           channelDescription:
               'Maintains live background connection and direct clipboard route with PC',
           channelImportance: NotificationChannelImportance.LOW,
@@ -160,13 +160,17 @@ class ClipboardService with WidgetsBindingObserver {
       _history.addAll(_serverService!.clipboardHistory);
       _historyController.add(List.from(_history));
     } else {
-      // Android: Poll latest clip from Windows server (2s interval with smart backoff)
-      _remoteFetchTimer = Timer.periodic(
-        const Duration(seconds: 2),
-        (_) async {
-          await _fetchLatestRemoteClipFromWindowsServer();
-        },
-      );
+      // Mobile client:
+      // On iOS, background timers are terminated or cause battery penalty.
+      // Instead, iOS clipboard sync relies on app resume lifecycle or manual trigger.
+      if (!kIsWeb && !Platform.isIOS) {
+        _remoteFetchTimer = Timer.periodic(
+          const Duration(seconds: 2),
+          (_) async {
+            await _fetchLatestRemoteClipFromWindowsServer();
+          },
+        );
+      }
 
       // Start Android Foreground Service with 1-tap notification action
       if (!kIsWeb && Platform.isAndroid) {
@@ -291,7 +295,7 @@ void _onForegroundDataReceived(dynamic data) {
     ];
     _nextProbeAllowedAt = DateTime.now().add(Duration(seconds: backoffSeconds));
     _reportFailure(
-      'Cannot reach your PC server yet (${urls.join(', ')}). Make sure PCLink is open on the PC, then copy again.',
+      'Cannot reach your PC server yet (${urls.join(', ')}). Make sure DeskPocket is open on the PC, then copy again.',
     );
     return null;
   }
@@ -343,7 +347,7 @@ void _onForegroundDataReceived(dynamic data) {
       if (!await FlutterForegroundTask.isRunningService) {
         await FlutterForegroundTask.startService(
           serviceId: 256,
-          notificationTitle: 'PCLink Live Sync Active',
+          notificationTitle: 'DeskPocket Live Sync Active',
           notificationText: 'Tap "Send to PC" to instantly transfer clipboard',
           notificationButtons: [
             const NotificationButton(id: 'sync_now', text: 'Send to PC'),
@@ -360,7 +364,8 @@ void _onForegroundDataReceived(dynamic data) {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Whenever app focus changes or resumes, check clipboard immediately
     _checkLocalClipboard();
-    if (_currentPlatformName == 'android') {
+    if (!kIsWeb && !Platform.isWindows && !Platform.isMacOS) {
+      _deadUrls.clear();
       _consecutiveFailures = 0; // Reset backoff on app resume
       _fetchLatestRemoteClipFromWindowsServer();
     }
@@ -389,7 +394,7 @@ void _onForegroundDataReceived(dynamic data) {
     } else if (response != null && response.statusCode != 200) {
       _consecutiveFailures++;
       _reportFailure(
-        'PC server responded with status ${response.statusCode}. Try restarting PCLink on the PC.',
+        'PC server responded with status ${response.statusCode}. Try restarting DeskPocket on the PC.',
       );
     }
   }
@@ -496,7 +501,7 @@ void _onForegroundDataReceived(dynamic data) {
           return;
         } else if (response.statusCode == 401) {
           _reportFailure(
-            'PC rejected this device or the server session password. Open PCLink on the PC (restart if needed), then reconnect.',
+            'PC rejected this device or the server session password. Open DeskPocket on the PC (restart if needed), then reconnect.',
           );
           return;
         }
@@ -659,6 +664,10 @@ void _onForegroundDataReceived(dynamic data) {
   /// Manually triggers a clipboard read and push.
   Future<void> triggerManualSync() async {
     await _checkLocalClipboard();
+    if (!kIsWeb && !Platform.isWindows && !Platform.isMacOS) {
+      _consecutiveFailures = 0;
+      await _fetchLatestRemoteClipFromWindowsServer();
+    }
   }
 
   /// Stops clipboard listener and background tasks.

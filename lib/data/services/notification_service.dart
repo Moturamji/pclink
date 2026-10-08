@@ -47,16 +47,16 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     final hostName = message.data['hostName']?.toString() ?? 'Windows PC';
     final rawBody = message.notification?.body ??
         message.data['body'] ??
-        '$hostName is running PCLink and ready for secure connection.';
+        '$hostName is running DeskPocket and ready for secure connection.';
 
     final bigTextStyleInformation = BigTextStyleInformation(
-      '**$hostName** is running PCLink and ready for secure connection.\n\n'
+      '**$hostName** is running DeskPocket and ready for secure connection.\n\n'
       '• Status: Online & Live\n'
-      '• Tap to open PCLink and sync clipboard or transfer files.',
+      '• Tap to open DeskPocket and sync clipboard or transfer files.',
       htmlFormatBigText: false,
       contentTitle: title,
       htmlFormatContentTitle: false,
-      summaryText: 'PCLink Live Server',
+      summaryText: 'DeskPocket Live Server',
       htmlFormatSummaryText: false,
     );
 
@@ -91,7 +91,7 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// Service managing Firebase Cloud Messaging (FCM), permissions, and local notification display.
 class NotificationService {
   static const String channelId = 'pclink_server_channel';
-  static const String channelName = 'PCLink Server Alerts';
+  static const String channelName = 'DeskPocket Server Alerts';
   static const String channelDescription =
       'Notifications when your Windows PC link is live and ready for connection.';
 
@@ -114,10 +114,18 @@ class NotificationService {
 
   /// Pre-registers local notifications and the Android channel early at app startup.
   static Future<void> initializeEarly() async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     try {
       const androidSettings = AndroidInitializationSettings('@mipmap/ic_launcher');
-      const initSettings = InitializationSettings(android: androidSettings);
+      const darwinSettings = DarwinInitializationSettings(
+        requestAlertPermission: true,
+        requestBadgePermission: true,
+        requestSoundPermission: true,
+      );
+      const initSettings = InitializationSettings(
+        android: androidSettings,
+        iOS: darwinSettings,
+      );
       await _localNotifications.initialize(
         settings: initSettings,
         onDidReceiveNotificationResponse: (details) {
@@ -125,11 +133,23 @@ class NotificationService {
         },
       );
 
-      final androidPlugin = _localNotifications
-          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-      if (androidPlugin != null) {
-        await androidPlugin.createNotificationChannel(_androidChannel);
-        await androidPlugin.requestNotificationsPermission();
+      if (Platform.isAndroid) {
+        final androidPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+        if (androidPlugin != null) {
+          await androidPlugin.createNotificationChannel(_androidChannel);
+          await androidPlugin.requestNotificationsPermission();
+        }
+      } else if (Platform.isIOS) {
+        final iosPlugin = _localNotifications
+            .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+        if (iosPlugin != null) {
+          await iosPlugin.requestPermissions(
+            alert: true,
+            badge: true,
+            sound: true,
+          );
+        }
       }
     } catch (e) {
       debugPrint('NotificationService initializeEarly error: $e');
@@ -141,7 +161,7 @@ class NotificationService {
     User? user,
     DatabaseService? databaseService,
   }) async {
-    if (kIsWeb || !Platform.isAndroid) {
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
       return;
     }
 
@@ -231,7 +251,7 @@ class NotificationService {
     String? ipAddress,
     String? publicUrl,
   }) async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
 
     try {
       final endpointSummary = (publicUrl != null && publicUrl.isNotEmpty)
@@ -241,14 +261,14 @@ class NotificationService {
               : 'Secure Connection Ready';
 
       final bigTextStyleInformation = BigTextStyleInformation(
-        '**$hostName** is running PCLink and ready for secure connection.\n\n'
+        '**$hostName** is running DeskPocket and ready for secure connection.\n\n'
         '• Status: Online & Live\n'
         '• Endpoint: $endpointSummary\n\n'
-        'Tap to open PCLink and sync clipboard or transfer files.',
+        'Tap to open DeskPocket and sync clipboard or transfer files.',
         htmlFormatBigText: false,
-        contentTitle: '🖥️ Windows PC is Online & Ready',
+        contentTitle: '🖥️ Desktop Host is Online & Ready',
         htmlFormatContentTitle: false,
-        summaryText: 'PCLink Live Server',
+        summaryText: 'DeskPocket Live Server',
         htmlFormatSummaryText: false,
       );
 
@@ -268,11 +288,20 @@ class NotificationService {
         autoCancel: true,
       );
 
-      final platformDetails = NotificationDetails(android: androidDetails);
+      const darwinDetails = DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      );
+
+      final platformDetails = NotificationDetails(
+        android: androidDetails,
+        iOS: darwinDetails,
+      );
 
       await _localNotifications.show(
         id: serverLiveNotificationId,
-        title: '🖥️ Windows PC is Online & Ready',
+        title: '🖥️ Desktop Host is Online & Ready',
         body: '$hostName is live • $endpointSummary',
         notificationDetails: platformDetails,
         payload: 'home',
@@ -284,7 +313,7 @@ class NotificationService {
 
   /// Cancels the server live notification (e.g. when PC turns offline)
   static Future<void> cancelServerLiveNotification() async {
-    if (kIsWeb || !Platform.isAndroid) return;
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     try {
       await _localNotifications.cancel(id: serverLiveNotificationId);
     } catch (e) {
@@ -295,7 +324,7 @@ class NotificationService {
   /// Displays a local heads-up notification for foreground or data-only FCM messages.
   static Future<void> _showLocalNotification(RemoteMessage message) async {
     final notification = message.notification;
-    final title = notification?.title ?? message.data['title'] ?? 'PCLink Alert';
+    final title = notification?.title ?? message.data['title'] ?? 'DeskPocket Alert';
     final body = notification?.body ?? message.data['body'] ?? 'Windows PC is Live & Ready!';
 
     const androidDetails = AndroidNotificationDetails(
@@ -310,7 +339,14 @@ class NotificationService {
       enableVibration: true,
     );
 
-    const platformDetails = NotificationDetails(android: androidDetails);
+    const platformDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: DarwinNotificationDetails(
+        presentAlert: true,
+        presentBadge: true,
+        presentSound: true,
+      ),
+    );
 
     await _localNotifications.show(
       id: message.hashCode,
