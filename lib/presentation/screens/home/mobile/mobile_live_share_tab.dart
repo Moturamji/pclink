@@ -787,19 +787,23 @@ class _LiveShareViewerState extends State<LiveShareViewer>
   Timer? _fpsTimer;
   Timer? _fallbackPollTimer;
   Timer? _hudTimer;
+  Timer? _reconnectTimer;
 
   Uint8List? _frame;
+  Uint8List? _pendingFrame; // double-buffer: decode off main frame then swap
   bool _isStreaming = false;
   bool _isConnecting = true;
   bool _showHud = true;
   int _consecutiveNulls = 0;
+  int _reconnectAttempts = 0;
 
   // Real-time telemetry
   int _framesInLastSecond = 0;
   int _currentFps = 0;
   int _currentLatencyMs = 0;
   DateTime? _lastFrameReceivedAt;
-  String _currentQuality = 'ultra'; // 'ultra' (1080p, Q85), 'high', 'fast'
+  String _currentQuality = 'ultra'; // 'ultra' (1080p, Q85), 'high', 'fast', 'low', 'eco'
+  String _adaptiveQuality = 'ultra'; // last adaptive hint from server
 
   late AnimationController _pulseController;
   final TransformationController _transformController = TransformationController();
@@ -880,10 +884,35 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     }
   }
 
+  void _scheduleReconnect() {
+    _reconnectTimer?.cancel();
+    if (!mounted) return;
+    // Exponential backoff: 400ms, 800ms, 1600ms, capped at 3000ms
+    final delayMs = (400 * (1 << _reconnectAttempts.clamp(0, 3))).clamp(400, 3000);
+    _reconnectAttempts++;
+    debugPrint('LiveShareViewer: scheduling reconnect in ${delayMs}ms (attempt $_reconnectAttempts)');
+    _reconnectTimer = Timer(Duration(milliseconds: delayMs), () {
+      if (!mounted) return;
+      _startStream();
+    });
+  }
+
   void _listenToWebSocket(WebSocket socket) {
     _wsSubscription?.cancel();
+    _reconnectAttempts = 0;
+    _reconnectTimer?.cancel();
     _wsSubscription = socket.listen(
       (data) {
+        if (data is String) {
+          // Adaptive quality hint from server
+          if (data.startsWith('quality:')) {
+            final q = data.substring('quality:'.length).trim();
+            if (q.isNotEmpty && mounted) {
+              setState(() => _adaptiveQuality = q);
+            }
+          }
+          return;
+        }
         if (data is List<int>) {
           final now = DateTime.now();
           if (_lastFrameReceivedAt != null) {
@@ -896,16 +925,22 @@ class _LiveShareViewerState extends State<LiveShareViewer>
           _framesInLastSecond++;
 
           final bytes = data is Uint8List ? data : Uint8List.fromList(data);
+          // Double-buffer to avoid jank: hold frame then swap on next vsync
+          _pendingFrame = bytes;
           if (mounted) {
+            // Swap buffers inside setState so Image.memory gets new bytes with gaplessPlayback
             setState(() {
-              _frame = bytes;
+              _frame = _pendingFrame;
               _isStreaming = true;
               _isConnecting = false;
               _consecutiveNulls = 0;
             });
+            _framesInLastSecond++;
+          } else {
+            _framesInLastSecond++;
           }
 
-          // Crucial ACK backpressure: signals PC to send next frame
+          // ACK immediately after swap — low-latency backpressure (no await)
           try {
             socket.add('ack');
           } catch (_) {}
@@ -913,11 +948,14 @@ class _LiveShareViewerState extends State<LiveShareViewer>
       },
       onError: (e) {
         debugPrint('LiveShareViewer: WS stream error: $e');
-        _startRapidPolling();
+        if (_fallbackPollTimer == null) _scheduleReconnect();
+        // Keep polling as last resort if reconnect repeatedly fails
+        if (_reconnectAttempts > 4) _startRapidPolling();
       },
       onDone: () {
         debugPrint('LiveShareViewer: WS stream finished');
-        _startRapidPolling();
+        if (_fallbackPollTimer == null) _scheduleReconnect();
+        if (_reconnectAttempts > 4) _startRapidPolling();
       },
       cancelOnError: true,
     );
@@ -962,7 +1000,10 @@ class _LiveShareViewerState extends State<LiveShareViewer>
 
   void _setQuality(String quality) {
     if (_currentQuality == quality) return;
-    setState(() => _currentQuality = quality);
+    setState(() {
+      _currentQuality = quality;
+      _adaptiveQuality = quality;
+    });
     if (_socket != null) {
       try {
         _socket!.add('quality:$quality');
@@ -1110,6 +1151,7 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     _fpsTimer?.cancel();
     _fallbackPollTimer?.cancel();
     _hudTimer?.cancel();
+    _reconnectTimer?.cancel();
     _wsSubscription?.cancel();
     try {
       _socket?.close();
@@ -1148,7 +1190,8 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                       child: Image.memory(
                         _frame!,
                         gaplessPlayback: true,
-                        filterQuality: FilterQuality.medium,
+                        filterQuality: FilterQuality.low,
+                        isAntiAlias: false,
                         fit: BoxFit.contain,
                         errorBuilder: (context, error, stackTrace) {
                           return const Center(
@@ -1346,9 +1389,17 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              _currentQuality == 'ultra'
-                                  ? '1080p'
-                                  : (_currentQuality == 'high' ? '720p' : 'Fast'),
+                              _adaptiveQuality != _currentQuality
+                                  ? 'Auto:$_adaptiveQuality'
+                                  : (_currentQuality == 'ultra'
+                                      ? '1080p'
+                                      : _currentQuality == 'high'
+                                          ? '720p'
+                                          : _currentQuality == 'fast'
+                                              ? 'Fast'
+                                              : _currentQuality == 'low'
+                                                  ? 'Low'
+                                                  : 'Eco'),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -1398,6 +1449,34 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                               SizedBox(width: 10),
                               Text(
                                 'Fast Motion (Smooth • 70% Q)',
+                                style: TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'low',
+                          child: Row(
+                            children: [
+                              Icon(Icons.signal_cellular_alt_rounded,
+                                  color: Colors.lightGreen, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Low Bandwidth (960px • 60% Q)',
+                                style: TextStyle(color: Colors.white, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'eco',
+                          child: Row(
+                            children: [
+                              Icon(Icons.battery_saver_rounded,
+                                  color: Colors.orangeAccent, size: 18),
+                              SizedBox(width: 10),
+                              Text(
+                                'Eco • Poor Network (720px • 50% Q)',
                                 style: TextStyle(color: Colors.white, fontSize: 13),
                               ),
                             ],

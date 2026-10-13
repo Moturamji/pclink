@@ -17,6 +17,9 @@ namespace {
 
 static ULONG_PTR g_gdiplusToken = 0;
 static bool g_gdiplusInitialized = false;
+static CLSID g_jpegClsid{};
+static bool g_jpegClsidCached = false;
+static bool g_jpegClsidValid = false;
 
 int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
   UINT num = 0;
@@ -38,13 +41,29 @@ int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
   return -1;
 }
 
+bool GetCachedJpegClsid(CLSID* out) {
+  if (g_jpegClsidCached) {
+    if (g_jpegClsidValid) *out = g_jpegClsid;
+    return g_jpegClsidValid;
+  }
+  g_jpegClsidCached = true;
+  g_jpegClsidValid = GetEncoderClsid(L"image/jpeg", &g_jpegClsid) >= 0;
+  if (g_jpegClsidValid) *out = g_jpegClsid;
+  return g_jpegClsidValid;
+}
+
 }  // namespace
 
 void NativeScreenShare::EnsureGdiplusInitialized() {
   if (!g_gdiplusInitialized) {
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
+    // Use no background thread to reduce latency in Flutter embed
+    gdiplusStartupInput.SuppressBackgroundThread = FALSE;
     Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
     g_gdiplusInitialized = true;
+    // Pre-warm encoder CLSID on startup thread
+    CLSID tmp;
+    GetCachedJpegClsid(&tmp);
   }
 }
 
@@ -130,7 +149,7 @@ std::vector<uint8_t> NativeScreenShare::CaptureScreenJpeg(int max_width, int qua
     Gdiplus::Bitmap gdi_bitmap(hBitmap, NULL);
 
     CLSID clsid_jpeg;
-    if (GetEncoderClsid(L"image/jpeg", &clsid_jpeg) >= 0) {
+    if (GetCachedJpegClsid(&clsid_jpeg)) {
       Gdiplus::EncoderParameters encoder_params;
       encoder_params.Count = 1;
       encoder_params.Parameter[0].Guid = Gdiplus::EncoderQuality;

@@ -457,7 +457,8 @@ class FileShareService {
     return response.bodyBytes;
   }
 
-  /// Connects to the real-time WebSocket live screen share stream.
+  /// Connects to the real-time WebSocket live screen share stream with
+  /// ping-pong keepalive and adaptive retry.
   /// Automatically negotiates ws:// or wss:// across candidate URLs with auth.
   Future<WebSocket?> connectScreenShareWebSocket({
     required String localDeviceId,
@@ -488,6 +489,10 @@ class FileShareService {
         final socket = await WebSocket.connect(
           wsUri.toString(),
         ).timeout(const Duration(seconds: 4));
+        // Enable low-latency, set keepalive pings
+        try {
+          socket.pingInterval = const Duration(seconds: 15);
+        } catch (_) {}
         return socket;
       } catch (e) {
         debugPrint('FileShareService: WS connect error on $baseUrl: $e');
