@@ -190,7 +190,7 @@ class ServerService {
 
         final totalBytes = await src.length();
         final id =
-            'file_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(99999)}';
+            'file_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
         final originalName = _sanitizeFileName(
           sourcePath.split(RegExp(r'[\\/]')).last,
         );
@@ -738,8 +738,10 @@ class ServerService {
     request.response.statusCode = HttpStatus.ok;
     request.response.headers.contentType = ContentType.json;
     request.response.headers.set('Cache-Control', 'no-store');
+    // Snapshot to avoid concurrent modification while uploads are in flight.
+    final snapshot = List<TransferProgress>.from(_activeTransfers.values);
     request.response.write(
-      jsonEncode(_activeTransfers.values.map((transfer) => transfer.toMap()).toList()),
+      jsonEncode(snapshot.map((transfer) => transfer.toMap()).toList()),
     );
     await request.response.close();
   }
@@ -1318,7 +1320,7 @@ class ServerService {
 
       // Verify integrity and atomically rename from .part file to final destination
       // Using non-destructive naming (never overwriting user files) and robust Windows finalization
-      final id = 'file_${DateTime.now().millisecondsSinceEpoch}';
+      final id = 'file_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
       final finalDest =
           await FileSystemUtil.getUniqueDestinationFile(dir, originalName);
       await FileSystemUtil.robustRenameOrCopy(partFile, finalDest);
@@ -2004,6 +2006,26 @@ class ServerService {
       'Access-Control-Allow-Headers',
       'Origin, X-Requested-With, Content-Type, Accept, ${ServerConstants.authHeader}, ${ServerConstants.startTimeHeader}',
     );
+  }
+
+  /// Clears transient queued/active transfer cards. Called when the server
+  /// restarts or the client disconnects so stale queue entries don't linger.
+  void clearTransientTransfers() {
+    for (final token in List.of(_activeTokens.values)) {
+      try {
+        token.cancel();
+      } catch (_) {}
+    }
+    _activeTokens.clear();
+    _activeTransfers.clear();
+    _activeUploadSessions.clear();
+    _currentTransferProgress = null;
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.add(const {});
+    }
+    if (!_transferProgressController.isClosed) {
+      _transferProgressController.add(null);
+    }
   }
 
   /// Stops the local Windows server.

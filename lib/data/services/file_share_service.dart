@@ -1756,6 +1756,43 @@ class FileShareService {
     return targetDir;
   }
 
+  /// Clears transient queued/active transfer cards without touching persistent on-disk state.
+  /// Useful when the PC disconnects so stale queue cards don't linger forever.
+  void clearTransientTransfers() {
+    for (final token in List.of(_activeTokens.values)) {
+      try {
+        token.cancel();
+      } catch (_) {}
+    }
+    _activeTokens.clear();
+    for (final item in _uploadQueue) {
+      if (!item.completer.isCompleted) {
+        try {
+          item.completer.complete(false);
+        } catch (_) {}
+      }
+    }
+    _uploadQueue.clear();
+    _runningUploads = 0;
+    for (final item in _downloadQueue) {
+      if (!item.completer.isCompleted) {
+        try {
+          item.completer.complete(null);
+        } catch (_) {}
+      }
+    }
+    _downloadQueue.clear();
+    _runningDownloads = 0;
+    _activeTransfers.clear();
+    _currentProgress = null;
+    if (!_allTransfersController.isClosed) {
+      _allTransfersController.add(const {});
+    }
+    if (!_progressController.isClosed) {
+      _progressController.add(null);
+    }
+  }
+
   void dispose() {
     stopAutoSync();
     _client.close();
