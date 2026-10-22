@@ -104,28 +104,22 @@ class _WindowsSystemCardState extends State<WindowsSystemCard>
       padding: const EdgeInsets.all(20.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.cardBorder, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: colors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AppCardHeader(
             icon: isMac ? Icons.laptop_mac_rounded : Icons.laptop_windows_rounded,
-            iconColor: const Color(0xFF6366F1),
+            iconColor: AppColors.primary,
             title: isMac ? 'macOS System Integration' : 'Windows System Integration',
             subtitle: 'Startup & Background Services',
             trailing: StatusBadge(
               label: _isAutostartEnabled ? 'Autostart Active' : 'Manual Launch',
               isActive: _isAutostartEnabled,
-              activeColor: const Color(0xFF10B981),
+              activeColor: AppColors.success,
             ),
           ),
           const SizedBox(height: 18),
@@ -133,7 +127,7 @@ class _WindowsSystemCardState extends State<WindowsSystemCard>
           // Autostart on boot row
           _buildFeatureToggleRow(
             icon: Icons.power_settings_new_rounded,
-            accentColor: const Color(0xFF6366F1),
+            accentColor: AppColors.primary,
             title: 'Auto-Start on Boot (Background)',
             subtitle: isMac
                 ? 'Boots silently with macOS. Clipboard, file transfer, and screen mirroring run instantly.'

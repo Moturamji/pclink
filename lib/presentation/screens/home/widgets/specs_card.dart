@@ -28,15 +28,9 @@ class SpecsCard extends StatelessWidget {
       padding: const EdgeInsets.all(20.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.cardBorder, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: colors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

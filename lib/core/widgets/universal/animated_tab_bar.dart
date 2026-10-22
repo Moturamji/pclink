@@ -38,25 +38,16 @@ class AnimatedTabBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
         color: colors.cardSurface.withValues(alpha: colors.isDark ? 0.94 : 0.98),
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: colors.cardBorder,
-          width: 0.8,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.18 : 0.06),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.sheet),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: colors.floatingShadow,
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: List.generate(items.length, (index) {
           final item = items[index];
           final isSelected = selectedIndex == index;
-          final activeColor = item.activeColor ?? colors.primary;
+          final activeColor = item.activeColor ?? colors.primaryLight;
 
           return Expanded(
             child: Bounceable(
@@ -68,15 +59,15 @@ class AnimatedTabBar extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelected
-                      ? activeColor.withValues(alpha: colors.isDark ? 0.16 : 0.10)
+                      ? colors.tint(activeColor)
                       : Colors.transparent,
-                  borderRadius: BorderRadius.circular(18),
+                  borderRadius: BorderRadius.circular(AppRadii.card),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     AnimatedScale(
-                      scale: isSelected ? 1.15 : 1.0,
+                      scale: isSelected ? 1.08 : 1.0,
                       duration: const Duration(milliseconds: 200),
                       curve: Curves.easeOutBack,
                       child: Icon(

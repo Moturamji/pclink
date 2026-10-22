@@ -31,15 +31,9 @@ class MetricCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.cardBorder, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.16 : 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: colors.cardShadow,
       ),
       padding: const EdgeInsets.all(18.0),
       child: Column(

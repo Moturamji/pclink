@@ -423,15 +423,9 @@ class _FileShareCardState extends State<FileShareCard> {
       padding: const EdgeInsets.all(20.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.cardBorder, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: colors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -986,7 +980,7 @@ class _FileShareCardState extends State<FileShareCard> {
               color: colors.textSecondary,
               style: IconButton.styleFrom(
                 backgroundColor: colors.surfaceSubtle,
-                side: BorderSide(color: colors.cardBorder, width: 0.8),
+                side: BorderSide(color: colors.cardBorder, width: 1),
               ),
             ),
           ],
@@ -1210,7 +1204,7 @@ class _FileShareCardState extends State<FileShareCard> {
                     foregroundColor: colors.success,
                     side: BorderSide(
                       color: colors.success.withValues(alpha: 0.4),
-                      width: 0.8,
+                      width: 1,
                     ),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,

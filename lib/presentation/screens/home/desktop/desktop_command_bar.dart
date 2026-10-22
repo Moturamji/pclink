@@ -85,14 +85,9 @@ class DesktopCommandBar extends StatelessWidget {
     final publicUrl = serverInfo?.publicUrl;
 
     return Container(
-      height: 64,
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      decoration: BoxDecoration(
-        color: colors.cardSurface,
-        border: Border(
-          bottom: BorderSide(color: colors.cardBorder, width: 0.8),
-        ),
-      ),
+      height: 84,
+      // Page header sits directly on the soft canvas: no strip, no rule.
+      padding: const EdgeInsets.fromLTRB(28, 10, 28, 0),
       child: Row(
         children: [
           // Title and Subtitle
@@ -103,17 +98,17 @@ class DesktopCommandBar extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 22,
                   fontWeight: FontWeight.w700,
                   color: colors.textPrimary,
-                  letterSpacing: -0.3,
+                  letterSpacing: -0.5,
                 ),
               ),
-              const SizedBox(height: 1),
+              const SizedBox(height: 3),
               Text(
                 subtitle,
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 13,
                   fontWeight: FontWeight.w400,
                   color: colors.textMuted,
                 ),
@@ -133,7 +128,6 @@ class DesktopCommandBar extends StatelessWidget {
                     content: const Text(
                       'Public Tunnel URL copied to clipboard!',
                     ),
-                    backgroundColor: colors.surface,
                     behavior: SnackBarBehavior.floating,
                   ),
                 );
@@ -145,16 +139,16 @@ class DesktopCommandBar extends StatelessWidget {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: colors.primary.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(9999),
+                  color: colors.tint(colors.primaryLight),
+                  borderRadius: BorderRadius.circular(AppRadii.pill),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.cloud_done_rounded,
                       size: 14,
-                      color: AppColors.primaryLight,
+                      color: colors.primaryLight,
                     ),
                     const SizedBox(width: 6),
                     Text(
@@ -178,10 +172,12 @@ class DesktopCommandBar extends StatelessWidget {
           Hoverable(
             onTap: () => _openDownloadsFolder(context),
             child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
               decoration: BoxDecoration(
-                color: colors.surfaceSubtle,
-                borderRadius: BorderRadius.circular(10),
+                color: colors.cardSurface,
+                borderRadius: BorderRadius.circular(AppRadii.md),
+                border: Border.all(color: colors.cardBorder),
+                boxShadow: colors.cardShadow,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,

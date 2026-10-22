@@ -64,15 +64,9 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
           color: active ? colors.success.withValues(alpha: 0.25) : colors.cardBorder,
-          width: 0.8,
+          width: 1,
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.2 : 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        boxShadow: colors.cardShadow,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

@@ -67,7 +67,7 @@ class _HoverableState extends State<Hoverable> {
                       color: _isHovered
                           ? targetBorder
                           : targetBorder.withValues(alpha: 0.0),
-                      width: 0.8,
+                      width: 1,
                     )
                   : null,
               boxShadow: (widget.showShadow && _isHovered)

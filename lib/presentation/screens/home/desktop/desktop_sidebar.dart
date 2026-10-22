@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../../../../core/constants/app_colors.dart';
 import '../../../../core/constants/app_strings.dart';
 import '../../../../core/widgets/universal/app_logo.dart';
-import '../../../../core/widgets/universal/bounceable.dart';
 import '../../../../core/widgets/universal/hoverable.dart';
 import '../../../../core/widgets/universal/theme_toggle_button.dart';
 
@@ -43,10 +42,10 @@ class DesktopSidebar extends StatelessWidget {
     final colors = context.colors;
 
     return Container(
-      width: 260,
+      width: 264,
       decoration: BoxDecoration(
-        color: colors.cardSurface,
-        border: Border(right: BorderSide(color: colors.cardBorder, width: 0.8)),
+        color: colors.surface,
+        border: Border(right: BorderSide(color: colors.cardBorder, width: 1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -87,7 +86,7 @@ class DesktopSidebar extends StatelessWidget {
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: isServerLive
-                                  ? AppColors.success
+                                  ? colors.success
                                   : colors.textMuted,
                             ),
                           ),
@@ -103,7 +102,7 @@ class DesktopSidebar extends StatelessWidget {
                                 fontSize: 11,
                                 fontWeight: FontWeight.w500,
                                 color: isServerLive
-                                    ? AppColors.success
+                                    ? colors.success
                                     : colors.textMuted,
                               ),
                             ),
@@ -127,17 +126,19 @@ class DesktopSidebar extends StatelessWidget {
                   vertical: 8,
                 ),
                 decoration: BoxDecoration(
-                  color: colors.surfaceSubtle,
-                  borderRadius: BorderRadius.circular(12),
+                  color: colors.cardSurface,
+                  borderRadius: BorderRadius.circular(AppRadii.md),
+                  border: Border.all(color: colors.cardBorder),
+                  boxShadow: colors.cardShadow,
                 ),
                 child: Row(
                   children: [
                     Container(
-                      width: 28,
-                      height: 28,
+                      width: 32,
+                      height: 32,
                       decoration: BoxDecoration(
-                        color: colors.primary.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(8),
+                        color: colors.tint(colors.primaryLight),
+                        shape: BoxShape.circle,
                       ),
                       child: Center(
                         child: Text(
@@ -168,7 +169,7 @@ class DesktopSidebar extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            'Authenticated User',
+                            'Signed in',
                             style: TextStyle(
                               fontSize: 11,
                               color: colors.textMuted,
@@ -177,6 +178,7 @@ class DesktopSidebar extends StatelessWidget {
                         ],
                       ),
                     ),
+                    _buildAccountMenu(context),
                   ],
                 ),
               ),
@@ -189,9 +191,9 @@ class DesktopSidebar extends StatelessWidget {
             child: Text(
               'WORKSPACES',
               style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 1.0,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1.1,
                 color: colors.textMuted,
               ),
             ),
@@ -208,7 +210,7 @@ class DesktopSidebar extends StatelessWidget {
                   icon: Icons.dashboard_outlined,
                   activeIcon: Icons.dashboard_rounded,
                   label: 'Dashboard & Server',
-                  accentColor: colors.primary,
+                  accentColor: colors.primaryLight,
                 ),
                 _buildNavItem(
                   context,
@@ -216,7 +218,7 @@ class DesktopSidebar extends StatelessWidget {
                   icon: Icons.folder_open_outlined,
                   activeIcon: Icons.folder_rounded,
                   label: 'File Transfer Studio',
-                  accentColor: colors.accentPurple,
+                  accentColor: colors.primaryLight,
                 ),
                 _buildNavItem(
                   context,
@@ -224,7 +226,7 @@ class DesktopSidebar extends StatelessWidget {
                   icon: Icons.content_paste_outlined,
                   activeIcon: Icons.content_paste_rounded,
                   label: 'Clipboard Stream',
-                  accentColor: colors.secondary,
+                  accentColor: colors.primaryLight,
                 ),
                 _buildNavItem(
                   context,
@@ -232,7 +234,7 @@ class DesktopSidebar extends StatelessWidget {
                   icon: Icons.devices_outlined,
                   activeIcon: Icons.devices_rounded,
                   label: 'Devices & Security',
-                  accentColor: colors.accentWarm,
+                  accentColor: colors.primaryLight,
                 ),
               ],
             ),
@@ -242,9 +244,8 @@ class DesktopSidebar extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: colors.surfaceSubtle.withValues(alpha: 0.5),
               border: Border(
-                top: BorderSide(color: colors.cardBorder, width: 0.8),
+                top: BorderSide(color: colors.cardBorder, width: 1),
               ),
             ),
             child: Column(
@@ -274,7 +275,7 @@ class DesktopSidebar extends StatelessWidget {
                                 color: isHovered
                                     ? colors.primary.withValues(alpha: 0.3)
                                     : colors.cardBorder,
-                                width: 0.8,
+                                width: 1,
                               ),
                             ),
                             child: Row(
@@ -315,125 +316,52 @@ class DesktopSidebar extends StatelessWidget {
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                if (deletionStatus?.isDeleteRequested == true)
-                  Bounceable(
-                    onTap: onUndeleteAccount,
-                    scaleFactor: 0.98,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: AppColors.success.withValues(alpha: 0.35),
-                          width: 0.8,
-                        ),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.restore_rounded,
-                            size: 15,
-                            color: AppColors.success,
-                          ),
-                          SizedBox(width: 8),
-                          Text(
-                            'Undelete Account',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.success,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  Bounceable(
-                    onTap: onDeleteAccount,
-                    scaleFactor: 0.98,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceSubtle,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: colors.cardBorder,
-                          width: 0.8,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.delete_outline_rounded,
-                            size: 15,
-                            color: colors.textSecondary,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Delete Account',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: colors.textSecondary,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 8),
-                Bounceable(
-                  onTap: onSignOut,
-                  scaleFactor: 0.98,
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.logout_rounded,
-                          size: 15,
-                          color: AppColors.error,
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          AppStrings.signOut,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.error,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
               ],
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildAccountMenu(BuildContext context) {
+    final colors = context.colors;
+    final pending = deletionStatus?.isDeleteRequested == true;
+
+    PopupMenuItem<String> item(String value, IconData icon, String label, Color color) {
+      return PopupMenuItem<String>(
+        value: value,
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: color),
+            const SizedBox(width: 12),
+            Text(label, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: color)),
+          ],
+        ),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Account',
+      padding: EdgeInsets.zero,
+      icon: Icon(Icons.more_horiz_rounded, size: 18, color: colors.textMuted),
+      onSelected: (value) {
+        switch (value) {
+          case 'undelete':
+            onUndeleteAccount?.call();
+          case 'delete':
+            onDeleteAccount?.call();
+          case 'signout':
+            onSignOut();
+        }
+      },
+      itemBuilder: (context) => [
+        if (pending)
+          item('undelete', Icons.restore_rounded, 'Undelete account', colors.success)
+        else
+          item('delete', Icons.delete_outline_rounded, 'Delete account', colors.textSecondary),
+        item('signout', Icons.logout_rounded, AppStrings.signOut, colors.error),
+      ],
     );
   }
 
@@ -452,28 +380,25 @@ class DesktopSidebar extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 4),
       child: Hoverable(
         onTap: () => onTabChanged(tab),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadii.md),
         builder: (context, isHovered) {
           final effectiveBgColor = isSelected
-              ? (isHovered
-                    ? accentColor.withValues(alpha: 0.16)
-                    : accentColor.withValues(alpha: 0.12))
+              ? colors.cardSurface
               : (isHovered
-                    ? colors.surfaceSubtle
-                    : colors.surfaceSubtle.withValues(alpha: 0.0));
-
-          final effectiveBorderColor = isSelected
-              ? accentColor.withValues(alpha: isHovered ? 0.35 : 0.25)
-              : accentColor.withValues(alpha: 0.0);
+                    ? colors.cardSurface.withValues(alpha: 0.6)
+                    : Colors.transparent);
 
           return AnimatedContainer(
             duration: const Duration(milliseconds: 160),
             curve: Curves.easeOutCubic,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
             decoration: BoxDecoration(
               color: effectiveBgColor,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: effectiveBorderColor, width: 0.8),
+              borderRadius: BorderRadius.circular(AppRadii.md),
+              border: Border.all(
+                color: isSelected ? colors.cardBorder : Colors.transparent,
+              ),
+              boxShadow: isSelected ? colors.cardShadow : null,
             ),
             child: Row(
               children: [
@@ -482,7 +407,7 @@ class DesktopSidebar extends StatelessWidget {
                   child: Icon(
                     isSelected ? activeIcon : icon,
                     key: ValueKey<bool>(isSelected),
-                    size: 18,
+                    size: 19,
                     color: isSelected
                         ? accentColor
                         : (isHovered ? colors.textPrimary : colors.textMuted),

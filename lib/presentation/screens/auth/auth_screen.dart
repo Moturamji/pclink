@@ -115,9 +115,9 @@ class _AuthScreenState extends State<AuthScreen> {
       }
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeScreen()),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeScreen()));
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -144,26 +144,63 @@ class _AuthScreenState extends State<AuthScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        actions: const [
-          ThemeToggleButton(),
-          SizedBox(width: 16),
+        actions: const [ThemeToggleButton(), SizedBox(width: 16)],
+      ),
+      extendBodyBehindAppBar: true,
+      body: Stack(
+        children: [
+          // Soft ambient glow: two faint ocean-blue washes behind the content.
+          Positioned(
+            top: -size.width * 0.25,
+            right: -size.width * 0.2,
+            child: _ambientGlow(
+              size.width * 0.8,
+              colors.primaryLight,
+              colors.isDark ? 0.14 : 0.12,
+            ),
+          ),
+          Positioned(
+            bottom: -size.width * 0.3,
+            left: -size.width * 0.25,
+            child: _ambientGlow(
+              size.width * 0.75,
+              colors.secondary,
+              colors.isDark ? 0.08 : 0.07,
+            ),
+          ),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isDesktop ? 40.0 : 20.0,
+                  vertical: 20.0,
+                ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxWidth: isDesktop ? 960 : 460),
+                  child: isDesktop
+                      ? _buildDesktopSplitLayout(colors)
+                      : _buildMobileLayout(colors),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.symmetric(
-              horizontal: isDesktop ? 40.0 : 20.0,
-              vertical: 20.0,
-            ),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: isDesktop ? 960 : 460,
-              ),
-              child: isDesktop
-                  ? _buildDesktopSplitLayout(colors)
-                  : _buildMobileLayout(colors),
-            ),
+    );
+  }
+
+  Widget _ambientGlow(double diameter, Color color, double alpha) {
+    return IgnorePointer(
+      child: Container(
+        width: diameter,
+        height: diameter,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [
+              color.withValues(alpha: alpha),
+              color.withValues(alpha: 0),
+            ],
           ),
         ),
       ),
@@ -267,18 +304,12 @@ class _AuthScreenState extends State<AuthScreen> {
         Expanded(
           flex: 5,
           child: Container(
-            padding: const EdgeInsets.all(36.0),
+            padding: const EdgeInsets.all(40.0),
             decoration: BoxDecoration(
               color: colors.cardSurface,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: colors.cardBorder, width: 0.8),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: colors.isDark ? 0.16 : 0.04),
-                  blurRadius: 20,
-                  offset: const Offset(0, 6),
-                ),
-              ],
+              borderRadius: BorderRadius.circular(AppRadii.sheet),
+              border: Border.all(color: colors.cardBorder),
+              boxShadow: colors.floatingShadow,
             ),
             child: _buildForm(colors),
           ),
@@ -289,18 +320,12 @@ class _AuthScreenState extends State<AuthScreen> {
 
   Widget _buildMobileLayout(AppThemeColors colors) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 28.0),
+      padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 30.0),
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colors.cardBorder, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: colors.isDark ? 0.16 : 0.04),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.sheet),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: colors.floatingShadow,
       ),
       child: _buildForm(colors),
     );
@@ -316,13 +341,13 @@ class _AuthScreenState extends State<AuthScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          width: 36,
-          height: 36,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
-            color: colors.primary.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(10),
+            color: colors.tint(colors.primaryLight),
+            borderRadius: BorderRadius.circular(AppRadii.md - 2),
           ),
-          child: Icon(icon, size: 18, color: colors.primaryLight),
+          child: Icon(icon, size: 20, color: colors.primaryLight),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -360,10 +385,7 @@ class _AuthScreenState extends State<AuthScreen> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AuthHeader(
-            isWindows: _isWindows,
-            isSignUp: _isSignUp,
-          ),
+          AuthHeader(isWindows: _isWindows, isSignUp: _isSignUp),
           const SizedBox(height: 24),
           if (_errorMessage != null) ...[
             _buildErrorBanner(_errorMessage!),
@@ -402,7 +424,6 @@ class _AuthScreenState extends State<AuthScreen> {
           ],
           const SizedBox(height: 8),
           _buildSubmitButton(colors),
-
         ],
       ),
     );
@@ -412,18 +433,22 @@ class _AuthScreenState extends State<AuthScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
+        color: context.colors.tint(context.colors.error),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline_rounded, color: AppColors.error, size: 18),
+          Icon(
+            Icons.error_outline_rounded,
+            color: context.colors.error,
+            size: 18,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(
-                color: AppColors.error,
+              style: TextStyle(
+                color: context.colors.error,
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
               ),
@@ -438,7 +463,7 @@ class _AuthScreenState extends State<AuthScreen> {
     return Container(
       decoration: BoxDecoration(
         color: colors.surfaceSubtle,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppRadii.md),
       ),
       padding: const EdgeInsets.all(4),
       child: Row(
@@ -461,16 +486,8 @@ class _AuthScreenState extends State<AuthScreen> {
                   color: !_isSignUp
                       ? colors.cardSurface
                       : colors.cardSurface.withValues(alpha: 0.0),
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: !_isSignUp
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  boxShadow: !_isSignUp ? colors.cardShadow : null,
                 ),
                 alignment: Alignment.center,
                 child: Text(
@@ -502,16 +519,8 @@ class _AuthScreenState extends State<AuthScreen> {
                   color: _isSignUp
                       ? colors.cardSurface
                       : colors.cardSurface.withValues(alpha: 0.0),
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: _isSignUp
-                      ? [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.08),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
+                  borderRadius: BorderRadius.circular(AppRadii.sm),
+                  boxShadow: _isSignUp ? colors.cardShadow : null,
                 ),
                 alignment: Alignment.center,
                 child: Text(
@@ -558,8 +567,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 : Icons.visibility_rounded,
             size: 18,
           ),
-          onPressed: () =>
-              setState(() => _obscurePassword = !_obscurePassword),
+          onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
         ),
       ),
       validator: Validators.validatePassword,
@@ -628,5 +636,5 @@ class _AuthScreenState extends State<AuthScreen> {
         ),
       ),
     );
-}
+  }
 }

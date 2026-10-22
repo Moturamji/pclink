@@ -348,15 +348,9 @@ class _SystemPowerCardState extends State<SystemPowerCard> {
     return Container(
       decoration: BoxDecoration(
         color: colors.cardSurface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: colors.cardBorder, width: 0.8),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: context.isDark ? 0.2 : 0.04),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        borderRadius: BorderRadius.circular(AppRadii.card),
+        border: Border.all(color: colors.cardBorder),
+        boxShadow: context.colors.cardShadow,
       ),
       padding: const EdgeInsets.all(20),
       child: Column(

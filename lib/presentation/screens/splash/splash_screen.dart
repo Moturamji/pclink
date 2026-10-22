@@ -175,7 +175,7 @@ class _SplashScreenState extends State<SplashScreen>
                     borderRadius: BorderRadius.circular(9999),
                     border: Border.all(
                       color: colors.cardBorder,
-                      width: 0.8,
+                      width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(

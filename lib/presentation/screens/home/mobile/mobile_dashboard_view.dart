@@ -72,25 +72,21 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
       icon: Icons.home_outlined,
       activeIcon: Icons.home_rounded,
       label: 'Home',
-      activeColor: AppColors.primary,
     ),
     TabItemData(
       icon: Icons.folder_outlined,
       activeIcon: Icons.folder_rounded,
       label: 'Files',
-      activeColor: AppColors.accentPurple,
     ),
     TabItemData(
       icon: Icons.content_paste_outlined,
       activeIcon: Icons.content_paste_rounded,
       label: 'Clipboard',
-      activeColor: AppColors.secondary,
     ),
     TabItemData(
       icon: Icons.desktop_windows_outlined,
       activeIcon: Icons.desktop_windows_rounded,
       label: 'Screen Mirror',
-      activeColor: AppColors.success,
     ),
   ];
 
@@ -143,31 +139,45 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
               onPressed: widget.isRefreshing ? null : widget.onRefresh,
             ),
           ),
-          if (widget.deletionStatus?.isDeleteRequested == true)
-            Bounceable(
-              onTap: widget.onUndeleteAccount,
-              child: IconButton(
-                icon: const Icon(Icons.restore_rounded, color: AppColors.success),
-                tooltip: 'Undelete Account',
-                onPressed: widget.onUndeleteAccount,
+          // Account actions live in one menu instead of crowding the bar.
+          PopupMenuButton<String>(
+            tooltip: 'Account',
+            offset: const Offset(0, 48),
+            icon: Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: colors.tint(colors.primaryLight),
+                shape: BoxShape.circle,
               ),
-            )
-          else
-            Bounceable(
-              onTap: widget.onDeleteAccount,
-              child: IconButton(
-                icon: Icon(Icons.delete_outline_rounded, color: colors.textSecondary),
-                tooltip: 'Delete Account',
-                onPressed: widget.onDeleteAccount,
-              ),
+              child: Icon(Icons.person_rounded, size: 19, color: colors.primaryLight),
             ),
-          Bounceable(
-            onTap: widget.onSignOut,
-            child: IconButton(
-              icon: const Icon(Icons.logout_rounded, color: AppColors.error),
-              tooltip: AppStrings.signOut,
-              onPressed: widget.onSignOut,
-            ),
+            onSelected: (value) {
+              switch (value) {
+                case 'undelete':
+                  widget.onUndeleteAccount?.call();
+                case 'delete':
+                  widget.onDeleteAccount?.call();
+                case 'signout':
+                  widget.onSignOut();
+              }
+            },
+            itemBuilder: (context) => [
+              if (widget.user?.email != null)
+                PopupMenuItem<String>(
+                  enabled: false,
+                  child: Text(
+                    widget.user!.email!,
+                    style: TextStyle(fontSize: 12, color: colors.textMuted),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              if (widget.deletionStatus?.isDeleteRequested == true)
+                _menuItem('undelete', Icons.restore_rounded, 'Undelete account', colors.success)
+              else
+                _menuItem('delete', Icons.delete_outline_rounded, 'Delete account', colors.textSecondary),
+              _menuItem('signout', Icons.logout_rounded, AppStrings.signOut, colors.error),
+            ],
           ),
           const SizedBox(width: 6),
         ],
@@ -228,6 +238,19 @@ class _MobileDashboardViewState extends State<MobileDashboardView> {
               items: _tabs,
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  PopupMenuItem<String> _menuItem(String value, IconData icon, String label, Color color) {
+    return PopupMenuItem<String>(
+      value: value,
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 12),
+          Text(label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: color)),
         ],
       ),
     );

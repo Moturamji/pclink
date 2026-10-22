@@ -21,13 +21,7 @@ class UserSessionCard extends StatelessWidget {
         color: colors.cardSurface,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: colors.cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: context.isDark ? 0.15 : 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        boxShadow: context.colors.cardShadow,
       ),
       child: Row(
         children: [

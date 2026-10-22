@@ -27,21 +27,21 @@ class AppCardHeader extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          width: 36,
-          height: 36,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.14),
-            borderRadius: BorderRadius.circular(10),
+            color: colors.tint(iconColor),
+            borderRadius: BorderRadius.circular(AppRadii.md - 2),
           ),
           child: Center(
             child: Icon(
               icon,
-              size: 18,
+              size: 20,
               color: iconColor,
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 14),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -50,20 +50,20 @@ class AppCardHeader extends StatelessWidget {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w700,
-                  letterSpacing: -0.2,
+                  letterSpacing: -0.25,
                   color: colors.textPrimary,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
               if (subtitle != null && subtitle!.isNotEmpty) ...[
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   subtitle!,
                   style: TextStyle(
-                    fontSize: 12,
+                    fontSize: 12.5,
                     fontWeight: FontWeight.w400,
                     color: colors.textMuted,
                   ),

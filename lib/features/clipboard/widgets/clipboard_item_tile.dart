@@ -42,7 +42,7 @@ class ClipboardItemTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: colors.cardBorder,
-          width: 0.8,
+          width: 1,
         ),
       ),
       child: Column(

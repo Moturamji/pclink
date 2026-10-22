@@ -117,13 +117,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
               color: colors.cardSurface,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(color: colors.cardBorder),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: context.isDark ? 0.4 : 0.15),
-                  blurRadius: 32,
-                  offset: const Offset(0, 10),
-                ),
-              ],
+              boxShadow: context.colors.cardShadow,
             ),
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
             child: Column(
@@ -192,7 +186,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
                           title: 'Auto-Start on Windows Boot (Background)',
                           description:
                               'Launches silently in the background on startup with zero UI. Open DeskPocket anytime to see live status.',
-                          accentColor: const Color(0xFF6366F1),
+                          accentColor: AppColors.primary,
                           value: _autoStartOnBoot,
                           onChanged: (val) => setState(() => _autoStartOnBoot = val),
                           colors: colors,
@@ -203,7 +197,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
                           title: 'Real-Time Screen Mirroring',
                           description:
                               'Allows your connected phone to view your PC screen in ultra-low latency with hardware capture.',
-                          accentColor: const Color(0xFF10B981),
+                          accentColor: AppColors.success,
                           value: _screenMirrorEnabled,
                           onChanged: (val) => setState(() => _screenMirrorEnabled = val),
                           colors: colors,
@@ -214,7 +208,7 @@ class _WindowsPermissionDialogState extends State<WindowsPermissionDialog> {
                           title: 'Windows Firewall & Network Rules',
                           description:
                               'Configures Port 8088 & Relay rules once upfront so Windows Firewall never interrupts you.',
-                          accentColor: const Color(0xFFF59E0B),
+                          accentColor: AppColors.accentWarm,
                           value: _firewallRulesEnabled,
                           onChanged: (val) => setState(() => _firewallRulesEnabled = val),
                           colors: colors,

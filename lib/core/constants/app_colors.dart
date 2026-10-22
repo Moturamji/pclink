@@ -1,64 +1,66 @@
 import 'package:flutter/material.dart';
 
-/// Design system color palette: Precision Hardware-Link Console meets Friendly Studio Fluidity.
-/// Bespoke, accessible (WCAG AA), and harmonious across Dark (Obsidian) and Light (Nordic) modes.
+/// Design system palette: "Ocean calm".
+/// A soft periwinkle-blue accent over cool, quiet neutrals, with muted mint,
+/// violet, amber and rose for meaning. Every pairing is chosen for WCAG AA
+/// legibility in both the Dark (deep ink) and Light (mist) modes.
 abstract final class AppColors {
-  // Brand & Primary Accents (Friendly Royal-Cyan / Studio Azure)
-  static const Color primary = Color(0xFF0284C7); // Tactile Studio Cyan-Azure
-  static const Color primaryLight = Color(0xFF38BDF8); // Soft Luminous Azure
-  static const Color primaryDark = Color(0xFF0369A1); // Deep Cerulean
-  static const Color primaryPastel = Color(0xFFE0F2FE); // Delicate Sky Mist
+  // Brand & Primary Accent (soft ocean blue)
+  static const Color primary = Color(0xFF5283E8); // Ocean blue
+  static const Color primaryLight = Color(0xFF7BA2F0); // Soft sky
+  static const Color primaryDark = Color(0xFF3F6FD8); // Deep ocean (light-mode accent)
+  static const Color primaryPastel = Color(0xFFE6EEFD); // Mist blue tint
 
-  // Secondary Fresh & Link States (Spring Mint)
-  static const Color secondary = Color(0xFF10B981); // Spring Mint
-  static const Color secondaryLight = Color(0xFF34D399); // Neo Mint
-  static const Color secondaryDark = Color(0xFF059669);
-  static const Color secondaryPastel = Color(0xFFD1FAE5);
+  // Secondary / connected states (sea mint)
+  static const Color secondary = Color(0xFF3FAE8A); // Sea mint
+  static const Color secondaryLight = Color(0xFF6CC9A6);
+  static const Color secondaryDark = Color(0xFF2E8F70);
+  static const Color secondaryPastel = Color(0xFFE3F5EF);
 
-  // Purposeful Accent Categories
-  static const Color accentPurple = Color(0xFF8B5CF6); // Studio Violet (File Studio)
-  static const Color accentPurpleLight = Color(0xFFA78BFA);
-  static const Color accentPurplePastel = Color(0xFFEDE9FE);
+  // Purposeful accent categories
+  static const Color accentPurple = Color(0xFF8B80E3); // Soft violet (files)
+  static const Color accentPurpleLight = Color(0xFFB2ABF2);
+  static const Color accentPurplePastel = Color(0xFFEEECFC);
 
-  static const Color accentPink = Color(0xFFF43F5E); // Radiant Coral (Destructive Safety)
-  static const Color accentPinkLight = Color(0xFFFDA4AF);
-  static const Color accentPinkPastel = Color(0xFFFFE4E6);
+  static const Color accentPink = Color(0xFFE06C7C); // Soft rose (destructive)
+  static const Color accentPinkLight = Color(0xFFF0A6B0);
+  static const Color accentPinkPastel = Color(0xFFFBE9EC);
 
-  static const Color accentWarm = Color(0xFFF59E0B); // Amber Flame (System Power & Locks)
-  static const Color accentWarmLight = Color(0xFFFBBF24);
-  static const Color accentWarmPastel = Color(0xFFFEF3C7);
+  static const Color accentWarm = Color(0xFFE09E4C); // Soft amber (power & locks)
+  static const Color accentWarmLight = Color(0xFFF0C27F);
+  static const Color accentWarmPastel = Color(0xFFFBF0DF);
 
-  // Status & Utility Colors
-  static const Color success = Color(0xFF10B981);
-  static const Color successLight = Color(0xFF34D399);
-  static const Color error = Color(0xFFF43F5E);
-  static const Color warning = Color(0xFFF59E0B);
+  // Status & utility
+  static const Color success = Color(0xFF3FAE8A);
+  static const Color successLight = Color(0xFF6CC9A6);
+  static const Color error = Color(0xFFE06C7C);
+  static const Color warning = Color(0xFFE09E4C);
 
-  // --- Dark Mode Surface & Palette (Velvety Soft Slate, Calm Precision) ---
-  static const Color darkBackground = Color(0xFF111622); // Velvety Soft Slate Canvas
-  static const Color darkSurface = Color(0xFF171F2C); // Soft Elevated Surface
-  static const Color darkCardSurface = Color(0xFF1E2738); // Card Workbench Surface
-  static const Color darkCardSurfaceHover = Color(0xFF263246); // Subtle Hover Lift
-  static const Color darkSurfaceSubtle = Color(0xFF222D3E); // Soft Input / Chip Surface
-  static const Color darkCardBorder = Color(0xFF2B374C); // Delicate Hairline 0.8px Rule
-  static const Color darkCardBorderGlow = Colors.transparent; // No harsh artificial glows
-  static const Color darkTextPrimary = Color(0xFFF1F5F9); // Soft Alabaster
-  static const Color darkTextSecondary = Color(0xFF94A3B8); // Soft Slate Silver
-  static const Color darkTextMuted = Color(0xFF64748B); // Muted Slate
+  // --- Dark mode (deep ink, quiet blue undertone) ---
+  static const Color darkBackground = Color(0xFF10141C);
+  static const Color darkSurface = Color(0xFF141A24);
+  static const Color darkCardSurface = Color(0xFF181E29);
+  static const Color darkCardSurfaceHover = Color(0xFF1E2633);
+  static const Color darkSurfaceSubtle = Color(0xFF1D2431);
+  static const Color darkCardBorder = Color(0xFF253042);
+  static const Color darkCardBorderGlow = Colors.transparent;
+  static const Color darkTextPrimary = Color(0xFFE8ECF3);
+  static const Color darkTextSecondary = Color(0xFFA3ADBE);
+  static const Color darkTextMuted = Color(0xFF7D889B);
 
-  // --- Light Mode Surface & Palette (Warm Silky Alabaster, Crisp Legibility) ---
-  static const Color lightBackground = Color(0xFFF8F9FD); // Silky Warm Mist
-  static const Color lightSurface = Color(0xFFF0F3F8); // Soft Alabaster Container
-  static const Color lightCardSurface = Color(0xFFFFFFFF); // Crisp Pure White Card
-  static const Color lightCardSurfaceHover = Color(0xFFF8FAFC);
-  static const Color lightSurfaceSubtle = Color(0xFFEDF2F7); // Input / Chip Surface
-  static const Color lightCardBorder = Color(0xFFE2E7F0); // Delicate Hairline Rule
-  static const Color lightCardBorderGlow = Colors.transparent; // No artificial glows
-  static const Color lightTextPrimary = Color(0xFF0F172A); // Deep Slate Charcoal
-  static const Color lightTextSecondary = Color(0xFF475569); // High-Legibility Slate
-  static const Color lightTextMuted = Color(0xFF64748B); // Medium Slate
+  // --- Light mode (cool mist, crisp white cards) ---
+  static const Color lightBackground = Color(0xFFF4F7FB);
+  static const Color lightSurface = Color(0xFFEEF2F8);
+  static const Color lightCardSurface = Color(0xFFFFFFFF);
+  static const Color lightCardSurfaceHover = Color(0xFFF8FAFD);
+  static const Color lightSurfaceSubtle = Color(0xFFEFF3F9);
+  static const Color lightCardBorder = Color(0xFFE3E9F2);
+  static const Color lightCardBorderGlow = Colors.transparent;
+  static const Color lightTextPrimary = Color(0xFF1F2633);
+  static const Color lightTextSecondary = Color(0xFF4E5A6D);
+  static const Color lightTextMuted = Color(0xFF6E7889);
 
-  // Legacy Default Aliases (Dark Theme default)
+  // Legacy default aliases (dark theme default)
   static const Color background = darkBackground;
   static const Color surface = darkSurface;
   static const Color cardSurface = darkCardSurface;
@@ -74,6 +76,17 @@ abstract final class AppColors {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return isDark ? AppThemeColors.dark : AppThemeColors.light;
   }
+}
+
+/// Corner radii. Larger, consistent rounding is a big part of the soft look.
+abstract final class AppRadii {
+  static const double xs = 8;
+  static const double sm = 10;
+  static const double md = 14; // buttons, inputs, tiles
+  static const double lg = 18; // inner panels
+  static const double card = 22; // cards
+  static const double sheet = 28; // dialogs, sheets, hero panels
+  static const double pill = 999;
 }
 
 /// Immutable collection of theme colors resolved for a specific brightness.
@@ -106,7 +119,7 @@ class AppThemeColors {
     required this.surface,
     required this.cardSurface,
     required this.cardSurfaceHover,
-    this.surfaceSubtle = const Color(0xFF222D3E),
+    this.surfaceSubtle = AppColors.darkSurfaceSubtle,
     required this.cardBorder,
     required this.cardBorderGlow,
     required this.textPrimary,
@@ -124,6 +137,39 @@ class AppThemeColors {
     required this.shadowColor,
   });
 
+  /// Soft two-layer elevation for cards: a tight contact shadow plus a wide,
+  /// faint blue-tinted drop. Reads as depth without hard outlines.
+  List<BoxShadow> get cardShadow => [
+        BoxShadow(
+          color: shadowColor,
+          blurRadius: 2,
+          offset: const Offset(0, 1),
+        ),
+        BoxShadow(
+          color: shadowColor,
+          blurRadius: 20,
+          spreadRadius: -2,
+          offset: const Offset(0, 6),
+        ),
+      ];
+
+  /// Stronger elevation for floating surfaces (dialogs, sheets, hero panels).
+  List<BoxShadow> get floatingShadow => [
+        BoxShadow(
+          color: shadowColor,
+          blurRadius: 4,
+          offset: const Offset(0, 2),
+        ),
+        BoxShadow(
+          color: shadowColor.withValues(alpha: (shadowColor.a * 1.4).clamp(0, 1)),
+          blurRadius: 36,
+          offset: const Offset(0, 10),
+        ),
+      ];
+
+  /// Soft tinted background for an accent (icon tiles, chips, badges).
+  Color tint(Color accent) => accent.withValues(alpha: isDark ? 0.16 : 0.10);
+
   static const AppThemeColors dark = AppThemeColors(
     isDark: true,
     background: AppColors.darkBackground,
@@ -138,14 +184,14 @@ class AppThemeColors {
     textMuted: AppColors.darkTextMuted,
     primary: AppColors.primary,
     primaryLight: AppColors.primaryLight,
-    primaryPastel: Color(0x220284C7),
-    secondary: AppColors.secondary,
-    accentPurple: AppColors.accentPurple,
-    accentPink: AppColors.accentPink,
-    accentWarm: AppColors.accentWarm,
-    error: AppColors.error,
-    success: AppColors.success,
-    shadowColor: Color(0x20000000),
+    primaryPastel: Color(0x295283E8),
+    secondary: AppColors.secondaryLight,
+    accentPurple: AppColors.accentPurpleLight,
+    accentPink: AppColors.accentPinkLight,
+    accentWarm: AppColors.accentWarmLight,
+    error: AppColors.accentPinkLight,
+    success: AppColors.successLight,
+    shadowColor: Color(0x33000000),
   );
 
   static const AppThemeColors light = AppThemeColors(
@@ -161,15 +207,17 @@ class AppThemeColors {
     textSecondary: AppColors.lightTextSecondary,
     textMuted: AppColors.lightTextMuted,
     primary: AppColors.primaryDark,
-    primaryLight: AppColors.primary,
+    // Accent used for text/icons on white: a touch deeper than the brand blue
+    // so 12-14px labels keep AA contrast.
+    primaryLight: Color(0xFF4A78DD),
     primaryPastel: AppColors.primaryPastel,
     secondary: AppColors.secondaryDark,
     accentPurple: AppColors.accentPurple,
     accentPink: AppColors.accentPink,
     accentWarm: AppColors.accentWarm,
     error: AppColors.error,
-    success: AppColors.success,
-    shadowColor: Color(0x0A0F172A),
+    success: AppColors.secondaryDark,
+    shadowColor: Color(0x0F2A3F66),
   );
 }
 

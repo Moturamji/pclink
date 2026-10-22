@@ -81,7 +81,7 @@ class AccountDeletionDialog extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: colors.cardBorder,
-                  width: 0.8,
+                  width: 1,
                 ),
               ),
               child: Column(

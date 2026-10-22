@@ -65,13 +65,18 @@ class _StatusBadgeState extends State<StatusBadge>
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.colors;
     final color = widget.isActive ? widget.activeColor : widget.inactiveColor;
+    // Text sits on its own soft tint; in light mode deepen it for contrast.
+    final labelColor = colors.isDark
+        ? color
+        : Color.lerp(color, colors.textPrimary, 0.35) ?? color;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(9999),
+        color: colors.tint(color),
+        borderRadius: BorderRadius.circular(AppRadii.pill),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -110,9 +115,9 @@ class _StatusBadgeState extends State<StatusBadge>
           Text(
             widget.label,
             style: TextStyle(
-              fontSize: 11,
+              fontSize: 11.5,
               fontWeight: FontWeight.w600,
-              color: color,
+              color: labelColor,
               letterSpacing: 0.1,
             ),
           ),
