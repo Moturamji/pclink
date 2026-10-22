@@ -126,6 +126,9 @@ class ServerService {
           progress.status == TransferStatus.cancelled) {
         _activeTokens.remove(progress.fileId);
         Timer(const Duration(seconds: 4), () {
+          // A newer transfer may reuse this id (retry/resume); only remove the
+          // exact terminal entry that scheduled this cleanup.
+          if (!identical(_activeTransfers[progress.fileId], progress)) return;
           _activeTransfers.remove(progress.fileId);
           if (!_allTransfersController.isClosed) {
             _allTransfersController.add(Map.from(_activeTransfers));
@@ -499,6 +502,17 @@ class ServerService {
       }
 
       final path = request.uri.path;
+      final remoteIp = request.connectionInfo?.remoteAddress.address ?? '';
+
+      if (_isLockedOut(remoteIp)) {
+        request.response.statusCode = HttpStatus.tooManyRequests;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({'success': false, 'error': 'Too many failed attempts. Try again shortly.'}),
+        );
+        await request.response.close();
+        return;
+      }
 
       try {
         switch (path) {
@@ -542,6 +556,10 @@ class ServerService {
             await _handleFileDownload(request);
             break;
 
+          case ServerConstants.filesChecksumEndpoint:
+            await _handleFileChecksum(request);
+            break;
+
           case ServerConstants.transfersEndpoint:
             await _handleTransfers(request);
             break;
@@ -575,12 +593,56 @@ class ServerService {
             request.response.write(jsonEncode({'error': 'Endpoint not found'}));
             await request.response.close();
         }
+        if (request.response.statusCode == HttpStatus.unauthorized) {
+          _recordAuthFailure(remoteIp);
+        }
       } catch (e) {
         request.response.statusCode = HttpStatus.internalServerError;
         request.response.write(jsonEncode({'error': e.toString()}));
         await request.response.close();
       }
     });
+  }
+
+  // Brute-force guard: the server start time is the shared password and is
+  // accepted within a +/-60s window, so unlimited guessing must be prevented.
+  static const int _maxAuthFailuresPerWindow = 30;
+  static const Duration _authFailureWindow = Duration(minutes: 1);
+  static const Duration _authLockoutDuration = Duration(minutes: 1);
+  final Map<String, ({int count, DateTime windowStart})> _authFailures = {};
+  final Map<String, DateTime> _authLockouts = {};
+
+  bool _isLockedOut(String ip) {
+    final until = _authLockouts[ip];
+    if (until == null) return false;
+    if (DateTime.now().isAfter(until)) {
+      _authLockouts.remove(ip);
+      return false;
+    }
+    return true;
+  }
+
+  void _recordAuthFailure(String ip) {
+    final now = DateTime.now();
+    final entry = _authFailures[ip];
+    final fresh = entry == null || now.difference(entry.windowStart) > _authFailureWindow;
+    final count = fresh ? 1 : entry.count + 1;
+    _authFailures[ip] = (count: count, windowStart: fresh ? now : entry.windowStart);
+    if (count >= _maxAuthFailuresPerWindow) {
+      _authFailures.remove(ip);
+      _authLockouts[ip] = now.add(_authLockoutDuration);
+      debugPrint('ServerService: Locking out $ip after repeated auth failures');
+    }
+  }
+
+  /// Restricts a client-supplied resume key to a single safe file-name
+  /// component so it can never escape the shared folder (`..\`), create NTFS
+  /// alternate data streams (`:`), or contain other illegal characters.
+  static String _sanitizeFileKey(String raw) {
+    var key = raw.replaceAll(RegExp(r'[^A-Za-z0-9._\-]'), '_');
+    if (key.length > 180) key = key.substring(key.length - 180);
+    if (key.isEmpty) key = 'upload';
+    return key;
   }
 
   Future<void> _handleDisconnect(HttpRequest request) async {
@@ -699,8 +761,10 @@ class ServerService {
   /// GET /api/files (list) and DELETE /api/files?id=... (remove a shared file).
   Future<void> _handleFilesApi(HttpRequest request) async {
     if (request.method == 'GET') {
+      if (!await _verifyAuthorizedMutation(request)) return;
       request.response.statusCode = HttpStatus.ok;
       request.response.headers.contentType = ContentType.json;
+      request.response.headers.set('Cache-Control', 'no-store');
       request.response.write(
         jsonEncode(_sharedFiles.map((f) => f.toMap()).toList()),
       );
@@ -747,7 +811,8 @@ class ServerService {
   }
 
   Future<void> _handleScreenShareStart(HttpRequest request) async {
-    if (request.method != 'POST' || !await _verifyAuthorizedMutation(request)) {
+    if (!await _requireMethod(request, 'POST') ||
+        !await _verifyAuthorizedMutation(request)) {
       return;
     }
     final viewerName = _sanitizeFileName(
@@ -773,7 +838,8 @@ class ServerService {
   }
 
   Future<void> _handleScreenShareStop(HttpRequest request) async {
-    if (request.method != 'POST' || !await _verifyAuthorizedMutation(request)) {
+    if (!await _requireMethod(request, 'POST') ||
+        !await _verifyAuthorizedMutation(request)) {
       return;
     }
     await _screenShareService.stop();
@@ -784,7 +850,8 @@ class ServerService {
   }
 
   Future<void> _handleScreenShareStatus(HttpRequest request) async {
-    if (request.method != 'GET' || !await _verifyAuthorizedMutation(request)) {
+    if (!await _requireMethod(request, 'GET') ||
+        !await _verifyAuthorizedMutation(request)) {
       return;
     }
     final isAllowed = await ScreenShareService.isConsentGranted();
@@ -802,7 +869,8 @@ class ServerService {
   }
 
   Future<void> _handleScreenShareFrame(HttpRequest request) async {
-    if (request.method != 'GET' || !await _verifyAuthorizedMutation(request)) {
+    if (!await _requireMethod(request, 'GET') ||
+        !await _verifyAuthorizedMutation(request)) {
       return;
     }
     if (!await ScreenShareService.isConsentGranted()) {
@@ -829,7 +897,7 @@ class ServerService {
   }
 
   Future<void> _handleScreenShareWs(HttpRequest request) async {
-    if (!await _verifyAuthorizedMutation(request)) {
+    if (!await _verifyAuthorizedMutation(request, allowQueryCredentials: true)) {
       return;
     }
     if (!WebSocketTransformer.isUpgradeRequest(request)) {
@@ -905,8 +973,9 @@ class ServerService {
     final offsetParam =
         int.tryParse(request.uri.queryParameters['offset'] ?? '') ?? 0;
     final fingerprint = request.uri.queryParameters['fingerprint'] ?? '';
-    final fileKey = request.uri.queryParameters['fileKey'] ??
-        '${originalName}_$totalBytes';
+    final fileKey = _sanitizeFileKey(
+      request.uri.queryParameters['fileKey'] ?? '${originalName}_$totalBytes',
+    );
     final isChunkedUpload = request.uri.queryParameters['chunked'] == 'true';
 
     // Support offset check endpoint
@@ -1390,28 +1459,14 @@ class ServerService {
 
   /// `GET /api/files/download?id=<id>` - streams a shared file to the phone with HTTP Range resume support.
   Future<void> _handleFileDownload(HttpRequest request) async {
-    final id = request.uri.queryParameters['id'] ?? '';
-    SharedFile? match;
-    for (final f in _sharedFiles) {
-      if (f.id == id) {
-        match = f;
-        break;
-      }
-    }
-
-    if (match == null ||
-        match.filePath == null ||
-        !await File(match.filePath!).exists()) {
-      request.response.statusCode = HttpStatus.notFound;
-      request.response.headers.contentType = ContentType.json;
-      request.response.write(jsonEncode({'error': 'File not found'}));
-      await request.response.close();
-      return;
-    }
+    if (!await _verifyAuthorizedMutation(request)) return;
+    final match = await _findSharedFileOnDisk(request);
+    if (match == null) return;
 
     final targetFile = match;
     final file = File(targetFile.filePath!);
     final totalLength = await file.length();
+    final crcKey = await _crcCacheKey(file);
 
     // Check for HTTP Range header (e.g. "bytes=1048576-")
     final rangeHeader =
@@ -1502,6 +1557,10 @@ class ServerService {
       },
     );
 
+    // A full (non-range) download hashes the bytes as they are streamed, so
+    // the phone's follow-up checksum request is answered without a re-read.
+    final streamCrc = startByte == 0 && !isRangeRequest ? TransferCrc32() : null;
+
     Stream<List<int>> createDownloadStream() async* {
       await for (final chunk in StreamBackpressure.openReadOptimized(
         file,
@@ -1513,6 +1572,7 @@ class ServerService {
           break;
         }
         watchdog.notifyProgress();
+        streamCrc?.update(chunk);
         bytesSent += chunk.length;
         final currentTotalSent = startByte + bytesSent;
         final now = DateTime.now();
@@ -1563,6 +1623,9 @@ class ServerService {
           ),
         );
       } else {
+        if (streamCrc != null && streamCrc.bytesProcessed == totalLength) {
+          _fileCrcCache[crcKey] = streamCrc.hexString;
+        }
         _emitTransferProgress(
           TransferProgress(
             fileId: transferId,
@@ -1600,14 +1663,74 @@ class ServerService {
 
   }
 
+  /// CRC-32 of shared files keyed by path/size/mtime, so a file edited on the
+  /// PC after sharing is never answered with a stale checksum.
+  final Map<String, String> _fileCrcCache = {};
+
+  Future<String> _crcCacheKey(File file) async {
+    final stat = await file.stat();
+    return '${file.path}|${stat.size}|${stat.modified.millisecondsSinceEpoch}';
+  }
+
+  /// Resolves `?id=` to a shared file that still exists on disk, answering
+  /// 404 itself (and returning null) otherwise.
+  Future<SharedFile?> _findSharedFileOnDisk(HttpRequest request) async {
+    final id = request.uri.queryParameters['id'] ?? '';
+    SharedFile? match;
+    for (final f in _sharedFiles) {
+      if (f.id == id) {
+        match = f;
+        break;
+      }
+    }
+    if (match == null ||
+        match.filePath == null ||
+        !await File(match.filePath!).exists()) {
+      request.response.statusCode = HttpStatus.notFound;
+      request.response.headers.contentType = ContentType.json;
+      request.response.write(jsonEncode({'error': 'File not found'}));
+      await request.response.close();
+      return null;
+    }
+    return match;
+  }
+
+  /// `GET /api/files/checksum?id=<id>` - CRC-32 of a shared file, used by the
+  /// phone to verify a finished download before it is moved into Downloads.
+  Future<void> _handleFileChecksum(HttpRequest request) async {
+    if (!await _requireMethod(request, 'GET') ||
+        !await _verifyAuthorizedMutation(request)) {
+      return;
+    }
+    final match = await _findSharedFileOnDisk(request);
+    if (match == null) return;
+    final file = File(match.filePath!);
+    final key = await _crcCacheKey(file);
+    final crc = _fileCrcCache[key] ??= await TransferCrc32.checksumFile(file);
+    request.response.statusCode = HttpStatus.ok;
+    request.response.headers.contentType = ContentType.json;
+    request.response.headers.set('Cache-Control', 'no-store');
+    request.response.write(
+      jsonEncode({'id': match.id, 'size': await file.length(), 'crc32': crc}),
+    );
+    await request.response.close();
+  }
+
   /// Shared auth gate used by file mutation endpoints. Writes a 401 JSON body
   /// and returns false when the caller isn't the authorized phone of this
   /// server session.
-  Future<bool> _verifyAuthorizedMutation(HttpRequest request) async {
+  ///
+  /// Credentials are read from headers only; query-string credentials end up
+  /// in proxy/tunnel logs, so they are accepted solely on the WebSocket
+  /// endpoint for compatibility with older phone builds.
+  Future<bool> _verifyAuthorizedMutation(
+    HttpRequest request, {
+    bool allowQueryCredentials = false,
+  }) async {
     final deviceId = request.headers.value(ServerConstants.authHeader) ??
-        request.uri.queryParameters['auth'];
+        (allowQueryCredentials ? request.uri.queryParameters['auth'] : null);
     final startTime = request.headers.value(ServerConstants.startTimeHeader) ??
-        request.uri.queryParameters['startTime'];
+        (allowQueryCredentials ? request.uri.queryParameters['startTime'] : null);
     if (!_verifyDeviceId(deviceId) || !_isValidServerStartTime(startTime)) {
       request.response.statusCode = HttpStatus.unauthorized;
       request.response.headers.contentType = ContentType.json;
@@ -1618,6 +1741,15 @@ class ServerService {
       return false;
     }
     return true;
+  }
+
+  /// Answers 405 (and closes the response) when the method doesn't match, so
+  /// a wrong-method request never hangs with an unclosed response.
+  Future<bool> _requireMethod(HttpRequest request, String method) async {
+    if (request.method == method) return true;
+    request.response.statusCode = HttpStatus.methodNotAllowed;
+    await request.response.close();
+    return false;
   }
 
   Future<void> _handleHealth(HttpRequest request) async {
@@ -2008,8 +2140,8 @@ class ServerService {
     );
   }
 
-  /// Clears transient queued/active transfer cards. Called when the server
-  /// restarts or the client disconnects so stale queue entries don't linger.
+  /// Clears in-flight transfer cards when the server stops. Files the PC has
+  /// queued for the phone are kept so they are still pulled after a restart.
   void clearTransientTransfers() {
     for (final token in List.of(_activeTokens.values)) {
       try {
@@ -2017,11 +2149,11 @@ class ServerService {
       } catch (_) {}
     }
     _activeTokens.clear();
-    _activeTransfers.clear();
+    _activeTransfers.removeWhere((_, t) => t.status != TransferStatus.queued);
     _activeUploadSessions.clear();
     _currentTransferProgress = null;
     if (!_allTransfersController.isClosed) {
-      _allTransfersController.add(const {});
+      _allTransfersController.add(Map.from(_activeTransfers));
     }
     if (!_transferProgressController.isClosed) {
       _transferProgressController.add(null);
@@ -2035,6 +2167,9 @@ class ServerService {
       await _server!.close(force: true);
       _server = null;
     }
+    // The start-time password changes on restart, so no in-flight or resumable
+    // session from this run can continue; drop their cards.
+    clearTransientTransfers();
 
     _connectedClientId = null;
     _currentInfo = ServerInfo(

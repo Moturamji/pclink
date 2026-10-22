@@ -10,6 +10,11 @@ import '../models/linked_device.dart';
 import '../models/server_info.dart';
 import '../models/user_deletion_status.dart';
 
+/// Strips Firebase ID tokens (`auth=<jwt>`) from error text before it is
+/// logged; HTTP client exceptions include the full request URL.
+String redactAuthToken(Object error) =>
+    error.toString().replaceAll(RegExp(r'auth=[^&\s,]+'), 'auth=<redacted>');
+
 /// Service managing user, device, and local server synchronization with Firebase Realtime Database via REST API.
 class DatabaseService {
   static const String _dbBaseUrl =
@@ -30,7 +35,7 @@ class DatabaseService {
       try {
         return await http.get(uri);
       } catch (e) {
-        debugPrint('DatabaseService safeGet failed: $e');
+        debugPrint('DatabaseService safeGet failed: ${redactAuthToken(e)}');
         return null;
       }
     }
@@ -104,7 +109,7 @@ class DatabaseService {
       debugPrint(
           'DatabaseService: Synced $platformKey device node with status ${devResp.statusCode}');
     } catch (e) {
-      debugPrint('DatabaseService sync exception: $e');
+      debugPrint('DatabaseService sync exception: ${redactAuthToken(e)}');
     }
   }
 
@@ -130,7 +135,7 @@ class DatabaseService {
         }
       }
     } catch (e) {
-      debugPrint('DatabaseService getDeviceSessionId error: $e');
+      debugPrint('DatabaseService getDeviceSessionId error: ${redactAuthToken(e)}');
     }
     return null;
   }
@@ -157,7 +162,7 @@ class DatabaseService {
         }
       }
     } catch (e) {
-      debugPrint('DatabaseService getDeviceSlotDeviceId error: $e');
+      debugPrint('DatabaseService getDeviceSlotDeviceId error: ${redactAuthToken(e)}');
     }
     return null;
   }
@@ -189,7 +194,7 @@ class DatabaseService {
         'DatabaseService: Registered session $sessionId for $platformKey ($deviceId)',
       );
     } catch (e) {
-      debugPrint('DatabaseService registerDeviceSession error: $e');
+      debugPrint('DatabaseService registerDeviceSession error: ${redactAuthToken(e)}');
     }
   }
 
@@ -209,7 +214,7 @@ class DatabaseService {
           controller.add(sid);
         }
       } catch (e) {
-        debugPrint('DatabaseService listenDeviceSession error: $e');
+        debugPrint('DatabaseService listenDeviceSession error: ${redactAuthToken(e)}');
       }
     }
 
@@ -249,7 +254,7 @@ class DatabaseService {
       );
       debugPrint('DatabaseService: Updated server info with status ${resp.statusCode}');
     } catch (e) {
-      debugPrint('DatabaseService updateServerInfo error: $e');
+      debugPrint('DatabaseService updateServerInfo error: ${redactAuthToken(e)}');
     }
   }
 
@@ -269,7 +274,7 @@ class DatabaseService {
         }),
       );
     } catch (e) {
-      debugPrint('DatabaseService updateServerHeartbeat error: $e');
+      debugPrint('DatabaseService updateServerHeartbeat error: ${redactAuthToken(e)}');
     }
   }
 
@@ -293,7 +298,7 @@ class DatabaseService {
         }),
       );
     } catch (e) {
-      debugPrint('DatabaseService updateDeviceHeartbeat error: $e');
+      debugPrint('DatabaseService updateDeviceHeartbeat error: ${redactAuthToken(e)}');
     }
   }
 
@@ -318,7 +323,7 @@ class DatabaseService {
       ).timeout(const Duration(seconds: 2));
       debugPrint('DatabaseService: Marked $platformKey device offline');
     } catch (e) {
-      debugPrint('DatabaseService setDeviceOffline error: $e');
+      debugPrint('DatabaseService setDeviceOffline error: ${redactAuthToken(e)}');
     }
   }
 
@@ -342,7 +347,7 @@ class DatabaseService {
       ).timeout(const Duration(seconds: 2));
       debugPrint('DatabaseService: Marked server offline');
     } catch (e) {
-      debugPrint('DatabaseService setServerOffline error: $e');
+      debugPrint('DatabaseService setServerOffline error: ${redactAuthToken(e)}');
     }
   }
 
@@ -394,7 +399,7 @@ class DatabaseService {
           controller.add(<LinkedDevice>[]);
         }
       } catch (e) {
-        debugPrint('DatabaseService watchUserDevices error: $e');
+        debugPrint('DatabaseService watchUserDevices error: ${redactAuthToken(e)}');
         if (!controller.isClosed) {
           controller.add(<LinkedDevice>[]);
         }
@@ -426,10 +431,14 @@ class DatabaseService {
         final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
         final response = await _safeGet(uri);
 
-        if (response != null &&
-            response.statusCode == 200 &&
-            response.body.isNotEmpty &&
-            response.body != 'null') {
+        // A failed read (weak mobile data, TLS handshake reset, timeout) says
+        // nothing about the PC. Emitting null here made the phone treat the PC
+        // as offline, cancel every transfer and restart clipboard sync on each
+        // network hiccup. Keep the last known state; real offline detection
+        // comes from the PC's heartbeat going stale (isFreshlyLive).
+        if (response == null || response.statusCode != 200) return;
+
+        if (response.body.isNotEmpty && response.body != 'null') {
           final dynamic data = jsonDecode(response.body);
           if (data is Map) {
             final serverTime = _extractServerTime(response);
@@ -446,10 +455,8 @@ class DatabaseService {
           controller.add(null);
         }
       } catch (e) {
-        debugPrint('DatabaseService watchUserServer error: $e');
-        if (!controller.isClosed) {
-          controller.add(null);
-        }
+        // Same as a failed read: transient, keep the last known server state.
+        debugPrint('DatabaseService watchUserServer error: ${redactAuthToken(e)}');
       }
     }
 
@@ -495,7 +502,7 @@ class DatabaseService {
       );
       return response.statusCode == 200;
     } catch (e) {
-      debugPrint('DatabaseService sendCloudHandshakeRequest error: $e');
+      debugPrint('DatabaseService sendCloudHandshakeRequest error: ${redactAuthToken(e)}');
       return false;
     }
   }
@@ -528,7 +535,7 @@ class DatabaseService {
           }
         }
       } catch (e) {
-        debugPrint('DatabaseService listenCloudHandshakeRequests error: $e');
+        debugPrint('DatabaseService listenCloudHandshakeRequests error: ${redactAuthToken(e)}');
       }
     }
 
@@ -570,7 +577,7 @@ class DatabaseService {
         }),
       );
     } catch (e) {
-      debugPrint('DatabaseService sendCloudHandshakeResponse error: $e');
+      debugPrint('DatabaseService sendCloudHandshakeResponse error: ${redactAuthToken(e)}');
     }
   }
 
@@ -622,7 +629,7 @@ class DatabaseService {
         body: jsonEncode(clientId),
       );
     } catch (e) {
-      debugPrint('DatabaseService setConnectedClientId error: $e');
+      debugPrint('DatabaseService setConnectedClientId error: ${redactAuthToken(e)}');
     }
   }
 
@@ -642,7 +649,7 @@ class DatabaseService {
       final chanUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel.json$authQuery');
       await _client.delete(chanUri);
     } catch (e) {
-      debugPrint('DatabaseService disconnectClient error: $e');
+      debugPrint('DatabaseService disconnectClient error: ${redactAuthToken(e)}');
     }
   }
 
@@ -681,7 +688,7 @@ class DatabaseService {
 
       debugPrint('DatabaseService: Registered Android FCM Token successfully across RTDB nodes');
     } catch (e) {
-      debugPrint('DatabaseService updateFcmToken error: $e');
+      debugPrint('DatabaseService updateFcmToken error: ${redactAuthToken(e)}');
     }
   }
 
@@ -733,7 +740,7 @@ class DatabaseService {
         }
       }
     } catch (e) {
-      debugPrint('DatabaseService getAndroidFcmToken error: $e');
+      debugPrint('DatabaseService getAndroidFcmToken error: ${redactAuthToken(e)}');
     }
     return null;
   }
@@ -757,7 +764,7 @@ class DatabaseService {
         }
       }
     } catch (e) {
-      debugPrint('DatabaseService getAndroidDeviceId error: $e');
+      debugPrint('DatabaseService getAndroidDeviceId error: ${redactAuthToken(e)}');
     }
     return null;
   }
@@ -798,7 +805,7 @@ class DatabaseService {
         hostName: pcHostName,
       );
     } catch (e) {
-      debugPrint('DatabaseService queueServerLiveNotification error: $e');
+      debugPrint('DatabaseService queueServerLiveNotification error: ${redactAuthToken(e)}');
     }
   }
 
@@ -830,7 +837,7 @@ class DatabaseService {
           controller.add(null);
         }
       } catch (e) {
-        debugPrint('DatabaseService watchLatestNotification error: $e');
+        debugPrint('DatabaseService watchLatestNotification error: ${redactAuthToken(e)}');
         if (!controller.isClosed) {
           controller.add(null);
         }
@@ -928,7 +935,7 @@ class DatabaseService {
             }
           }
         } catch (e) {
-          debugPrint('DatabaseService FCM v1 attempt error: $e');
+          debugPrint('DatabaseService FCM v1 attempt error: ${redactAuthToken(e)}');
         }
       }
 
@@ -954,7 +961,7 @@ class DatabaseService {
             }
           }
         } catch (e) {
-          debugPrint('DatabaseService: Could not read fcm_server_key.txt: $e');
+          debugPrint('DatabaseService: Could not read fcm_server_key.txt: ${redactAuthToken(e)}');
         }
       }
 
@@ -1000,7 +1007,7 @@ class DatabaseService {
       );
       return false;
     } catch (e) {
-      debugPrint('DatabaseService sendDirectFcmPush error: $e');
+      debugPrint('DatabaseService sendDirectFcmPush error: ${redactAuthToken(e)}');
       return false;
     }
   }
@@ -1064,7 +1071,7 @@ class DatabaseService {
       }
       return response.statusCode == 200;
     } catch (e) {
-      debugPrint('DatabaseService _sendFcmV1Push exception: $e');
+      debugPrint('DatabaseService _sendFcmV1Push exception: ${redactAuthToken(e)}');
       return false;
     } finally {
       authClient?.close();
@@ -1100,7 +1107,7 @@ class DatabaseService {
       debugPrint('DatabaseService: Account deletion requested, status: ${resp.statusCode}');
       return resp.statusCode == 200;
     } catch (e) {
-      debugPrint('DatabaseService requestAccountDeletion error: $e');
+      debugPrint('DatabaseService requestAccountDeletion error: ${redactAuthToken(e)}');
       return false;
     }
   }
@@ -1130,7 +1137,7 @@ class DatabaseService {
       debugPrint('DatabaseService: Account deletion cancelled (undeleted), status: ${resp.statusCode}');
       return resp.statusCode == 200;
     } catch (e) {
-      debugPrint('DatabaseService cancelAccountDeletion error: $e');
+      debugPrint('DatabaseService cancelAccountDeletion error: ${redactAuthToken(e)}');
       return false;
     }
   }
@@ -1153,7 +1160,7 @@ class DatabaseService {
         }
       }
     } catch (e) {
-      debugPrint('DatabaseService getAccountDeletionStatus error: $e');
+      debugPrint('DatabaseService getAccountDeletionStatus error: ${redactAuthToken(e)}');
     }
     return const UserDeletionStatus(isDeleteRequested: false);
   }
@@ -1174,7 +1181,7 @@ class DatabaseService {
           controller.add(status);
         }
       } catch (e) {
-        debugPrint('DatabaseService listenAccountDeletionStatus poll error: $e');
+        debugPrint('DatabaseService listenAccountDeletionStatus poll error: ${redactAuthToken(e)}');
       }
     }
 
@@ -1204,11 +1211,11 @@ class DatabaseService {
       try {
         await user.delete();
       } catch (e) {
-        debugPrint('DatabaseService: Note - auth user delete fallback: $e');
+        debugPrint('DatabaseService: Note - auth user delete fallback: ${redactAuthToken(e)}');
       }
       return resp.statusCode == 200;
     } catch (e) {
-      debugPrint('DatabaseService purgeExpiredAccount error: $e');
+      debugPrint('DatabaseService purgeExpiredAccount error: ${redactAuthToken(e)}');
       return false;
     }
   }

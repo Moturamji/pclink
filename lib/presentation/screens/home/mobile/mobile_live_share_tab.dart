@@ -796,6 +796,13 @@ class _LiveShareViewerState extends State<LiveShareViewer>
   bool _showHud = true;
   int _consecutiveNulls = 0;
   int _reconnectAttempts = 0;
+  bool _sessionStopped = false; // stop request already sent to the PC
+  bool _hostEnded = false;
+  Timer? _wsRetryWhilePollingTimer;
+
+  /// WebSocket reconnects (with backoff) tried before falling back to HTTP
+  /// frame polling.
+  static const int _maxWsReconnectAttempts = 5;
 
   // Real-time telemetry
   int _framesInLastSecond = 0;
@@ -859,9 +866,23 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     if (_showHud) _resetHudTimer();
   }
 
-  Future<void> _startStream() async {
-    setState(() => _isConnecting = true);
+  bool _connectInFlight = false;
 
+  Future<void> _startStream() async {
+    if (_connectInFlight || !mounted || _hostEnded) return;
+    _connectInFlight = true;
+    // Background retries while frames are still arriving by polling must not
+    // flash the "connecting" overlay.
+    if (!_isStreaming) setState(() => _isConnecting = true);
+
+    try {
+      await _connectWebSocket();
+    } finally {
+      _connectInFlight = false;
+    }
+  }
+
+  Future<void> _connectWebSocket() async {
     try {
       final socket = await widget.fileShareService.connectScreenShareWebSocket(
         localDeviceId: widget.localDeviceId ?? 'AndroidClient',
@@ -870,18 +891,50 @@ class _LiveShareViewerState extends State<LiveShareViewer>
         deviceName: 'Mobile App',
       );
 
-      if (socket != null && mounted) {
+      if (socket != null && mounted && !_hostEnded) {
+        _stopRapidPolling();
         _socket = socket;
         _listenToWebSocket(socket);
         return;
+      }
+      if (socket != null) {
+        try {
+          await socket.close();
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('LiveShareViewer: WebSocket direct connect failed: $e');
     }
 
-    if (mounted) {
+    if (!mounted || _hostEnded) return;
+    _onWebSocketLost();
+  }
+
+  /// Retries the WebSocket with backoff; only after repeated failures does
+  /// the viewer fall back to HTTP polling (which keeps retrying the socket).
+  void _onWebSocketLost() {
+    if (!mounted || _hostEnded) return;
+    if (_reconnectAttempts < _maxWsReconnectAttempts) {
+      _scheduleReconnect();
+    } else {
       _startRapidPolling();
     }
+  }
+
+  void _onHostEnded() {
+    if (_hostEnded) return;
+    _hostEnded = true;
+    _sessionStopped = true; // the PC already ended it
+    _reconnectTimer?.cancel();
+    _stopRapidPolling();
+    if (!mounted) return;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text('Screen sharing was ended on the PC.'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+    Navigator.of(context).maybePop();
   }
 
   void _scheduleReconnect() {
@@ -899,7 +952,6 @@ class _LiveShareViewerState extends State<LiveShareViewer>
 
   void _listenToWebSocket(WebSocket socket) {
     _wsSubscription?.cancel();
-    _reconnectAttempts = 0;
     _reconnectTimer?.cancel();
     _wsSubscription = socket.listen(
       (data) {
@@ -923,6 +975,7 @@ class _LiveShareViewerState extends State<LiveShareViewer>
           }
           _lastFrameReceivedAt = now;
           _framesInLastSecond++;
+          _reconnectAttempts = 0;
 
           final bytes = data is Uint8List ? data : Uint8List.fromList(data);
           // Double-buffer to avoid jank: hold frame then swap on next vsync
@@ -935,9 +988,6 @@ class _LiveShareViewerState extends State<LiveShareViewer>
               _isConnecting = false;
               _consecutiveNulls = 0;
             });
-            _framesInLastSecond++;
-          } else {
-            _framesInLastSecond++;
           }
 
           // ACK immediately after swap — low-latency backpressure (no await)
@@ -948,27 +998,45 @@ class _LiveShareViewerState extends State<LiveShareViewer>
       },
       onError: (e) {
         debugPrint('LiveShareViewer: WS stream error: $e');
-        if (_fallbackPollTimer == null) _scheduleReconnect();
-        // Keep polling as last resort if reconnect repeatedly fails
-        if (_reconnectAttempts > 4) _startRapidPolling();
+        if (identical(_socket, socket)) _socket = null;
+        _onWebSocketLost();
       },
       onDone: () {
-        debugPrint('LiveShareViewer: WS stream finished');
-        if (_fallbackPollTimer == null) _scheduleReconnect();
-        if (_reconnectAttempts > 4) _startRapidPolling();
+        debugPrint('LiveShareViewer: WS stream finished (${socket.closeCode})');
+        if (identical(_socket, socket)) _socket = null;
+        if (socket.closeCode == ServerConstants.screenShareHostEndedCloseCode) {
+          _onHostEnded();
+        } else {
+          _onWebSocketLost();
+        }
       },
       cancelOnError: true,
     );
   }
 
   void _startRapidPolling() {
-    if (_fallbackPollTimer != null) return;
+    if (_fallbackPollTimer != null || _hostEnded) return;
     debugPrint('LiveShareViewer: Falling back to rapid frame polling');
     _fallbackPollTimer = Timer.periodic(
       const Duration(milliseconds: 66), // ~15 FPS
       (_) => _pollFrame(),
     );
+    // Keep trying to get back onto the (much cheaper) WebSocket stream.
+    _wsRetryWhilePollingTimer?.cancel();
+    _wsRetryWhilePollingTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) {
+        if (mounted && _socket == null && !_hostEnded) _startStream();
+      },
+    );
     _pollFrame();
+  }
+
+  void _stopRapidPolling() {
+    _fallbackPollTimer?.cancel();
+    _fallbackPollTimer = null;
+    _wsRetryWhilePollingTimer?.cancel();
+    _wsRetryWhilePollingTimer = null;
   }
 
   bool _pollInFlight = false;
@@ -976,7 +1044,13 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     if (_pollInFlight || !mounted) return;
     _pollInFlight = true;
     try {
-      final frame = await widget.fileShareService.getScreenShareFrame();
+      final result = await widget.fileShareService.fetchScreenShareFrame();
+      final frame = result.frame;
+      if (result.statusCode == HttpStatus.forbidden) {
+        // Sharing was disabled on the PC; polling further is pointless.
+        _onHostEnded();
+        return;
+      }
       if (mounted) {
         if (frame != null) {
           _framesInLastSecond++;
@@ -1022,8 +1096,19 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     try {
       _socket?.close();
     } catch (_) {}
-    await widget.fileShareService.stopScreenShare();
+    _requestStopOnPc();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  /// Tells the PC to end the session exactly once - from the Stop button or
+  /// when the viewer is closed any other way (system back gesture), so the
+  /// PC never keeps capturing the screen for a viewer that is gone.
+  void _requestStopOnPc() {
+    if (_sessionStopped) return;
+    _sessionStopped = true;
+    unawaited(widget.fileShareService.stopScreenShare().catchError((Object e) {
+      debugPrint('LiveShareViewer: stop request failed: $e');
+    }));
   }
 
   void _showPowerControlsSheet() {
@@ -1152,10 +1237,12 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     _fallbackPollTimer?.cancel();
     _hudTimer?.cancel();
     _reconnectTimer?.cancel();
+    _wsRetryWhilePollingTimer?.cancel();
     _wsSubscription?.cancel();
     try {
       _socket?.close();
     } catch (_) {}
+    _requestStopOnPc();
     _pulseController.dispose();
     _transformController.dispose();
 

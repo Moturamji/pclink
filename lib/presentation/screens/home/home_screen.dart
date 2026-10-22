@@ -221,6 +221,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _startMobileServices(DeviceDetails details) {
     if (isDesktopHost) return;
     _cachedDeviceDetails = details;
+    // Pull files the PC queued for this phone even when the Files tab isn't
+    // open (previously they stayed "Queued" until the user opened it).
+    _fileShareService.startAutoSync(interval: const Duration(seconds: 5));
     if (_clipboardService.isListening) {
       _clipboardService.onServerInfoPublished();
       return;
@@ -283,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _stopMobileServices() {
     if (isDesktopHost) return;
+    _fileShareService.stopAutoSync();
     _fileShareService.cancelActiveTransfers();
     _clipboardService.stopListening();
   }

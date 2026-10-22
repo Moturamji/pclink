@@ -89,6 +89,12 @@ void main() {
           'http://127.0.0.1:$port${ServerConstants.filesDownloadEndpoint}?id=$fileId&transferId=$fileId',
         );
         final req = await client.getUrl(uri);
+        // Downloads require the paired phone's credentials.
+        req.headers.set(ServerConstants.authHeader, 'test-phone');
+        req.headers.set(
+          ServerConstants.startTimeHeader,
+          serverInfo.startedAt!.toIso8601String(),
+        );
         final resp = await req.close();
         expect(resp.statusCode, equals(HttpStatus.ok));
 

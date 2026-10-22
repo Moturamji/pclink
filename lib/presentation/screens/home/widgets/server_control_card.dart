@@ -449,22 +449,30 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.check_circle_rounded, color: AppColors.successLight, size: 18),
-                              const SizedBox(width: 8),
-                              Text(
-                                _connectedHostName != null
-                                    ? 'Connected to $_connectedHostName'
-                                    : 'Connected to Windows PC',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: colors.textPrimary,
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.check_circle_rounded, color: AppColors.successLight, size: 18),
+                                const SizedBox(width: 8),
+                                // Long PC host names must shrink, not overflow.
+                                Flexible(
+                                  child: Text(
+                                    _connectedHostName != null
+                                        ? 'Connected to $_connectedHostName'
+                                        : 'Connected to Windows PC',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
+                                      color: colors.textPrimary,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           const StatusBadge(
                             label: 'Secure',
                             isActive: true,

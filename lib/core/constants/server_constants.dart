@@ -15,6 +15,7 @@ abstract final class ServerConstants {
   static const String filesEndpoint = '/api/files';
   static const String filesUploadEndpoint = '/api/files/upload';
   static const String filesDownloadEndpoint = '/api/files/download';
+  static const String filesChecksumEndpoint = '/api/files/checksum';
   static const String transfersEndpoint = '/api/transfers';
   static const String screenShareStartEndpoint = '/api/screen-share/start';
   static const String screenShareStopEndpoint = '/api/screen-share/stop';
@@ -22,6 +23,10 @@ abstract final class ServerConstants {
   static const String screenShareFrameEndpoint = '/api/screen-share/frame';
   static const String screenShareLiveWsEndpoint = '/api/screen-share/live';
   static const String powerEndpoint = '/api/system/power';
+
+  /// WebSocket close code the PC sends when it ends a live view on purpose
+  /// (stopped, consent revoked, server stopping). Viewers don't reconnect.
+  static const int screenShareHostEndedCloseCode = 4000;
 
   // System Power Actions
   static const String actionSleep = 'sleep';

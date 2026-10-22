@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screen_capture/flutter_screen_capture.dart';
 import 'package:image/image.dart' as image;
+import '../../core/constants/server_constants.dart';
 import 'platform_helpers.dart';
 
 /// Task payload passed to background worker isolate for JPEG encoding.
@@ -147,9 +150,12 @@ class _ScreenShareWsClient {
   final String viewerName;
   ScreenShareQualityPreset quality;
   ScreenShareQualityPreset requestedQuality; // user-selected upper bound
-  bool isReady = true;
   DateTime lastSentAt = DateTime.now();
   DateTime connectedAt = DateTime.now();
+
+  /// Send time of every frame not yet acknowledged, oldest first. WebSocket
+  /// runs over TCP, so ACKs arrive in send order and each one pops the head.
+  final Queue<DateTime> _inFlight = Queue<DateTime>();
 
   // Adaptive streaming signals
   int consecutiveSlowAcks = 0;
@@ -164,11 +170,32 @@ class _ScreenShareWsClient {
     required this.quality,
   }) : requestedQuality = quality;
 
-  /// True if client sent 'ack' OR if ACK timed out (> 160ms) to prevent 0 FPS freezes.
-  /// Timeout slightly relaxed to 160ms to avoid busy-spin under packet loss.
+  /// At most this many frames may be unacknowledged. Two keeps the pipe busy
+  /// during one round trip; more would only queue stale frames in the socket.
+  static const int maxFramesInFlight = 2;
+
+  /// A viewer that stops acknowledging (stalled decoder, backgrounded app) is
+  /// treated as having dropped its frames after this long, so it can recover.
+  static const int stalledAckResetMs = 3000;
+
   bool get isReadyOrTimedOut {
-    if (isReady) return true;
-    return DateTime.now().difference(lastSentAt).inMilliseconds > 160;
+    if (_inFlight.length < maxFramesInFlight) return true;
+    if (DateTime.now().difference(lastSentAt).inMilliseconds > stalledAckResetMs) {
+      _inFlight.clear();
+      return true;
+    }
+    return false;
+  }
+
+  void markFrameSent(DateTime at) {
+    lastSentAt = at;
+    _inFlight.addLast(at);
+  }
+
+  /// Round trip of the frame this ACK belongs to, or null for a stray ACK.
+  int? acknowledgeFrame() {
+    if (_inFlight.isEmpty) return null;
+    return DateTime.now().difference(_inFlight.removeFirst()).inMilliseconds;
   }
 
   bool get canAdaptNow =>
@@ -180,6 +207,13 @@ class _ScreenShareWsClient {
 /// WebSocket push delivery, and ACK backpressure with timeout watchdog.
 class ScreenShareService {
   static const String _preferenceFileName = 'pclink_screen_share_consent.txt';
+
+  static const int hostEndedCloseCode =
+      ServerConstants.screenShareHostEndedCloseCode;
+
+  /// An HTTP-started session with no WebSocket viewer and no frame polls for
+  /// this long is considered abandoned (e.g. the phone app was killed).
+  static const Duration _abandonedSessionTimeout = Duration(seconds: 30);
   static const MethodChannel _nativeChannel =
       MethodChannel('pclink/native_screen_share');
 
@@ -188,6 +222,9 @@ class ScreenShareService {
 
   final List<_ScreenShareWsClient> _wsClients = [];
   Timer? _fallbackPollTimer;
+  bool _fallbackCaptureInFlight = false;
+  DateTime? _lastViewerSeenAt;
+  DateTime? _lastFramePollAt;
   Uint8List? _latestFrame;
   DateTime? _lastFrameAt;
   String? _viewerName;
@@ -293,9 +330,9 @@ class ScreenShareService {
       (message) {
         if (message is String) {
           if (message == 'ack') {
-            final rtt = DateTime.now().difference(client.lastSentAt).inMilliseconds;
+            final rtt = client.acknowledgeFrame();
+            if (rtt == null) return;
             client.lastRttMs = rtt;
-            client.isReady = true;
             // Adaptive quality: sustained high RTT -> downgrade; sustained low RTT -> upgrade.
             // Slow threshold 220ms (~2x frame interval), fast threshold 60ms.
             if (rtt > 220) {
@@ -316,12 +353,8 @@ class ScreenShareService {
             } else if (rtt < 60) {
               client.consecutiveFastAcks++;
               if (client.consecutiveFastAcks >= 12 && client.canAdaptNow) {
-                // Only upgrade if below requested cap
+                // Only upgrade up to the user-selected cap
                 final capIdx = ScreenShareQualityPreset.ordered.indexWhere((p) => p.name == client.requestedQuality.name);
-                final curIdx = ScreenShareQualityPreset.ordered.indexWhere((p) => p.name == client.quality.name);
-                if (curIdx > capIdx) {
-                  // already below cap; allow step up but not beyond cap
-                }
                 final next = client.quality.stepUp();
                 final nextIdx = ScreenShareQualityPreset.ordered.indexWhere((p) => p.name == next.name);
                 if (next.name != client.quality.name && nextIdx >= capIdx) {
@@ -390,6 +423,9 @@ class ScreenShareService {
     _isCapturing = true;
     _publishStatus();
 
+    _lastViewerSeenAt = DateTime.now();
+    _lastFramePollAt = null;
+
     _fallbackPollTimer?.cancel();
     _fallbackPollTimer = Timer.periodic(
       const Duration(milliseconds: 100), // 10 FPS fallback
@@ -410,16 +446,21 @@ class ScreenShareService {
     _wsClients.clear();
     for (final client in clients) {
       try {
-        client.socket.close();
+        client.socket.close(hostEndedCloseCode, 'Screen sharing ended by the PC');
       } catch (_) {}
     }
 
+    _lastViewerSeenAt = null;
+    _lastFramePollAt = null;
     _latestFrame = null;
     _lastFrameAt = null;
     _publishStatus();
   }
 
-  Uint8List? takeLatestFrame() => _latestFrame;
+  Uint8List? takeLatestFrame() {
+    _lastFramePollAt = DateTime.now();
+    return _latestFrame;
+  }
 
   void _ensureCaptureLoopRunning() {
     if (_loopRunning) return;
@@ -427,28 +468,18 @@ class ScreenShareService {
     _runStreamingLoop();
   }
 
-  ScreenShareQualityPreset _getActivePreset(List<_ScreenShareWsClient> clients) {
-    if (clients.isEmpty) return ScreenShareQualityPreset.ultra;
-    // Pick the most demanding (highest) quality among ready clients; ensures
-    // adaptive downgrades only affect slow clients when that client is the sole bottleneck.
-    // We choose the *minimum* index (highest quality) across clients.
-    var bestIdx = ScreenShareQualityPreset.ordered.length;
-    for (final c in clients) {
-      final idx = ScreenShareQualityPreset.ordered.indexWhere((p) => p.name == c.quality.name);
-      if (idx != -1 && idx < bestIdx) bestIdx = idx;
+  /// Groups ready viewers by their current preset so each viewer gets the
+  /// quality its own link sustains; one slow phone no longer degrades others.
+  /// Ordered lowest quality first, so `_latestFrame` ends as the sharpest one.
+  Map<ScreenShareQualityPreset, List<_ScreenShareWsClient>> _groupByPreset(
+    List<_ScreenShareWsClient> clients,
+  ) {
+    final groups = <ScreenShareQualityPreset, List<_ScreenShareWsClient>>{};
+    for (final preset in ScreenShareQualityPreset.ordered.reversed) {
+      final members = clients.where((c) => c.quality.name == preset.name).toList();
+      if (members.isNotEmpty) groups[preset] = members;
     }
-    if (bestIdx >= ScreenShareQualityPreset.ordered.length) return ScreenShareQualityPreset.ultra;
-    // If multiple clients, serve the lowest-common denominator to avoid starving slow link
-    // Actually take the *worst* (max idx) among ready clients to protect low-bandwidth clients.
-    var worstIdx = -1;
-    for (final c in clients) {
-      final idx = ScreenShareQualityPreset.ordered.indexWhere((p) => p.name == c.quality.name);
-      if (idx > worstIdx) worstIdx = idx;
-    }
-    // Use majority-safe: weighted toward worst but bounded — if one ultra and one eco, serve high as compromise
-    // Simple: if any eco/low, cap at fast to keep eco viewable without killing ultra viewer's experience entirely
-    // For now, respect worst client (prevents buffer bloat on slow link)
-    return ScreenShareQualityPreset.ordered[worstIdx];
+    return groups;
   }
 
   /// High-performance screen capture: uses native Win32 GDI + GDI+ SIMD encoder
@@ -469,10 +500,15 @@ class ScreenShareService {
         if (result != null && result.isNotEmpty) {
           return result;
         }
-      } catch (e) {
+      } on MissingPluginException catch (e) {
         debugPrint(
             'ScreenShareService: Native capture unavailable, falling back to isolate: $e');
         _useNativeCapture = false;
+      } on PlatformException catch (e) {
+        // A single failed frame (lock screen, UAC secure desktop, display
+        // change) must not permanently downgrade to the slow Dart encoder.
+        debugPrint('ScreenShareService: Native frame skipped: ${e.message}');
+        return null;
       }
     }
 
@@ -498,13 +534,41 @@ class ScreenShareService {
     }
   }
 
+  /// Feeds the HTTP polling endpoint. It only captures while a phone is
+  /// actually polling and no WebSocket viewer is connected (the streaming
+  /// loop already refreshes `_latestFrame` then), and ends a session that
+  /// nobody is watching any more.
   Future<void> _captureFallbackFrame() async {
     if (!_isCapturing || kIsWeb || !isDesktopHost) return;
-    final frame = await _captureFrame(maxWidth: 1920, quality: 85);
-    if (frame != null && _isCapturing) {
-      _latestFrame = frame;
-      _lastFrameAt = DateTime.now();
-      _publishStatus();
+    final now = DateTime.now();
+    if (_wsClients.isNotEmpty) {
+      _lastViewerSeenAt = now;
+      return;
+    }
+    if (_fallbackCaptureInFlight) return;
+
+    final seen = _lastViewerSeenAt ?? now;
+    final polled = _lastFramePollAt;
+    final lastActivity = polled != null && polled.isAfter(seen) ? polled : seen;
+    if (now.difference(lastActivity) > _abandonedSessionTimeout) {
+      debugPrint('ScreenShareService: No viewer for 30s, ending session');
+      await stop();
+      return;
+    }
+    final polledRecently = _lastFramePollAt != null &&
+        now.difference(_lastFramePollAt!) < const Duration(seconds: 3);
+    if (!polledRecently) return;
+
+    _fallbackCaptureInFlight = true;
+    try {
+      final frame = await _captureFrame(maxWidth: 1920, quality: 85);
+      if (frame != null && _isCapturing) {
+        _latestFrame = frame;
+        _lastFrameAt = DateTime.now();
+        _publishStatus();
+      }
+    } finally {
+      _fallbackCaptureInFlight = false;
     }
   }
 
@@ -530,37 +594,39 @@ class ScreenShareService {
       }
 
       final stopwatch = Stopwatch()..start();
+      final groups = _groupByPreset(readyClients);
       try {
-        final preset = _getActivePreset(readyClients);
-        final encoded = await _captureFrame(
-          maxWidth: preset.maxWidth,
-          quality: preset.jpegQuality,
-        );
+        for (final entry in groups.entries) {
+          final encoded = await _captureFrame(
+            maxWidth: entry.key.maxWidth,
+            quality: entry.key.jpegQuality,
+          );
+          if (encoded == null || !_isCapturing || _wsClients.isEmpty) continue;
 
-        if (encoded != null && _isCapturing && _wsClients.isNotEmpty) {
           _latestFrame = encoded;
           _lastFrameAt = DateTime.now();
-
           final now = DateTime.now();
-          for (final client in readyClients) {
+          for (final client in entry.value) {
+            if (!_wsClients.contains(client)) continue;
             try {
-              client.isReady = false; // Mark awaiting ACK from mobile
-              client.lastSentAt = now;
+              client.markFrameSent(now);
               client.socket.add(encoded);
             } catch (e) {
               _removeClient(client);
             }
           }
-
-          _publishStatus();
         }
+        _publishStatus();
       } catch (e) {
         debugPrint('ScreenShareService stream capture error: $e');
       }
 
       stopwatch.stop();
-      // Adaptive FPS pacing: use preset targetFps so low/eco modes don't spin at 30fps wasting CPU/battery
-      final targetFps = _getActivePreset(readyClients).targetFps;
+      // Adaptive FPS pacing: pace for the fastest preset in use so low/eco
+      // modes alone don't spin at 30fps wasting CPU/battery.
+      final targetFps = groups.keys
+          .map((p) => p.targetFps)
+          .fold<int>(ScreenShareQualityPreset.eco.targetFps, max);
       final targetFrameTimeMs = (1000 / targetFps).round().clamp(20, 50);
       final elapsed = stopwatch.elapsedMilliseconds;
       final waitMs = (targetFrameTimeMs - elapsed).clamp(2, targetFrameTimeMs);

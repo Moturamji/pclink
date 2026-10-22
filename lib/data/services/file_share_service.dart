@@ -93,6 +93,9 @@ class FileShareService {
           progress.status == TransferStatus.cancelled) {
         _activeTokens.remove(progress.fileId);
         Timer(const Duration(seconds: 4), () {
+          // Downloads reuse the shared file id, so a retry may already own
+          // this slot; only remove the exact terminal entry that scheduled us.
+          if (!identical(_activeTransfers[progress.fileId], progress)) return;
           _activeTransfers.remove(progress.fileId);
           if (!_allTransfersController.isClosed) {
             _allTransfersController.add(Map.from(_activeTransfers));
@@ -229,6 +232,34 @@ class FileShareService {
     return false;
   }
 
+  /// Route memory: the address that answered last is tried first, and an
+  /// address that just failed is moved to the back for [_routeCooldown].
+  /// Without this, a phone on mobile data waited out the LAN timeout on every
+  /// single request (file list, progress poll, each screen frame) before
+  /// reaching the tunnel, which made sharing and live view look frozen.
+  String? _preferredUrl;
+  final Map<String, DateTime> _routeCooldownUntil = {};
+  static const Duration _routeCooldown = Duration(seconds: 30);
+
+  void _markRouteOk(String url) {
+    _preferredUrl = url;
+    _routeCooldownUntil.remove(url);
+  }
+
+  void _markRouteFailed(String url) {
+    if (_preferredUrl == url) _preferredUrl = null;
+    _routeCooldownUntil[url] = DateTime.now().add(_routeCooldown);
+  }
+
+  bool _isCoolingDown(String url) {
+    final until = _routeCooldownUntil[url];
+    return until != null && DateTime.now().isBefore(until);
+  }
+
+  /// Tunnel (https) routes cross the internet and cloudflared; they need far
+  /// more time than a LAN hop, especially on weak mobile data.
+  static bool _isTunnelUrl(String url) => url.startsWith('https://');
+
   /// All candidate PC server URLs (direct LAN first, then WAN/tunnel), deduplicated.
   List<String> _candidateUrls() {
     final list = _getTargetServerUrls?.call();
@@ -256,7 +287,16 @@ class FileShareService {
       if (!aLan && bLan) return 1;
       return 0;
     });
-    return result;
+    // Proven route first, recently failed routes last (still tried as a
+    // last resort, so a recovered LAN is picked up again).
+    final healthy = result.where((u) => !_isCoolingDown(u)).toList();
+    final cooling = result.where(_isCoolingDown).toList();
+    final ordered = [...healthy, ...cooling];
+    final preferred = _preferredUrl;
+    if (preferred != null && ordered.remove(preferred)) {
+      ordered.insert(0, preferred);
+    }
+    return ordered;
   }
 
   /// Picks a legal status for the start of a candidate-route attempt. A retry
@@ -338,8 +378,10 @@ class FileShareService {
         final resp = await send(
           url,
         ).timeout(Duration(seconds: tunnel ? 15 : 8));
+        _markRouteOk(url);
         return resp;
       } catch (e) {
+        _markRouteFailed(url);
         final isUnresolvable = e.toString().contains('Failed host lookup') ||
             e.toString().contains('No address associated with hostname');
         if (isUnresolvable) {
@@ -356,7 +398,10 @@ class FileShareService {
   /// Fetches the current list of shared files (from both devices) off the PC.
   Future<List<SharedFile>> listSharedFiles() async {
     final response = await _tryUrlFallback(
-      (url) => _client.get(Uri.parse('$url${ServerConstants.filesEndpoint}')),
+      (url) => _client.get(
+        Uri.parse('$url${ServerConstants.filesEndpoint}'),
+        headers: _authHeaders(),
+      ),
     );
     if (response == null || response.statusCode != 200) return <SharedFile>[];
 
@@ -380,7 +425,7 @@ class FileShareService {
             Uri.parse('$url${ServerConstants.transfersEndpoint}'),
             headers: _authHeaders(),
           )
-          .timeout(const Duration(seconds: 3)),
+          .timeout(Duration(seconds: _isTunnelUrl(url) ? 10 : 3)),
     );
     if (response == null || response.statusCode != HttpStatus.ok) {
       return const <TransferProgress>[];
@@ -446,15 +491,23 @@ class FileShareService {
 
   /// Gets the most recent in-memory JPEG frame. No frame is written to phone
   /// storage, and a null result simply means the next frame is not ready yet.
-  Future<Uint8List?> getScreenShareFrame() async {
+  Future<Uint8List?> getScreenShareFrame() async =>
+      (await fetchScreenShareFrame()).frame;
+
+  /// Like [getScreenShareFrame] but also returns the HTTP status (null when
+  /// the PC was unreachable), e.g. 403 once sharing is disabled on the PC.
+  Future<({int? statusCode, Uint8List? frame})> fetchScreenShareFrame() async {
     final response = await _tryUrlFallback(
       (url) => _client.get(
         Uri.parse('$url${ServerConstants.screenShareFrameEndpoint}'),
         headers: _authHeaders(),
       ),
     );
-    if (response == null || response.statusCode != HttpStatus.ok) return null;
-    return response.bodyBytes;
+    if (response == null) return (statusCode: null, frame: null);
+    return (
+      statusCode: response.statusCode,
+      frame: response.statusCode == HttpStatus.ok ? response.bodyBytes : null,
+    );
   }
 
   /// Connects to the real-time WebSocket live screen share stream with
@@ -471,11 +524,7 @@ class FileShareService {
       try {
         final parsed = Uri.parse(baseUrl);
         final wsScheme = parsed.scheme == 'https' ? 'wss' : 'ws';
-        final qParams = <String, String>{
-          'auth': localDeviceId,
-          'startTime': serverStartTime,
-          'quality': quality,
-        };
+        final qParams = <String, String>{'quality': quality};
         if (deviceName != null) {
           qParams['deviceName'] = deviceName;
         }
@@ -488,13 +537,19 @@ class FileShareService {
         );
         final socket = await WebSocket.connect(
           wsUri.toString(),
-        ).timeout(const Duration(seconds: 4));
+          headers: {
+            ServerConstants.authHeader: localDeviceId,
+            ServerConstants.startTimeHeader: serverStartTime,
+          },
+        ).timeout(Duration(seconds: _isTunnelUrl(baseUrl) ? 12 : 4));
         // Enable low-latency, set keepalive pings
         try {
           socket.pingInterval = const Duration(seconds: 15);
         } catch (_) {}
+        _markRouteOk(baseUrl);
         return socket;
       } catch (e) {
+        _markRouteFailed(baseUrl);
         debugPrint('FileShareService: WS connect error on $baseUrl: $e');
       }
     }
@@ -573,6 +628,8 @@ class FileShareService {
         _runningUploads--;
         _pumpUploadQueue();
       }).catchError((e) {
+        debugPrint('FileShareService: upload ${item.matchingId} crashed: $e');
+        _failIfStillActive(item.matchingId, 'Upload failed unexpectedly.');
         if (!item.completer.isCompleted) item.completer.complete(false);
         _runningUploads--;
         _pumpUploadQueue();
@@ -652,6 +709,8 @@ class FileShareService {
         _runningDownloads--;
         _pumpDownloadQueue();
       }).catchError((e) {
+        debugPrint('FileShareService: download ${item.file.id} crashed: $e');
+        _failIfStillActive(item.file.id, 'Download failed unexpectedly.');
         if (!item.completer.isCompleted) item.completer.complete(null);
         _runningDownloads--;
         _pumpDownloadQueue();
@@ -661,8 +720,13 @@ class FileShareService {
 
   /// Checks for any PC-queued files that have not yet been downloaded by this phone
   /// and automatically enqueues them for sequential download.
+  bool _syncInFlight = false;
+
   Future<void> syncPendingDownloads({List<TransferProgress>? remoteTransfers}) async {
     if (_candidateUrls().isEmpty) return;
+    // A slow tunnel poll can outlast the timer interval; never stack them.
+    if (_syncInFlight) return;
+    _syncInFlight = true;
     try {
       final transfers = remoteTransfers ?? await listRemoteTransfers();
       final queuedFromPC = transfers.where((t) =>
@@ -699,6 +763,8 @@ class FileShareService {
       }
     } catch (e) {
       debugPrint('FileShareService syncPendingDownloads error: $e');
+    } finally {
+      _syncInFlight = false;
     }
   }
 
@@ -714,218 +780,369 @@ class FileShareService {
     _autoSyncTimer = null;
   }
 
-  /// High-throughput chunked upload with persistent keep-alive and incremental CRC-32.
-  Future<bool> uploadFile(
-    String filePath, {
-    CancellationToken? cancelToken,
-    String? customTransferId,
-  }) async {
-    final urls = _candidateUrls();
-    if (urls.isEmpty) return false;
+  /// Smallest/largest acknowledged segment. The size adapts to the measured
+  /// link rate so each segment takes a few seconds: big segments keep fast
+  /// Wi-Fi efficient, small ones let weak Wi-Fi or mobile data finish
+  /// segments well inside the timeout.
+  static const int _minSegmentBytes = 256 * 1024;
+  static const int _maxLanSegmentBytes = 16 * 1024 * 1024;
+  static const int _maxWanSegmentBytes = 4 * 1024 * 1024;
+  static const Duration _targetSegmentDuration = Duration(seconds: 4);
 
-    final file = File(filePath);
-    final transferId = customTransferId ??
-        'tx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
-    final token = cancelToken ?? CancellationToken();
-    _activeTokens[transferId] = token;
-    if (!await file.exists()) {
-      _activeTokens.remove(transferId);
-      return false;
-    }
+  /// Transient failures on one route are retried this many times (resuming
+  /// from the PC's confirmed offset) before failing over to the next route.
+  static const int _attemptsPerRoute = 3;
 
-    final totalBytes = await file.length();
-    final name = filePath.split(RegExp(r'[\\/]')).last;
+  /// Segment timeout: a fixed allowance for latency and the PC's final
+  /// verification, plus time for the body at a floor rate of 256 KB/s.
+  static Duration _segmentTimeout(int bytes) =>
+      Duration(seconds: 30 + bytes ~/ (256 * 1024));
+
+  /// Emits a terminal `failed` card so a transfer that cannot start (PC
+  /// offline, file gone, unreadable) never stays stuck as "Queued".
+  void _emitFailed(
+    String transferId,
+    String name,
+    int totalBytes, {
+    required bool isUpload,
+    required String message,
+  }) {
+    _activeTokens.remove(transferId);
     _emitProgress(
       TransferProgress(
         fileId: transferId,
         fileName: name,
         bytesTransferred: 0,
         totalBytes: totalBytes,
-        senderBytes: 0,
-        receiverBytes: 0,
-        isUpload: true,
-        status: TransferStatus.preparing,
+        isUpload: isUpload,
+        status: TransferStatus.failed,
+        errorMessage: message,
         timestamp: DateTime.now(),
       ),
     );
-    // Give the selected-file state a frame before even the lightweight resume
-    // fingerprint work begins.
-    await Future<void>.delayed(Duration.zero);
-    if (token.isCancelled) {
-      _emitEarlyCancelled(transferId, name, totalBytes, isUpload: true);
+  }
+
+  /// Marks a queued/running transfer as failed after an unexpected error
+  /// escaped the transfer function.
+  void _failIfStillActive(String? transferId, String message) {
+    if (transferId == null) return;
+    final existing = _activeTransfers[transferId];
+    if (existing == null || !existing.isActive) return;
+    _emitFailed(
+      transferId,
+      existing.fileName,
+      existing.totalBytes,
+      isUpload: existing.isUpload,
+      message: message,
+    );
+  }
+
+  /// Removes a file the PC finalized after the user had already cancelled
+  /// (the last segment was in flight when they tapped cancel).
+  void _deleteRemoteFileAfterCancel(String baseUrl, Object? payload) {
+    final id = payload is Map ? payload['id'] : null;
+    if (id is! String || id.isEmpty) return;
+    unawaited(
+      _client
+          .delete(
+            Uri.parse(
+              '$baseUrl${ServerConstants.filesEndpoint}?id=${Uri.encodeQueryComponent(id)}',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(const Duration(seconds: 10))
+          .then((_) {}, onError: (Object e) {
+        debugPrint('FileShareService: could not remove cancelled upload $id: $e');
+      }),
+    );
+  }
+
+  /// High-throughput chunked upload with persistent keep-alive and incremental CRC-32.
+  Future<bool> uploadFile(
+    String filePath, {
+    CancellationToken? cancelToken,
+    String? customTransferId,
+  }) async {
+    final file = File(filePath);
+    final transferId = customTransferId ??
+        'tx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}';
+    final name = filePath.split(RegExp(r'[\\/]')).last;
+    final token = cancelToken ?? CancellationToken();
+    _activeTokens[transferId] = token;
+
+    final urls = _candidateUrls();
+    if (urls.isEmpty) {
+      _emitFailed(transferId, name, _activeTransfers[transferId]?.totalBytes ?? 0,
+          isUpload: true, message: 'PC is offline. Retry when it is back online.');
+      return false;
+    }
+    if (!await file.exists()) {
+      _emitFailed(transferId, name, _activeTransfers[transferId]?.totalBytes ?? 0,
+          isUpload: true, message: 'The file no longer exists on this phone.');
       return false;
     }
 
-    final fingerprint = await TransferFingerprint.computeSourceFingerprint(file);
+    final int totalBytes;
+    final String fingerprint;
+    try {
+      totalBytes = await file.length();
+      _emitProgress(
+        TransferProgress(
+          fileId: transferId,
+          fileName: name,
+          bytesTransferred: 0,
+          totalBytes: totalBytes,
+          senderBytes: 0,
+          receiverBytes: 0,
+          isUpload: true,
+          status: TransferStatus.preparing,
+          timestamp: DateTime.now(),
+        ),
+      );
+      // Give the selected-file state a frame before even the lightweight resume
+      // fingerprint work begins.
+      await Future<void>.delayed(Duration.zero);
+      if (token.isCancelled) {
+        _emitEarlyCancelled(transferId, name, totalBytes, isUpload: true);
+        return false;
+      }
+      fingerprint = await TransferFingerprint.computeSourceFingerprint(file);
+    } catch (e) {
+      debugPrint('FileShareService: cannot read $filePath: $e');
+      _emitFailed(transferId, name, _activeTransfers[transferId]?.totalBytes ?? 0,
+          isUpload: true, message: 'The file could not be read.');
+      return false;
+    }
+
     final encodedName = Uri.encodeQueryComponent(name);
     final deviceName = Uri.encodeQueryComponent(
       _currentDeviceName ?? 'Android Device',
     );
     final stopwatch = Stopwatch()..start();
 
-    for (final baseUrl in urls) {
-      if (token.isCancelled) break;
-      try {
+    // Completes when the user cancels, so an in-flight segment no longer
+    // holds the transfer (and the UI) hostage for up to its full timeout.
+    final cancelled = Completer<void>();
+    void onCancel() {
+      if (!cancelled.isCompleted) cancelled.complete();
+    }
+
+    token.onCancelled(onCancel);
+
+    try {
+      for (final baseUrl in urls) {
         final isLan = _isDirectLanUrl(baseUrl);
-        // High-throughput 16 MB chunks on local LAN (Wi-Fi/Ethernet); 4 MB on WAN tunnel
-        final segmentSize = isLan ? (16 * 1024 * 1024) : (4 * 1024 * 1024);
-        var offset = 0;
-        final checkUri = Uri.parse(
-          '$baseUrl${ServerConstants.filesUploadEndpoint}?checkOffset=true&name=$encodedName&size=$totalBytes&fileKey=${encodedName}_$totalBytes&fingerprint=$fingerprint',
-        );
-        final checkTimeout = Duration(milliseconds: isLan ? 2500 : 6000);
-        final check = await _client
-            .get(checkUri, headers: _authHeaders())
-            .timeout(checkTimeout);
-        if (check.statusCode == HttpStatus.ok) {
-          final data = jsonDecode(check.body);
-          final savedOffset = data is Map ? data['offset'] : null;
-          if (savedOffset is int && savedOffset >= 0 && savedOffset < totalBytes) {
-            offset = savedOffset;
-          }
-        }
+        final maxSegment = isLan ? _maxLanSegmentBytes : _maxWanSegmentBytes;
+        var segmentSize = isLan ? (4 * 1024 * 1024) : (1024 * 1024);
 
-        // Initialize incremental CRC32 calculator on sender
-        final cumulativeSourceCrc = TransferCrc32();
-        if (offset > 0) {
-          final rafResume = await file.open(mode: FileMode.read);
+        for (var attempt = 0; attempt < _attemptsPerRoute; attempt++) {
+          if (token.isCancelled) break;
+          if (attempt > 0) {
+            await Future<void>.delayed(Duration(seconds: attempt * 2));
+            if (token.isCancelled) break;
+          }
           try {
-            var toHash = offset;
-            const bSize = 1024 * 1024;
-            final b = Uint8List(bSize);
-            while (toHash > 0) {
-              final r = min(bSize, toHash);
-              final bytesRead = await rafResume.readInto(b, 0, r);
-              if (bytesRead <= 0) break;
-              cumulativeSourceCrc.update(
-                bytesRead == b.length
-                    ? b
-                    : Uint8List.sublistView(b, 0, bytesRead),
-              );
-              toHash -= bytesRead;
-            }
-          } finally {
-            await rafResume.close();
-          }
-        }
-
-        _emitProgress(
-          TransferProgress(
-            fileId: transferId,
-            fileName: name,
-            bytesTransferred: offset,
-            totalBytes: totalBytes,
-            senderBytes: offset,
-            receiverBytes: offset,
-            isUpload: true,
-            status: offset > 0 ? TransferStatus.resuming : TransferStatus.transferring,
-            timestamp: DateTime.now(),
-          ),
-        );
-
-        final source = await file.open(mode: FileMode.read);
-        try {
-          while (offset < totalBytes && !token.isCancelled) {
-            await source.setPosition(offset);
-            final bytes = await source.read(min(segmentSize, totalBytes - offset));
-            if (bytes.isEmpty) throw const FileSystemException('Source file ended early');
-            cumulativeSourceCrc.update(bytes);
-            final nextOffset = offset + bytes.length;
-            final isFinalSegment = nextOffset == totalBytes;
-            final uri = Uri.parse(
-              '$baseUrl${ServerConstants.filesUploadEndpoint}?name=$encodedName&deviceName=$deviceName&size=$totalBytes&offset=$offset&fileKey=${encodedName}_$totalBytes&transferId=$transferId&fingerprint=$fingerprint&chunked=true',
+            var offset = 0;
+            final checkUri = Uri.parse(
+              '$baseUrl${ServerConstants.filesUploadEndpoint}?checkOffset=true&name=$encodedName&size=$totalBytes&fileKey=${encodedName}_$totalBytes&fingerprint=$fingerprint',
             );
-            final request = http.Request('POST', uri)
-              ..bodyBytes = bytes
-              ..headers.addAll(_authHeaders(contentType: 'application/octet-stream'));
-            if (isFinalSegment) {
-              request.headers['x-transfer-checksum'] = cumulativeSourceCrc.hexString;
-            }
-
-            // Emit dual progress as chunk is dispatched onto wire
-            _emitProgress(
-              TransferProgress(
-                fileId: transferId,
-                fileName: name,
-                bytesTransferred: offset,
-                totalBytes: totalBytes,
-                senderBytes: nextOffset,
-                receiverBytes: offset,
-                speedBytesPerSec: stopwatch.elapsedMilliseconds > 0
-                    ? offset / (stopwatch.elapsedMilliseconds / 1000)
-                    : 0,
-                isUpload: true,
-                status: isFinalSegment
-                    ? TransferStatus.verifying
-                    : TransferStatus.transferring,
-                timestamp: DateTime.now(),
-              ),
-            );
-
-            final response = await _client.send(request).timeout(
-              const Duration(seconds: 35),
-            );
-            final responseBody = await response.stream.bytesToString();
-            if (response.statusCode != HttpStatus.accepted &&
-                response.statusCode != HttpStatus.ok) {
-              throw HttpException('PC rejected upload segment (${response.statusCode})');
-            }
-            final payload = jsonDecode(responseBody);
-            final acknowledged = payload is Map ? payload['offset'] ?? payload['bytesReceived'] : null;
-            if (acknowledged is! int || acknowledged <= offset || acknowledged > nextOffset) {
-              throw const HttpException('PC returned an invalid upload acknowledgement');
-            }
-            offset = acknowledged;
-            final seconds = stopwatch.elapsedMilliseconds / 1000;
-            _emitProgress(
-              TransferProgress(
-                fileId: transferId,
-                fileName: name,
-                bytesTransferred: offset,
-                totalBytes: totalBytes,
-                senderBytes: nextOffset,
-                receiverBytes: offset,
-                speedBytesPerSec: seconds > 0 ? offset / seconds : 0,
-                isUpload: true,
-                status: response.statusCode == HttpStatus.ok
-                    ? TransferStatus.verifying
-                    : TransferStatus.transferring,
-                timestamp: DateTime.now(),
-              ),
-            );
-            if (response.statusCode == HttpStatus.ok) {
-              final serverCrc = payload is Map ? payload['crc32'] : null;
-              final sourceCrc = (cumulativeSourceCrc.bytesProcessed == totalBytes && totalBytes > 0)
-                  ? cumulativeSourceCrc.hexString
-                  : await TransferCrc32.checksumFile(file);
-              if (serverCrc is! String || serverCrc.toLowerCase() != sourceCrc.toLowerCase()) {
-                throw const HttpException('The received file did not pass integrity verification');
+            final checkTimeout = Duration(seconds: isLan ? 3 : 12);
+            final check = await _client
+                .get(checkUri, headers: _authHeaders())
+                .timeout(checkTimeout);
+            _markRouteOk(baseUrl);
+            if (check.statusCode == HttpStatus.ok) {
+              final data = jsonDecode(check.body);
+              final savedOffset = data is Map ? data['offset'] : null;
+              if (savedOffset is int && savedOffset >= 0 && savedOffset < totalBytes) {
+                offset = savedOffset;
               }
-              _emitProgress(
-                TransferProgress(
-                  fileId: transferId,
-                  fileName: name,
-                  bytesTransferred: totalBytes,
-                  totalBytes: totalBytes,
-                  senderBytes: totalBytes,
-                  receiverBytes: totalBytes,
-                  speedBytesPerSec: 0,
-                  isUpload: true,
-                  status: TransferStatus.completed,
-                  timestamp: DateTime.now(),
-                ),
-              );
-              return true;
             }
+
+            // Initialize incremental CRC32 calculator on sender
+            final cumulativeSourceCrc = TransferCrc32();
+            if (offset > 0) {
+              final rafResume = await file.open(mode: FileMode.read);
+              try {
+                var toHash = offset;
+                const bSize = 1024 * 1024;
+                final b = Uint8List(bSize);
+                while (toHash > 0) {
+                  final r = min(bSize, toHash);
+                  final bytesRead = await rafResume.readInto(b, 0, r);
+                  if (bytesRead <= 0) break;
+                  cumulativeSourceCrc.update(
+                    bytesRead == b.length
+                        ? b
+                        : Uint8List.sublistView(b, 0, bytesRead),
+                  );
+                  toHash -= bytesRead;
+                }
+              } finally {
+                await rafResume.close();
+              }
+            }
+
+            _emitProgress(
+              TransferProgress(
+                fileId: transferId,
+                fileName: name,
+                bytesTransferred: offset,
+                totalBytes: totalBytes,
+                senderBytes: offset,
+                receiverBytes: offset,
+                isUpload: true,
+                status: offset > 0 ? TransferStatus.resuming : TransferStatus.transferring,
+                timestamp: DateTime.now(),
+              ),
+            );
+
+            final source = await file.open(mode: FileMode.read);
+            try {
+              while (offset < totalBytes && !token.isCancelled) {
+                await source.setPosition(offset);
+                final bytes = await source.read(min(segmentSize, totalBytes - offset));
+                if (bytes.isEmpty) throw const FileSystemException('Source file ended early');
+                cumulativeSourceCrc.update(bytes);
+                final nextOffset = offset + bytes.length;
+                final isFinalSegment = nextOffset == totalBytes;
+                final uri = Uri.parse(
+                  '$baseUrl${ServerConstants.filesUploadEndpoint}?name=$encodedName&deviceName=$deviceName&size=$totalBytes&offset=$offset&fileKey=${encodedName}_$totalBytes&transferId=$transferId&fingerprint=$fingerprint&chunked=true',
+                );
+                final request = http.Request('POST', uri)
+                  ..bodyBytes = bytes
+                  ..headers.addAll(_authHeaders(contentType: 'application/octet-stream'));
+                if (isFinalSegment) {
+                  request.headers['x-transfer-checksum'] = cumulativeSourceCrc.hexString;
+                }
+
+                // Emit dual progress as chunk is dispatched onto wire
+                _emitProgress(
+                  TransferProgress(
+                    fileId: transferId,
+                    fileName: name,
+                    bytesTransferred: offset,
+                    totalBytes: totalBytes,
+                    senderBytes: nextOffset,
+                    receiverBytes: offset,
+                    speedBytesPerSec: stopwatch.elapsedMilliseconds > 0
+                        ? offset / (stopwatch.elapsedMilliseconds / 1000)
+                        : 0,
+                    isUpload: true,
+                    status: TransferStatus.transferring,
+                    timestamp: DateTime.now(),
+                  ),
+                );
+
+                final segmentWatch = Stopwatch()..start();
+                final responseFuture = _client
+                    .send(request)
+                    .then((r) async => (r.statusCode, await r.stream.bytesToString()))
+                    .timeout(_segmentTimeout(bytes.length));
+                final winner = await Future.any<Object?>([
+                  responseFuture,
+                  cancelled.future.then((_) => null),
+                ]);
+                if (winner == null) {
+                  // Cancelled mid-segment. If this was the last segment the PC
+                  // may still finalize the file; remove it once it answers.
+                  if (isFinalSegment) {
+                    responseFuture.then((r) {
+                      if (r.$1 == HttpStatus.ok) {
+                        _deleteRemoteFileAfterCancel(baseUrl, jsonDecode(r.$2));
+                      }
+                    }, onError: (Object _) {});
+                  } else {
+                    responseFuture.ignore();
+                  }
+                  break;
+                }
+                final (statusCode, responseBody) = winner as (int, String);
+                segmentWatch.stop();
+                if (statusCode != HttpStatus.accepted && statusCode != HttpStatus.ok) {
+                  throw HttpException('PC rejected upload segment ($statusCode)');
+                }
+                final payload = jsonDecode(responseBody);
+                final acknowledged = payload is Map ? payload['offset'] ?? payload['bytesReceived'] : null;
+                if (acknowledged is! int || acknowledged <= offset || acknowledged > nextOffset) {
+                  throw const HttpException('PC returned an invalid upload acknowledgement');
+                }
+                // Size the next segment from the rate this one achieved.
+                if (segmentWatch.elapsedMilliseconds > 0) {
+                  final bytesPerSec = bytes.length * 1000 / segmentWatch.elapsedMilliseconds;
+                  final ideal = (bytesPerSec * _targetSegmentDuration.inSeconds).round();
+                  segmentSize = ideal.clamp(_minSegmentBytes, maxSegment);
+                }
+                offset = acknowledged;
+                final seconds = stopwatch.elapsedMilliseconds / 1000;
+                _emitProgress(
+                  TransferProgress(
+                    fileId: transferId,
+                    fileName: name,
+                    bytesTransferred: offset,
+                    totalBytes: totalBytes,
+                    senderBytes: nextOffset,
+                    receiverBytes: offset,
+                    speedBytesPerSec: seconds > 0 ? offset / seconds : 0,
+                    isUpload: true,
+                    status: statusCode == HttpStatus.ok
+                        ? TransferStatus.verifying
+                        : TransferStatus.transferring,
+                    timestamp: DateTime.now(),
+                  ),
+                );
+                if (statusCode == HttpStatus.ok) {
+                  final serverCrc = payload is Map ? payload['crc32'] : null;
+                  final sourceCrc = (cumulativeSourceCrc.bytesProcessed == totalBytes && totalBytes > 0)
+                      ? cumulativeSourceCrc.hexString
+                      : await TransferCrc32.checksumFile(file);
+                  if (serverCrc is! String || serverCrc.toLowerCase() != sourceCrc.toLowerCase()) {
+                    throw const HttpException('The received file did not pass integrity verification');
+                  }
+                  if (token.isCancelled) {
+                    _deleteRemoteFileAfterCancel(baseUrl, payload);
+                    break;
+                  }
+                  _emitProgress(
+                    TransferProgress(
+                      fileId: transferId,
+                      fileName: name,
+                      bytesTransferred: totalBytes,
+                      totalBytes: totalBytes,
+                      senderBytes: totalBytes,
+                      receiverBytes: totalBytes,
+                      speedBytesPerSec: 0,
+                      isUpload: true,
+                      status: TransferStatus.completed,
+                      timestamp: DateTime.now(),
+                    ),
+                  );
+                  return true;
+                }
+              }
+            } finally {
+              await source.close();
+            }
+          } catch (e) {
+            debugPrint(
+              'FileShareService: chunk route $baseUrl attempt ${attempt + 1} interrupted: $e',
+            );
+            if (e is TimeoutException || e is SocketException || e is http.ClientException) {
+              _markRouteFailed(baseUrl);
+              // An unreachable route won't recover within seconds; move on to
+              // the next address instead of burning all retries on it.
+              if (attempt == 0 && baseUrl != urls.last) break;
+            }
+            // The PC records every accepted segment, so the next attempt (on
+            // this route or the next) resumes from its last confirmed byte.
+            // A smaller segment makes the retry more likely to get through.
+            segmentSize = max(_minSegmentBytes, segmentSize ~/ 2);
           }
-        } finally {
-          await source.close();
         }
-      } catch (e) {
-        debugPrint('FileShareService: chunk route $baseUrl interrupted: $e');
-        // The PC records every accepted segment.  Continue with the next route
-        // and resume from its last confirmed byte instead of restarting.
+        if (token.isCancelled) break;
       }
+    } finally {
+      token.removeListener(onCancel);
     }
 
     if (token.isCancelled) {
@@ -1356,17 +1573,18 @@ class FileShareService {
     ForegroundTransferManager.instance.ensureForegroundActive(
       initialFileName: item.name,
     );
-    final urls = _candidateUrls();
-    if (urls.isEmpty) {
-      debugPrint('FileShareService: No server URLs configured for download');
-      return null;
-    }
-
     final totalBytes = item.size;
     final transferId = customTransferId ??
         (item.id.isNotEmpty
             ? item.id
             : 'rx_${DateTime.now().microsecondsSinceEpoch}_${Random().nextInt(99999)}');
+    final urls = _candidateUrls();
+    if (urls.isEmpty) {
+      debugPrint('FileShareService: No server URLs configured for download');
+      _emitFailed(transferId, item.name, totalBytes,
+          isUpload: false, message: 'PC is offline. Retry when it is back online.');
+      return null;
+    }
     final token = cancelToken ?? CancellationToken();
     _activeTokens[transferId] = token;
 
@@ -1400,26 +1618,36 @@ class FileShareService {
         var existingBytes = 0;
         if (await partFile.exists()) {
           existingBytes = await partFile.length();
-          if (existingBytes >= totalBytes) {
-            // Already fully downloaded in .part file! Verify and finalize non-destructively
-            final finalDest =
-                await FileSystemUtil.getUniqueDestinationFile(dir, item.name);
-            await FileSystemUtil.robustRenameOrCopy(partFile, finalDest);
-            await _notifyMediaScanner(finalDest.path);
-            _emitProgress(
-              TransferProgress(
-                fileId: transferId,
-                fileName: item.name,
-                bytesTransferred: totalBytes,
-                totalBytes: totalBytes,
-                speedBytesPerSec: 0,
-                isUpload: false,
-                status: TransferStatus.completed,
-                timestamp: DateTime.now(),
-              ),
-            );
-            _processedDownloadIds.add(item.id);
-            return finalDest;
+          if (totalBytes > 0 && existingBytes > totalBytes) {
+            // Larger than the file can be: corrupt leftover, start over.
+            await partFile.delete();
+            existingBytes = 0;
+          } else if (totalBytes > 0 && existingBytes == totalBytes) {
+            // Already fully downloaded in .part file: verify before trusting it.
+            final verdict = await _verifyDownloadedPart(baseUrl, item, partFile);
+            if (verdict == false) {
+              await partFile.delete();
+              existingBytes = 0;
+            } else {
+              final finalDest =
+                  await FileSystemUtil.getUniqueDestinationFile(dir, item.name);
+              await FileSystemUtil.robustRenameOrCopy(partFile, finalDest);
+              await _notifyMediaScanner(finalDest.path);
+              _emitProgress(
+                TransferProgress(
+                  fileId: transferId,
+                  fileName: item.name,
+                  bytesTransferred: totalBytes,
+                  totalBytes: totalBytes,
+                  speedBytesPerSec: 0,
+                  isUpload: false,
+                  status: TransferStatus.completed,
+                  timestamp: DateTime.now(),
+                ),
+              );
+              _processedDownloadIds.add(item.id);
+              return finalDest;
+            }
           }
         }
 
@@ -1448,8 +1676,10 @@ class FileShareService {
           debugPrint(
             'FileShareService: Download from $baseUrl timed out while connecting',
           );
+          _markRouteFailed(baseUrl);
           continue;
         }
+        _markRouteOk(baseUrl);
 
         if (streamedResponse.statusCode != 200 &&
             streamedResponse.statusCode != 206) {
@@ -1457,6 +1687,17 @@ class FileShareService {
         }
 
         final isPartial = streamedResponse.statusCode == 206;
+        if (isPartial) {
+          final contentRange = streamedResponse.headers['content-range'] ?? '';
+          final match = RegExp(r'bytes\s+(\d+)-').firstMatch(contentRange);
+          final rangeStart = match == null ? null : int.tryParse(match.group(1)!);
+          if (rangeStart != existingBytes) {
+            unawaited(streamedResponse.stream.drain<void>().catchError((_) {}));
+            throw HttpException(
+              'PC resumed at the wrong offset ($contentRange, expected $existingBytes)',
+            );
+          }
+        }
         final startOffset = isPartial ? existingBytes : 0;
         // RandomAccessFile writes are awaited, which provides true disk
         // backpressure without the fsync stalls of IOSink.flush() per chunk.
@@ -1580,6 +1821,25 @@ class FileShareService {
             timestamp: DateTime.now(),
           ),
         );
+
+        final verdict = await _verifyDownloadedPart(baseUrl, item, partFile);
+        if (verdict == false) {
+          if (await partFile.exists()) await partFile.delete();
+          _emitProgress(
+            TransferProgress(
+              fileId: transferId,
+              fileName: item.name,
+              bytesTransferred: totalBytes,
+              totalBytes: totalBytes,
+              speedBytesPerSec: 0,
+              isUpload: false,
+              status: TransferStatus.failed,
+              errorMessage: 'Integrity check failed (CRC mismatch). Please retry.',
+              timestamp: DateTime.now(),
+            ),
+          );
+          return null;
+        }
 
         _emitProgress(
           TransferProgress(
@@ -1756,40 +2016,39 @@ class FileShareService {
     return targetDir;
   }
 
-  /// Clears transient queued/active transfer cards without touching persistent on-disk state.
-  /// Useful when the PC disconnects so stale queue cards don't linger forever.
-  void clearTransientTransfers() {
-    for (final token in List.of(_activeTokens.values)) {
-      try {
-        token.cancel();
-      } catch (_) {}
-    }
-    _activeTokens.clear();
-    for (final item in _uploadQueue) {
-      if (!item.completer.isCompleted) {
-        try {
-          item.completer.complete(false);
-        } catch (_) {}
+  /// Compares a finished `.part` file with the PC's CRC-32 of the source.
+  /// Returns true (match), false (mismatch) or null when the PC can't answer
+  /// (older PC build without the checksum endpoint, or unreachable), in which
+  /// case the size check already done is the best available evidence.
+  Future<bool?> _verifyDownloadedPart(
+    String baseUrl,
+    SharedFile item,
+    File partFile,
+  ) async {
+    try {
+      final response = await _client
+          .get(
+            Uri.parse(
+              '$baseUrl${ServerConstants.filesChecksumEndpoint}?id=${Uri.encodeQueryComponent(item.id)}',
+            ),
+            headers: _authHeaders(),
+          )
+          .timeout(_uploadConfirmTimeout);
+      if (response.statusCode != HttpStatus.ok) return null;
+      final data = jsonDecode(response.body);
+      final serverCrc = data is Map ? data['crc32'] : null;
+      if (serverCrc is! String) return null;
+      final localCrc = await TransferCrc32.checksumFile(partFile);
+      final ok = serverCrc.toLowerCase() == localCrc.toLowerCase();
+      if (!ok) {
+        debugPrint(
+          'FileShareService: download CRC mismatch for ${item.name}: PC=$serverCrc phone=$localCrc',
+        );
       }
-    }
-    _uploadQueue.clear();
-    _runningUploads = 0;
-    for (final item in _downloadQueue) {
-      if (!item.completer.isCompleted) {
-        try {
-          item.completer.complete(null);
-        } catch (_) {}
-      }
-    }
-    _downloadQueue.clear();
-    _runningDownloads = 0;
-    _activeTransfers.clear();
-    _currentProgress = null;
-    if (!_allTransfersController.isClosed) {
-      _allTransfersController.add(const {});
-    }
-    if (!_progressController.isClosed) {
-      _progressController.add(null);
+      return ok;
+    } catch (e) {
+      debugPrint('FileShareService: checksum check skipped for ${item.name}: $e');
+      return null;
     }
   }
 

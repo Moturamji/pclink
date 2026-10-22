@@ -5,7 +5,10 @@
 #include <gdiplus.h>
 
 #include <iostream>
+#include <memory>
 #include <string>
+#include <thread>
+#include <utility>
 
 #pragma comment(lib, "gdiplus.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -20,6 +23,44 @@ static bool g_gdiplusInitialized = false;
 static CLSID g_jpegClsid{};
 static bool g_jpegClsidCached = false;
 static bool g_jpegClsidValid = false;
+
+// Capturing + JPEG-encoding a frame takes several to tens of milliseconds, so
+// it runs on a worker thread instead of blocking the Flutter platform (UI)
+// thread. Method-channel replies must be sent on the platform thread, so the
+// worker posts its result to this message-only window, whose WndProc runs on
+// the platform thread's message loop.
+constexpr UINT kCaptureDoneMessage = WM_APP + 0x51;
+static HWND g_dispatchWindow = nullptr;
+
+struct CaptureJob {
+  std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>> result;
+  std::vector<uint8_t> bytes;
+};
+
+LRESULT CALLBACK DispatchWndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+  if (msg == kCaptureDoneMessage) {
+    std::unique_ptr<CaptureJob> job(reinterpret_cast<CaptureJob*>(lparam));
+    if (job->bytes.empty()) {
+      job->result->Error("CAPTURE_FAILED", "Failed to capture screen frame with Windows GDI");
+    } else {
+      job->result->Success(flutter::EncodableValue(std::move(job->bytes)));
+    }
+    return 0;
+  }
+  return DefWindowProc(hwnd, msg, wparam, lparam);
+}
+
+HWND EnsureDispatchWindow() {
+  if (g_dispatchWindow) return g_dispatchWindow;
+  WNDCLASSW wc = {};
+  wc.lpfnWndProc = DispatchWndProc;
+  wc.hInstance = GetModuleHandle(nullptr);
+  wc.lpszClassName = L"PCLinkScreenShareDispatch";
+  RegisterClassW(&wc);
+  g_dispatchWindow = CreateWindowExW(0, wc.lpszClassName, L"", 0, 0, 0, 0, 0,
+                                     HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+  return g_dispatchWindow;
+}
 
 int GetEncoderClsid(const WCHAR* format, CLSID* pClsid) {
   UINT num = 0;
@@ -57,8 +98,6 @@ bool GetCachedJpegClsid(CLSID* out) {
 void NativeScreenShare::EnsureGdiplusInitialized() {
   if (!g_gdiplusInitialized) {
     Gdiplus::GdiplusStartupInput gdiplusStartupInput;
-    // Use no background thread to reduce latency in Flutter embed
-    gdiplusStartupInput.SuppressBackgroundThread = FALSE;
     Gdiplus::GdiplusStartup(&g_gdiplusToken, &gdiplusStartupInput, NULL);
     g_gdiplusInitialized = true;
     // Pre-warm encoder CLSID on startup thread
@@ -110,7 +149,15 @@ std::vector<uint8_t> NativeScreenShare::CaptureScreenJpeg(int max_width, int qua
   // Using SRCCOPY instead of CAPTUREBLT eliminates physical mouse cursor blinking/flickering
   SetStretchBltMode(hMemDC, HALFTONE);
   SetBrushOrgEx(hMemDC, 0, 0, NULL);
-  StretchBlt(hMemDC, 0, 0, target_w, target_h, hScreenDC, 0, 0, screen_w, screen_h, SRCCOPY);
+  // Fails on the secure desktop (lock screen, UAC prompt); report a failed
+  // frame instead of sending a black one.
+  if (!StretchBlt(hMemDC, 0, 0, target_w, target_h, hScreenDC, 0, 0, screen_w, screen_h, SRCCOPY)) {
+    SelectObject(hMemDC, hOldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(hMemDC);
+    ReleaseDC(NULL, hScreenDC);
+    return {};
+  }
 
   // Draw mouse cursor directly onto the in-memory frame so the phone viewer
   // sees the cursor, while keeping the physical hardware cursor on the PC monitor
@@ -120,17 +167,19 @@ std::vector<uint8_t> NativeScreenShare::CaptureScreenJpeg(int max_width, int qua
   if (GetCursorInfo(&cursor_info) && cursor_info.flags == CURSOR_SHOWING) {
     ICONINFO icon_info = {0};
     if (GetIconInfo(cursor_info.hCursor, &icon_info)) {
-      int cursor_x = cursor_info.ptScreenPos.x - icon_info.xHotspot;
-      int cursor_y = cursor_info.ptScreenPos.y - icon_info.yHotspot;
+      const double scale_x = static_cast<double>(target_w) / static_cast<double>(screen_w);
+      const double scale_y = static_cast<double>(target_h) / static_cast<double>(screen_h);
+      int cursor_x = static_cast<int>(
+          static_cast<double>(cursor_info.ptScreenPos.x - static_cast<LONG>(icon_info.xHotspot)) * scale_x);
+      int cursor_y = static_cast<int>(
+          static_cast<double>(cursor_info.ptScreenPos.y - static_cast<LONG>(icon_info.yHotspot)) * scale_y);
+      // Scale the cursor with the frame so it isn't oversized when downsampled.
+      int cursor_w = static_cast<int>(GetSystemMetrics(SM_CXCURSOR) * scale_x);
+      int cursor_h = static_cast<int>(GetSystemMetrics(SM_CYCURSOR) * scale_y);
+      if (cursor_w < 8) cursor_w = 8;
+      if (cursor_h < 8) cursor_h = 8;
 
-      if (target_w != screen_w && screen_w > 0 && screen_h > 0) {
-        cursor_x = static_cast<int>(
-            static_cast<double>(cursor_x) * (static_cast<double>(target_w) / static_cast<double>(screen_w)));
-        cursor_y = static_cast<int>(
-            static_cast<double>(cursor_y) * (static_cast<double>(target_h) / static_cast<double>(screen_h)));
-      }
-
-      DrawIconEx(hMemDC, cursor_x, cursor_y, cursor_info.hCursor, 0, 0, 0, NULL, DI_NORMAL);
+      DrawIconEx(hMemDC, cursor_x, cursor_y, cursor_info.hCursor, cursor_w, cursor_h, 0, NULL, DI_NORMAL);
 
       if (icon_info.hbmMask) DeleteObject(icon_info.hbmMask);
       if (icon_info.hbmColor) DeleteObject(icon_info.hbmColor);
@@ -155,7 +204,7 @@ std::vector<uint8_t> NativeScreenShare::CaptureScreenJpeg(int max_width, int qua
       encoder_params.Parameter[0].Guid = Gdiplus::EncoderQuality;
       encoder_params.Parameter[0].Type = Gdiplus::EncoderParameterValueTypeLong;
       encoder_params.Parameter[0].NumberOfValues = 1;
-      ULONG qual = static_cast<ULONG>(quality > 0 ? quality : 80);
+      ULONG qual = static_cast<ULONG>(quality < 1 ? 80 : (quality > 100 ? 100 : quality));
       encoder_params.Parameter[0].Value = &qual;
 
       IStream* stream = nullptr;
@@ -182,6 +231,7 @@ std::vector<uint8_t> NativeScreenShare::CaptureScreenJpeg(int max_width, int qua
 
 void NativeScreenShare::RegisterWithMessenger(flutter::BinaryMessenger* messenger) {
   EnsureGdiplusInitialized();
+  EnsureDispatchWindow();
 
   auto channel = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
       messenger, "pclink/native_screen_share",
@@ -206,12 +256,26 @@ void NativeScreenShare::RegisterWithMessenger(flutter::BinaryMessenger* messenge
             }
           }
 
-          auto bytes = CaptureScreenJpeg(max_width, quality);
-          if (bytes.empty()) {
-            result->Error("CAPTURE_FAILED", "Failed to capture screen frame with Windows GDI");
-          } else {
-            result->Success(flutter::EncodableValue(bytes));
+          HWND dispatch = EnsureDispatchWindow();
+          if (!dispatch) {
+            // No dispatch window: capture inline rather than failing.
+            auto bytes = CaptureScreenJpeg(max_width, quality);
+            if (bytes.empty()) {
+              result->Error("CAPTURE_FAILED", "Failed to capture screen frame with Windows GDI");
+            } else {
+              result->Success(flutter::EncodableValue(std::move(bytes)));
+            }
+            return;
           }
+          auto job = std::make_unique<CaptureJob>();
+          job->result = std::move(result);
+          std::thread([job = std::move(job), dispatch, max_width, quality]() mutable {
+            job->bytes = CaptureScreenJpeg(max_width, quality);
+            CaptureJob* raw = job.release();
+            if (!PostMessage(dispatch, kCaptureDoneMessage, 0, reinterpret_cast<LPARAM>(raw))) {
+              delete raw;  // App is shutting down; nobody is waiting for the reply.
+            }
+          }).detach();
         } else if (call.method_name() == "isSupported") {
           result->Success(flutter::EncodableValue(true));
         } else {

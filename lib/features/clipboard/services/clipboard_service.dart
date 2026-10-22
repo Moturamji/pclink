@@ -384,7 +384,7 @@ void _onForegroundDataReceived(dynamic data) {
         final tunnel = url.startsWith('https://');
         return _client
             .get(Uri.parse('$url${ServerConstants.healthEndpoint}'))
-            .timeout(Duration(seconds: tunnel ? 6 : 4));
+            .timeout(Duration(seconds: tunnel ? 12 : 4));
       },
     );
 
@@ -490,7 +490,7 @@ void _onForegroundDataReceived(dynamic data) {
               headers: _authHeaders(),
               body: jsonEncode(item.toMap()),
             )
-            .timeout(Duration(seconds: tunnel ? 6 : 4));
+            .timeout(Duration(seconds: tunnel ? 12 : 4));
 
         if (response.statusCode == 200) {
           _markSuccess();
@@ -532,7 +532,7 @@ void _onForegroundDataReceived(dynamic data) {
         final tunnel = url.startsWith('https://');
         return _client
             .get(Uri.parse('$url${ServerConstants.clipboardLatestEndpoint}'))
-            .timeout(Duration(seconds: tunnel ? 6 : 4));
+            .timeout(Duration(seconds: tunnel ? 12 : 4));
       },
     );
 
@@ -609,7 +609,7 @@ void _onForegroundDataReceived(dynamic data) {
       final response = await _tryUrlFallback(
         (url) => _client
             .get(Uri.parse('$url${ServerConstants.clipboardEndpoint}'))
-            .timeout(const Duration(seconds: 4)),
+            .timeout(Duration(seconds: url.startsWith('https://') ? 12 : 4)),
       );
 
       if (response != null &&
@@ -655,7 +655,7 @@ void _onForegroundDataReceived(dynamic data) {
               Uri.parse('$url${ServerConstants.clipboardEndpoint}'),
               headers: _authHeaders(),
             )
-            .timeout(const Duration(seconds: 3)),
+            .timeout(Duration(seconds: url.startsWith('https://') ? 12 : 3)),
         allowBackoffSkip: false,
       );
     }
