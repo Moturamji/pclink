@@ -26,6 +26,10 @@ Official builds organized chronologically by date:
 1. Sign in on both devices with the same account.
 2. Keep PCLink open on the Windows PC (server auto-starts).
 
+Using a Mac as the PC or an iPhone as the phone? Follow the one-time steps in
+[APPLE_SETUP.md](APPLE_SETUP.md) first (Firebase registration and Xcode
+signing).
+
 ## Connecting from anywhere (public network) — fully automatic
 
 PCLink now does **everything itself** — no port-forwarding, no accounts, no

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show AppLifecycleListener;
 import 'package:path_provider/path_provider.dart';
 import 'windows_shell_service.dart';
 import 'mac_shell_service.dart';
@@ -17,6 +18,9 @@ class ShareTargetService {
       MethodChannel('com.example.pclink/share_intent');
   static const MethodChannel _windowsChannel =
       MethodChannel('pclink/window_control');
+  // The macOS runner registers its window channel under this name.
+  static const MethodChannel _macChannel =
+      MethodChannel('com.deskpocket.pclink/window_control');
 
   static final List<String> _initialFiles = [];
   final StreamController<List<String>> _sharedFilesController =
@@ -77,7 +81,7 @@ class ShareTargetService {
       // Automatically ensure Windows SendTo shortcut and Context Menu are registered
       unawaited(WindowsShellService.registerAll());
     } else if (Platform.isMacOS) {
-      _windowsChannel.setMethodCallHandler((call) async {
+      _macChannel.setMethodCallHandler((call) async {
         if (call.method == 'onSharedFilesReceived') {
           final rawFiles = call.arguments;
           if (rawFiles is List) {
@@ -97,7 +101,48 @@ class ShareTargetService {
 
       // Automatically register macOS Finder Quick Action
       unawaited(MacShellService.registerAll());
+    } else if (Platform.isIOS) {
+      // Files opened with "Open in DeskPocket" while the app is running only
+      // show up in Documents/Inbox; pick them up whenever the app resumes.
+      AppLifecycleListener(
+        onResume: () async {
+          final files = await _takeIosInboxFiles();
+          if (files.isNotEmpty) _sharedFilesController.add(files);
+        },
+      );
     }
+  }
+
+  /// Moves files out of the iOS Documents/Inbox (where "Open in" copies them)
+  /// into a temporary folder, so each shared file is delivered exactly once.
+  Future<List<String>> _takeIosInboxFiles() async {
+    final taken = <String>[];
+    try {
+      final docsDir = await getApplicationDocumentsDirectory();
+      final inbox = Directory('${docsDir.path}/Inbox');
+      if (!await inbox.exists()) return taken;
+      final tmp = await getTemporaryDirectory();
+      final outgoing = Directory('${tmp.path}/DeskPocketShared');
+      if (!await outgoing.exists()) await outgoing.create(recursive: true);
+      await for (final entity in inbox.list()) {
+        if (entity is! File) continue;
+        final name = entity.uri.pathSegments.last;
+        var target = File('${outgoing.path}/$name');
+        var n = 1;
+        while (await target.exists()) {
+          target = File('${outgoing.path}/${n++}_$name');
+        }
+        try {
+          taken.add((await entity.rename(target.path)).path);
+        } catch (_) {
+          taken.add((await entity.copy(target.path)).path);
+          await entity.delete();
+        }
+      }
+    } catch (e) {
+      debugPrint('ShareTargetService: Error reading iOS Documents/Inbox: $e');
+    }
+    return taken;
   }
 
   /// Consumes and returns any pending files queued from process start or cold-start share intents.
@@ -121,27 +166,15 @@ class ShareTargetService {
           collected.addAll(files.map((e) => e.toString()).where((p) => p.isNotEmpty));
         }
       } else if (Platform.isWindows || Platform.isMacOS) {
+        final channel = Platform.isMacOS ? _macChannel : _windowsChannel;
         final List<dynamic>? files =
-            await _windowsChannel.invokeMethod('getPendingSharedFiles');
+            await channel.invokeMethod('getPendingSharedFiles');
         if (files != null) {
           collected.addAll(files.map((e) => e.toString()).where((p) => p.isNotEmpty));
         }
       } else if (Platform.isIOS) {
-        // Check iOS Documents/Inbox directory populated when users choose "Open in DeskPocket"
-        try {
-          final docsDir = await getApplicationDocumentsDirectory();
-          final inbox = Directory('${docsDir.path}/Inbox');
-          if (await inbox.exists()) {
-            final inboxFiles = inbox.listSync();
-            for (final entity in inboxFiles) {
-              if (entity is File && entity.existsSync()) {
-                collected.add(entity.path);
-              }
-            }
-          }
-        } catch (e) {
-          debugPrint('ShareTargetService: Error inspecting iOS Documents/Inbox: $e');
-        }
+        // Files delivered via "Open in DeskPocket" land in Documents/Inbox.
+        collected.addAll(await _takeIosInboxFiles());
       }
     } catch (e) {
       debugPrint('ShareTargetService: Error fetching pending shared files: $e');

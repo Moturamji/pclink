@@ -301,6 +301,13 @@ class ScreenShareService {
     if (!await dir.exists()) await dir.create(recursive: true);
     await _preferenceFile.writeAsString(granted ? 'enabled' : 'disabled');
     consentNotifier.value = granted;
+    if (granted && Platform.isMacOS) {
+      // macOS only captures other apps' windows after the user allows
+      // Screen Recording; show the system prompt when sharing is enabled.
+      try {
+        await _nativeChannel.invokeMethod<bool>('requestPermission');
+      } catch (_) {}
+    }
     if (!granted) {
       await _activeInstance?.stop();
     }
@@ -491,7 +498,7 @@ class ScreenShareService {
     if (!_isCapturing || kIsWeb || !isDesktopHost) return null;
 
     // 1. Try Native Windows GDI + GDI+ SIMD hardware compression
-    if (Platform.isWindows && _useNativeCapture) {
+    if ((Platform.isWindows || Platform.isMacOS) && _useNativeCapture) {
       try {
         final result = await _nativeChannel.invokeMethod<Uint8List>(
           'captureFrame',

@@ -19,7 +19,10 @@ import 'platform_helpers.dart';
 class TunnelService {
   static String get downloadUrl {
     if (!kIsWeb && Platform.isMacOS) {
-      return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz';
+      // Apple Silicon gets the native build; the Intel one only runs there
+      // if Rosetta happens to be installed.
+      final arch = Platform.version.contains('arm64') ? 'arm64' : 'amd64';
+      return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$arch.tgz';
     }
     return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
   }

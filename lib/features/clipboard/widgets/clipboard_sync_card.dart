@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../core/constants/app_colors.dart';
 import '../../../core/widgets/universal/app_card_header.dart';
@@ -251,6 +252,25 @@ class _ClipboardSyncCardState extends State<ClipboardSyncCard> {
               ],
             ),
           ),
+          if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) ...[
+            const SizedBox(height: 12),
+            // iOS can't watch the clipboard in the background, so sending is
+            // an explicit action (this also fetches the PC's latest clip).
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () async {
+                  await widget.clipboardService.triggerManualSync();
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Clipboard synced with your PC')),
+                  );
+                },
+                icon: const Icon(Icons.send_rounded, size: 18),
+                label: const Text('Send clipboard to PC'),
+              ),
+            ),
+          ],
           const SizedBox(height: 16),
 
           // Stream of clips from direct local server route

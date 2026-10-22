@@ -143,14 +143,18 @@ class ClipboardService with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addObserver(this);
 
-    // 1. Check local clipboard immediately and start local clipboard poll (400ms)
-    _checkLocalClipboard();
-    _clipboardPollTimer = Timer.periodic(
-      const Duration(milliseconds: 400),
-      (_) async {
-        await _checkLocalClipboard();
-      },
-    );
+    // 1. Check local clipboard immediately and start local clipboard poll (400ms).
+    // iOS shows an "Allow Paste" prompt on every read of another app's
+    // clipboard, so there it is read only when the user taps Send.
+    if (kIsWeb || !Platform.isIOS) {
+      _checkLocalClipboard();
+      _clipboardPollTimer = Timer.periodic(
+        const Duration(milliseconds: 400),
+        (_) async {
+          await _checkLocalClipboard();
+        },
+      );
+    }
 
     if (isWindows && _serverService != null) {
       // Windows: Server receives direct clips from Android via HTTP POST /api/clipboard
@@ -363,7 +367,10 @@ void _onForegroundDataReceived(dynamic data) {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Whenever app focus changes or resumes, check clipboard immediately
-    _checkLocalClipboard();
+    // (not on iOS: reading there prompts the user every time).
+    if (kIsWeb || !Platform.isIOS) {
+      _checkLocalClipboard();
+    }
     if (!kIsWeb && !Platform.isWindows && !Platform.isMacOS) {
       _deadUrls.clear();
       _consecutiveFailures = 0; // Reset backoff on app resume

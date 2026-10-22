@@ -68,7 +68,13 @@ class MacShellService {
 
       // Write document.wflow
       final docWflow = File('${contentsDir.path}/document.wflow');
-      final escapedExe = exePath.replaceAll('"', '\\"');
+      // `open -a <App.app>` delivers files to the already running copy
+      // (application(_:open:)); running the binary directly would start a
+      // second instance with a second server on the same port.
+      final appBundle = exePath.contains('.app/Contents/MacOS/')
+          ? exePath.substring(0, exePath.indexOf('.app/Contents/MacOS/') + 4)
+          : exePath;
+      final escapedExe = appBundle.replaceAll('"', '\\"');
       final docWflowContent = '''<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -91,7 +97,7 @@ class MacShellService {
                 <key>ActionParameters</key>
                 <dict>
                     <key>COMMAND_STRING</key>
-                    <string>&quot;$escapedExe&quot; &quot;\$@&quot;</string>
+                    <string>open -a &quot;$escapedExe&quot; &quot;\$@&quot;</string>
                     <key>inputMethod</key>
                     <integer>1</integer>
                     <key>shell</key>

@@ -368,13 +368,13 @@ class ServerService {
     try {
       final downloads = await getDownloadsDirectory();
       if (downloads != null) {
-        targetDir ??= Directory('${downloads.path}\\DeskPocket');
+        targetDir ??= Directory('${downloads.path}${Platform.pathSeparator}DeskPocket');
       }
     } catch (_) {}
 
     try {
       final docs = await getApplicationDocumentsDirectory();
-      targetDir ??= Directory('${docs.path}\\DeskPocket');
+      targetDir ??= Directory('${docs.path}${Platform.pathSeparator}DeskPocket');
     } catch (_) {}
 
     targetDir ??= Directory('.\\DeskPocket');
@@ -1042,8 +1042,8 @@ class ServerService {
         return;
       }
       final dir = await _getSharedDir();
-      final partFile = File('${dir.path}\\.part_$fileKey.tmp');
-      final metaFile = File('${dir.path}\\.part_$fileKey.meta');
+      final partFile = File('${dir.path}${Platform.pathSeparator}.part_$fileKey.tmp');
+      final metaFile = File('${dir.path}${Platform.pathSeparator}.part_$fileKey.meta');
       var currentBytes = 0;
       if (fingerprint.isNotEmpty) {
         currentBytes = await TransferFingerprint.readVerifiedOffset(
@@ -1074,8 +1074,8 @@ class ServerService {
 
     try {
       final dir = await _getSharedDir();
-      final partFile = File('${dir.path}\\.part_$fileKey.tmp');
-      final metaFile = File('${dir.path}\\.part_$fileKey.meta');
+      final partFile = File('${dir.path}${Platform.pathSeparator}.part_$fileKey.tmp');
+      final metaFile = File('${dir.path}${Platform.pathSeparator}.part_$fileKey.meta');
 
       var effectiveOffset = 0;
       if (offsetParam > 0 && await partFile.exists()) {

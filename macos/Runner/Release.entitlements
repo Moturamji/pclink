@@ -2,13 +2,24 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Not sandboxed: DeskPocket is a personal PC host (not distributed via the
+	     Mac App Store) and must reach ~/Downloads, ~/Library/LaunchAgents,
+	     ~/Library/Services, Homebrew's cloudflared and system power commands. -->
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.network.server</key>
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- Remote shutdown/restart asks System Events via osascript. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!-- Firebase Auth stores the sign-in session in the keychain. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.example.pclink</string>
+	</array>
 </dict>
 </plist>

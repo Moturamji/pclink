@@ -39,9 +39,24 @@ void main(List<String> args) async {
   }
 
   try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
+    if (!kIsWeb && (Platform.isIOS || Platform.isMacOS)) {
+      // Until `flutterfire configure` adds the Apple apps, the options lookup
+      // throws; keep starting up so the rest of the app still initializes.
+      try {
+        await Firebase.initializeApp(
+          options: DefaultFirebaseOptions.currentPlatform,
+        );
+      } catch (e) {
+        debugPrint(
+          'Firebase is not configured for this Apple platform yet '
+          '(run `flutterfire configure`): $e',
+        );
+      }
+    } else {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
 
     // Initialize Share Target Service for system share sheets (Android) and Explorer (Windows)
     await ShareTargetService().initialize();
