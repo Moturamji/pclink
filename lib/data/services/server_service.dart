@@ -33,6 +33,29 @@ class _UploadSessionState {
   });
 }
 
+/// An upload the PC already finalized, remembered so a phone that never got
+/// the final reply (dropped connection) can confirm it instead of uploading
+/// the whole file again and creating a duplicate.
+class _CompletedUpload {
+  final String transferId;
+  final String fingerprint;
+  final String sharedFileId;
+  final String fileName;
+  final int size;
+  final String crc32;
+  final DateTime completedAt;
+
+  const _CompletedUpload({
+    required this.transferId,
+    required this.fingerprint,
+    required this.sharedFileId,
+    required this.fileName,
+    required this.size,
+    required this.crc32,
+    required this.completedAt,
+  });
+}
+
 /// Manages the lightweight server on Windows and client-side handshake on Android across local and public networks.
 class ServerService {
   HttpServer? _server;
@@ -52,6 +75,22 @@ class ServerService {
   final Map<String, CancellationToken> _activeTokens = {};
   final Map<String, TransferProgress> _activeTransfers = {};
   final Map<String, _UploadSessionState> _activeUploadSessions = {};
+  final Map<String, _CompletedUpload> _completedUploads = {};
+  static const Duration _completedUploadRetention = Duration(minutes: 30);
+
+  /// The finalized upload a retry of [transferId] refers to, if the PC still
+  /// has that file. Matching on transfer id (not just name/size) means a
+  /// deliberate re-send of the same file still creates a new copy.
+  _CompletedUpload? _findCompletedUpload(String fileKey, String transferId, String fingerprint) {
+    _completedUploads.removeWhere(
+      (_, u) => DateTime.now().difference(u.completedAt) > _completedUploadRetention,
+    );
+    final record = _completedUploads[fileKey];
+    if (record == null || transferId.isEmpty || record.transferId != transferId) return null;
+    if (fingerprint.isNotEmpty && record.fingerprint != fingerprint) return null;
+    final stillShared = _sharedFiles.any((f) => f.id == record.sharedFileId);
+    return stillShared ? record : null;
+  }
   final StreamController<Map<String, TransferProgress>> _allTransfersController =
       StreamController<Map<String, TransferProgress>>.broadcast();
 
@@ -981,6 +1020,27 @@ class ServerService {
     // Support offset check endpoint
     if (request.method == 'GET' &&
         request.uri.queryParameters['checkOffset'] == 'true') {
+      final completed = _findCompletedUpload(
+        fileKey,
+        request.uri.queryParameters['transferId'] ?? '',
+        fingerprint,
+      );
+      if (completed != null) {
+        request.response.statusCode = HttpStatus.ok;
+        request.response.headers.contentType = ContentType.json;
+        request.response.write(
+          jsonEncode({
+            'offset': completed.size,
+            'totalBytes': completed.size,
+            'completed': true,
+            'id': completed.sharedFileId,
+            'crc32': completed.crc32,
+            'fileName': completed.fileName,
+          }),
+        );
+        await request.response.close();
+        return;
+      }
       final dir = await _getSharedDir();
       final partFile = File('${dir.path}\\.part_$fileKey.tmp');
       final metaFile = File('${dir.path}\\.part_$fileKey.meta');
@@ -1431,6 +1491,15 @@ class ServerService {
       if (_sharedFiles.length > 100) _sharedFiles.removeLast();
       _sharedFilesController.add(List.from(_sharedFiles));
       _activeUploadSessions.remove(fileKey);
+      _completedUploads[fileKey] = _CompletedUpload(
+        transferId: transferId,
+        fingerprint: fingerprint,
+        sharedFileId: item.id,
+        fileName: finalSavedName,
+        size: actualSize,
+        crc32: fullChecksum,
+        completedAt: DateTime.now(),
+      );
 
       request.response.statusCode = HttpStatus.ok;
       request.response.headers.contentType = ContentType.json;
