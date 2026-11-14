@@ -24,6 +24,10 @@ class DefaultFirebaseOptions {
         return android;
       case TargetPlatform.windows:
         return windows;
+      case TargetPlatform.macOS:
+        return macos;
+      case TargetPlatform.iOS:
+        return ios;
       default:
         throw UnsupportedError(
           'DefaultFirebaseOptions are not supported for this platform.',
@@ -60,5 +64,25 @@ class DefaultFirebaseOptions {
     databaseURL: 'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app',
     storageBucket: 'pclink-34bfa.firebasestorage.app',
     measurementId: 'G-4DWKJ1XW4H',
+  );
+
+  static const FirebaseOptions macos = FirebaseOptions(
+    apiKey: 'AIzaSyCTntG239jo-ZR2TCTn5pgECzy6slAzECQ',
+    appId: '1:781922287934:ios:89bd24d3351ad714e2ac6f',
+    messagingSenderId: '781922287934',
+    projectId: 'pclink-34bfa',
+    databaseURL: 'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'pclink-34bfa.firebasestorage.app',
+    iosBundleId: 'com.example.pclink',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyCTntG239jo-ZR2TCTn5pgECzy6slAzECQ',
+    appId: '1:781922287934:ios:89bd24d3351ad714e2ac6f',
+    messagingSenderId: '781922287934',
+    projectId: 'pclink-34bfa',
+    databaseURL: 'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app',
+    storageBucket: 'pclink-34bfa.firebasestorage.app',
+    iosBundleId: 'com.example.pclink',
   );
 }

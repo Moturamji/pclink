@@ -41,6 +41,12 @@ void main(List<String> args) async {
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
+    ).timeout(
+      const Duration(seconds: 4),
+      onTimeout: () {
+        debugPrint('Firebase.initializeApp timed out during startup.');
+        return Firebase.app();
+      },
     );
 
     // Initialize Share Target Service for system share sheets (Android) and Explorer (Windows)

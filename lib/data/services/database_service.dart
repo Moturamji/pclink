@@ -869,18 +869,22 @@ class DatabaseService {
         try {
           final saCandidates = <File>[
             File('firebase_service_account.json'),
+            File('pclink-34bfa-53c4ed90415c.json'),
             File('pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
             File('pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}firebase_service_account.json'),
+            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-53c4ed90415c.json'),
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
             File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             if (Platform.isWindows && Platform.environment.containsKey('APPDATA')) ...[
               File('${Platform.environment['APPDATA']}\\pclink\\firebase_service_account.json'),
+              File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-53c4ed90415c.json'),
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
               File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             ],
             if (Platform.isMacOS && Platform.environment.containsKey('HOME')) ...[
               File('${Platform.environment['HOME']}/Library/Application Support/pclink/firebase_service_account.json'),
+              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-53c4ed90415c.json'),
               File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
               File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
             ],
@@ -901,7 +905,9 @@ class DatabaseService {
                 for (final entity in dir.listSync()) {
                   if (entity is File &&
                       entity.path.endsWith('.json') &&
-                      entity.path.contains('adminsdk')) {
+                      (entity.path.contains('adminsdk') ||
+                       entity.path.contains('pclink-34bfa') ||
+                       entity.path.contains('service_account'))) {
                     saCandidates.add(entity);
                   }
                 }
