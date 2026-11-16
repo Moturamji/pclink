@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
 import '../../../../data/services/screen_share_service.dart';
+import 'screen_recording_permission.dart';
 
 /// Windows dashboard-only privacy control for live screen sharing.
 class ScreenShareStatusCard extends StatefulWidget {
@@ -19,6 +20,7 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
   StreamSubscription<ScreenShareStatus>? _subscription;
   ScreenShareStatus? _status;
   bool _allowed = false;
+  bool? _osPermission;
 
   @override
   void initState() {
@@ -26,6 +28,9 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
     _status = widget.service.status;
     _allowed = ScreenShareService.consentNotifier.value;
     ScreenShareService.consentNotifier.addListener(_onConsentChanged);
+    _osPermission = ScreenShareService.osPermissionNotifier.value;
+    ScreenShareService.osPermissionNotifier.addListener(_onOsPermissionChanged);
+    ScreenShareService.checkOsPermission();
     _subscription = widget.service.statusStream.listen((status) {
       if (mounted) setState(() => _status = status);
     });
@@ -34,6 +39,12 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
 
   void _onConsentChanged() {
     if (mounted) setState(() => _allowed = ScreenShareService.consentNotifier.value);
+  }
+
+  void _onOsPermissionChanged() {
+    if (mounted) {
+      setState(() => _osPermission = ScreenShareService.osPermissionNotifier.value);
+    }
   }
 
   Future<void> _loadConsent() async {
@@ -49,6 +60,7 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
   @override
   void dispose() {
     ScreenShareService.consentNotifier.removeListener(_onConsentChanged);
+    ScreenShareService.osPermissionNotifier.removeListener(_onOsPermissionChanged);
     _subscription?.cancel();
     super.dispose();
   }
@@ -56,7 +68,11 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
   @override
   Widget build(BuildContext context) {
     final colors = context.colors;
-    final active = _status?.enabled == true;
+    final permissionMissing = ScreenShareService.requiresOsPermission &&
+        _allowed &&
+        _osPermission == false;
+    // Connected viewers without permission get no frames: don't claim "active".
+    final active = _status?.enabled == true && !permissionMissing;
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -104,6 +120,10 @@ class _ScreenShareStatusCardState extends State<ScreenShareStatusCard> {
                 : 'Allow your linked phone to view your PC screen in real time. View-only; no touch or mouse control.',
             style: TextStyle(color: colors.textSecondary, height: 1.4),
           ),
+          if (permissionMissing) ...[
+            const SizedBox(height: 12),
+            const ScreenRecordingPermissionPanel(),
+          ],
           if (active) ...[
             const SizedBox(height: 12),
             OutlinedButton.icon(

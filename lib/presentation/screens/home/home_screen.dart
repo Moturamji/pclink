@@ -26,6 +26,8 @@ import 'desktop/desktop_dashboard_view.dart';
 import 'mobile/mobile_dashboard_view.dart';
 import 'widgets/account_deletion_dialogs.dart';
 import 'widgets/windows_permission_dialog.dart';
+import 'widgets/screen_recording_permission.dart';
+import '../../../data/services/screen_share_service.dart';
 
 /// Main dashboard orchestrator: renders dedicated, distinct UI experiences
 /// for Desktop (Windows / wide screens) and Mobile (Android / touch screens).
@@ -80,6 +82,7 @@ class _HomeScreenState extends State<HomeScreen> {
   UserDeletionStatus? _deletionStatus;
   StreamSubscription<UserDeletionStatus>? _deletionStatusSub;
   StreamSubscription<List<String>>? _shareTargetSub;
+  StreamSubscription<ScreenShareStatus>? _screenPermissionSub;
 
   @override
   void initState() {
@@ -134,6 +137,16 @@ class _HomeScreenState extends State<HomeScreen> {
       if (Platform.isWindows) {
         _checkWindowsPermissions();
       }
+      // macOS: a phone is trying to view the screen but capture is blocked by
+      // missing Screen Recording permission -> tell the user on the Mac too.
+      _ensureScreenRecordingPermissionOnStartup();
+      _screenPermissionSub = _serverService.screenShareService.statusStream
+          .listen((status) {
+        if (!mounted) return;
+        if (status.permissionMissing && status.clientCount > 0) {
+          showScreenRecordingPermissionDialog(context);
+        }
+      });
       _currentServerInfo = _serverService.currentServerInfo;
       _serverSub = _serverService.serverStateStream.listen((info) {
         if (mounted) {
@@ -281,6 +294,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// macOS: if mirroring is already enabled, ask for Screen Recording at
+  /// startup (while the user is looking at the Mac) rather than only when the
+  /// phone connects. Skipped when an IDE launched the app, because macOS would
+  /// then prompt for the IDE instead of DeskPocket.
+  Future<void> _ensureScreenRecordingPermissionOnStartup() async {
+    if (!ScreenShareService.requiresOsPermission) return;
+    if (!await ScreenShareService.isConsentGranted()) return;
+    if (await ScreenShareService.checkOsPermission()) return;
+    if (ScreenShareService.osPermissionResponsibleApp.value != null) return;
+    await ScreenShareService.requestOsPermission();
+  }
+
   void _stopMobileServices() {
     if (isDesktopHost) return;
     _fileShareService.cancelActiveTransfers();
@@ -393,6 +418,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _tunnelUrlSub?.cancel();
     _deletionStatusSub?.cancel();
     _shareTargetSub?.cancel();
+    _screenPermissionSub?.cancel();
     _tunnelService.dispose();
     _clipboardService.dispose();
     _fileShareService.dispose();

@@ -806,6 +806,7 @@ class ServerService {
       'viewOnly': true,
       if (_screenShareService.lastCaptureError != null)
         'captureError': _screenShareService.lastCaptureError,
+      'permissionRequired': state.permissionMissing,
     }));
     await request.response.close();
   }

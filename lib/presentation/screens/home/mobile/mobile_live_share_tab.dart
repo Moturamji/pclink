@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -789,10 +790,24 @@ class _LiveShareViewerState extends State<LiveShareViewer>
   Timer? _hudTimer;
   Timer? _reconnectTimer;
 
-  Uint8List? _frame;
-  Uint8List? _pendingFrame; // double-buffer: decode off main frame then swap
+
+  /// Decoded image actually on screen. Frames are decoded explicitly (instead
+  /// of `Image.memory` with new bytes every frame) because on mid-range phones
+  /// each new frame cancelled the previous, unfinished decode: nothing ever
+  /// finished, so the viewer stayed black.
+  ui.Image? _image;
+
+  /// Newest received frame not yet decoded (older ones are dropped), and
+  /// whether it came over the WebSocket (needs an ack once shown/dropped).
+  Uint8List? _queuedBytes;
+  bool _queuedNeedsAck = false;
+  bool _decoding = false;
   bool _isStreaming = false;
   bool _isConnecting = true;
+
+  /// The PC is connected but can't capture its screen because the OS
+  /// screen-recording permission (macOS) is off. Cleared on the next frame.
+  bool _hostPermissionMissing = false;
   bool _showHud = true;
   int _consecutiveNulls = 0;
   int _reconnectAttempts = 0;
@@ -800,8 +815,8 @@ class _LiveShareViewerState extends State<LiveShareViewer>
   // Real-time telemetry
   int _framesInLastSecond = 0;
   int _currentFps = 0;
+  /// Round-trip time reported by the PC: send -> decoded & shown here -> ack.
   int _currentLatencyMs = 0;
-  DateTime? _lastFrameReceivedAt;
   String _currentQuality = 'ultra'; // 'ultra' (1080p, Q85), 'high', 'fast', 'low', 'eco'
   String _adaptiveQuality = 'ultra'; // last adaptive hint from server
 
@@ -904,6 +919,22 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     _wsSubscription = socket.listen(
       (data) {
         if (data is String) {
+          if (data == 'error:screen_permission') {
+            if (mounted && !_hostPermissionMissing) {
+              setState(() {
+                _hostPermissionMissing = true;
+                _isConnecting = false;
+              });
+            }
+            return;
+          }
+          if (data.startsWith('rtt:')) {
+            final rtt = int.tryParse(data.substring(4));
+            if (rtt != null && mounted) {
+              setState(() => _currentLatencyMs = rtt);
+            }
+            return;
+          }
           // Adaptive quality hint from server
           if (data.startsWith('quality:')) {
             final q = data.substring('quality:'.length).trim();
@@ -914,36 +945,8 @@ class _LiveShareViewerState extends State<LiveShareViewer>
           return;
         }
         if (data is List<int>) {
-          final now = DateTime.now();
-          if (_lastFrameReceivedAt != null) {
-            final diff = now.difference(_lastFrameReceivedAt!).inMilliseconds;
-            if (diff > 0 && diff < 1500) {
-              _currentLatencyMs = diff;
-            }
-          }
-          _lastFrameReceivedAt = now;
-          _framesInLastSecond++;
-
           final bytes = data is Uint8List ? data : Uint8List.fromList(data);
-          // Double-buffer to avoid jank: hold frame then swap on next vsync
-          _pendingFrame = bytes;
-          if (mounted) {
-            // Swap buffers inside setState so Image.memory gets new bytes with gaplessPlayback
-            setState(() {
-              _frame = _pendingFrame;
-              _isStreaming = true;
-              _isConnecting = false;
-              _consecutiveNulls = 0;
-            });
-            _framesInLastSecond++;
-          } else {
-            _framesInLastSecond++;
-          }
-
-          // ACK immediately after swap — low-latency backpressure (no await)
-          try {
-            socket.add('ack');
-          } catch (_) {}
+          _enqueueFrame(bytes, viaSocket: true);
         }
       },
       onError: (e) {
@@ -959,6 +962,63 @@ class _LiveShareViewerState extends State<LiveShareViewer>
       },
       cancelOnError: true,
     );
+  }
+
+  void _sendAck() {
+    try {
+      _socket?.add('ack');
+    } catch (_) {}
+  }
+
+  /// Keeps only the newest undecoded frame. A frame replaced before it was
+  /// decoded is acked right away so the PC's in-flight window doesn't leak.
+  void _enqueueFrame(Uint8List bytes, {required bool viaSocket}) {
+    if (_queuedBytes != null && _queuedNeedsAck) {
+      _sendAck(); // dropped as stale
+    }
+    _queuedBytes = bytes;
+    _queuedNeedsAck = viaSocket;
+    if (!_decoding) _decodeQueuedFrames();
+  }
+
+  /// Decodes the newest frame, shows it, then acks it. Acking only after the
+  /// frame is on screen means the PC never sends faster than this phone can
+  /// display, so the picture stays real-time instead of falling behind.
+  Future<void> _decodeQueuedFrames() async {
+    _decoding = true;
+    try {
+      while (mounted && _queuedBytes != null) {
+        final bytes = _queuedBytes!;
+        final needsAck = _queuedNeedsAck;
+        _queuedBytes = null;
+        _queuedNeedsAck = false;
+        try {
+          final codec = await ui.instantiateImageCodec(bytes);
+          final frameInfo = await codec.getNextFrame();
+          codec.dispose();
+          if (!mounted) {
+            frameInfo.image.dispose();
+            break;
+          }
+          final previous = _image;
+          setState(() {
+            _image = frameInfo.image;
+            _isStreaming = true;
+            _isConnecting = false;
+            _hostPermissionMissing = false;
+            _consecutiveNulls = 0;
+          });
+          // Dispose after the new image is on screen.
+          WidgetsBinding.instance.addPostFrameCallback((_) => previous?.dispose());
+          _framesInLastSecond++; // counted once, only for frames shown
+        } catch (e) {
+          debugPrint('LiveShareViewer: frame decode failed: $e');
+        }
+        if (needsAck) _sendAck();
+      }
+    } finally {
+      _decoding = false;
+    }
   }
 
   void _startRapidPolling() {
@@ -979,13 +1039,8 @@ class _LiveShareViewerState extends State<LiveShareViewer>
       final frame = await widget.fileShareService.getScreenShareFrame();
       if (mounted) {
         if (frame != null) {
-          _framesInLastSecond++;
-          setState(() {
-            _frame = frame;
-            _isStreaming = true;
-            _isConnecting = false;
-            _consecutiveNulls = 0;
-          });
+          _consecutiveNulls = 0;
+          _enqueueFrame(frame, viaSocket: false);
         } else {
           _consecutiveNulls++;
           if (_consecutiveNulls > 10) {
@@ -1151,6 +1206,8 @@ class _LiveShareViewerState extends State<LiveShareViewer>
     _fpsTimer?.cancel();
     _fallbackPollTimer?.cancel();
     _hudTimer?.cancel();
+    _image?.dispose();
+    _image = null;
     _reconnectTimer?.cancel();
     _wsSubscription?.cancel();
     try {
@@ -1179,7 +1236,9 @@ class _LiveShareViewerState extends State<LiveShareViewer>
           GestureDetector(
             onTap: _toggleHud,
             behavior: HitTestBehavior.opaque,
-            child: _frame != null
+            child: _image == null && _hostPermissionMissing
+                ? const _HostPermissionMissingView()
+                : _image != null
                 ? InteractiveViewer(
                     transformationController: _transformController,
                     minScale: 1.0,
@@ -1187,18 +1246,10 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                     panAxis: PanAxis.free,
                     clipBehavior: Clip.none,
                     child: Center(
-                      child: Image.memory(
-                        _frame!,
-                        gaplessPlayback: true,
-                        filterQuality: FilterQuality.low,
-                        isAntiAlias: false,
+                      child: RawImage(
+                        image: _image,
                         fit: BoxFit.contain,
-                        errorBuilder: (context, error, stackTrace) {
-                          return const Center(
-                            child: Icon(Icons.broken_image_rounded,
-                                color: Colors.white38, size: 48),
-                          );
-                        },
+                        filterQuality: FilterQuality.medium,
                       ),
                     ),
                   )
@@ -1326,7 +1377,10 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              '$_currentFps FPS',
+                              // Frames actually shown in the last second. A
+                              // still PC screen sends ~1 refresh/s, so show
+                              // that as "Static" rather than a low FPS.
+                              _currentFps <= 1 ? 'Static' : '$_currentFps FPS',
                               style: const TextStyle(
                                 color: AppColors.success,
                                 fontSize: 11,
@@ -1345,7 +1399,7 @@ class _LiveShareViewerState extends State<LiveShareViewer>
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                '${_currentLatencyMs}ms',
+                                'RTT ${_currentLatencyMs}ms',
                                 style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 11,
@@ -1588,3 +1642,43 @@ class _LiveShareViewerState extends State<LiveShareViewer>
   }
 }
 
+
+
+/// Shown instead of the "Connecting…" spinner when the PC reports it cannot
+/// capture its screen because Screen Recording permission is off (macOS).
+class _HostPermissionMissingView extends StatelessWidget {
+  const _HostPermissionMissingView();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline_rounded, color: AppColors.warning, size: 44),
+            SizedBox(height: 16),
+            Text(
+              'Screen Recording permission needed on your Mac',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 10),
+            Text(
+              'On your Mac, open DeskPocket and click "Open System Settings", '
+              'turn on DeskPocket under Privacy & Security > Screen Recording, '
+              'then restart DeskPocket. The stream starts automatically.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

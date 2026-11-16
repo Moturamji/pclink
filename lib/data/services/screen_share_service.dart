@@ -157,9 +157,22 @@ class _ScreenShareWsClient {
   final String viewerName;
   ScreenShareQualityPreset quality;
   ScreenShareQualityPreset requestedQuality; // user-selected upper bound
-  bool isReady = true;
+  /// Frames sent but not yet acknowledged. The phone acks a frame only once
+  /// it has been decoded and shown (or dropped as stale), so this is real
+  /// end-to-end backpressure.
+  final List<DateTime> inFlightSentAt = [];
   DateTime lastSentAt = DateTime.now();
   DateTime connectedAt = DateTime.now();
+
+  /// Capture sequence of the last frame sent (macOS only; null on Windows).
+  /// Lets the loop skip re-sending an unchanged screen.
+  int? lastSentSeq;
+  DateTime lastRttReportAt = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Max unacknowledged frames. 1 would cap FPS at 1/RTT on a slow tunnel;
+  /// unlimited (the old 160 ms timeout) let frames queue up so the picture
+  /// lagged seconds behind. 2 keeps both throughput and freshness.
+  static const int maxInFlight = 2;
 
   // Adaptive streaming signals
   int consecutiveSlowAcks = 0;
@@ -174,11 +187,16 @@ class _ScreenShareWsClient {
     required this.quality,
   }) : requestedQuality = quality;
 
-  /// True if client sent 'ack' OR if ACK timed out (> 160ms) to prevent 0 FPS freezes.
-  /// Timeout slightly relaxed to 160ms to avoid busy-spin under packet loss.
+  /// Ready when fewer than [maxInFlight] frames are unacknowledged. If the
+  /// oldest has waited > 1.5 s the acks are presumed lost and the window resets
+  /// (prevents a permanent 0 FPS stall).
   bool get isReadyOrTimedOut {
-    if (isReady) return true;
-    return DateTime.now().difference(lastSentAt).inMilliseconds > 160;
+    if (inFlightSentAt.length < maxInFlight) return true;
+    if (DateTime.now().difference(inFlightSentAt.first).inMilliseconds > 1500) {
+      inFlightSentAt.clear();
+      return true;
+    }
+    return false;
   }
 
   bool get canAdaptNow =>
@@ -196,6 +214,76 @@ class ScreenShareService {
   static ScreenShareService? _activeInstance;
   static final ValueNotifier<bool> consentNotifier = ValueNotifier<bool>(false);
 
+  /// OS-level screen capture permission (macOS Screen Recording).
+  /// `null` = not checked yet / not applicable (Windows needs no permission),
+  /// `true` = granted, `false` = missing. Drives the permission banner/dialog.
+  static final ValueNotifier<bool?> osPermissionNotifier =
+      ValueNotifier<bool?>(null);
+
+  /// Name of the app macOS holds responsible for DeskPocket's permissions when
+  /// it is not DeskPocket itself (e.g. "Antigravity IDE" or "Visual Studio
+  /// Code" when started via `flutter run` from an IDE). `null` = DeskPocket.
+  static final ValueNotifier<String?> osPermissionResponsibleApp =
+      ValueNotifier<String?>(null);
+
+  /// Text message sent to viewers when frames cannot be captured because the
+  /// host is missing OS screen-recording permission.
+  static const String permissionErrorMessage = 'error:screen_permission';
+
+  /// True on hosts where screen capture needs an OS permission (macOS).
+  static bool get requiresOsPermission => !kIsWeb && Platform.isMacOS;
+
+  /// Checks the OS screen-recording permission without prompting.
+  static Future<bool> checkOsPermission() async {
+    if (!requiresOsPermission) return true;
+    try {
+      final info = await _nativeChannel
+          .invokeMapMethod<String, dynamic>('permissionInfo');
+      final granted = info?['granted'] == true;
+      final isSelf = info?['responsibleIsSelf'] != false;
+      osPermissionResponsibleApp.value =
+          isSelf ? null : (info?['responsibleApp'] as String? ?? 'another app');
+      osPermissionNotifier.value = granted;
+      return granted;
+    } catch (_) {
+      return osPermissionNotifier.value ?? true;
+    }
+  }
+
+  /// Shows the macOS Screen Recording prompt (macOS only shows it once per
+  /// app; after a denial use [openOsPermissionSettings]).
+  static Future<bool> requestOsPermission() async {
+    if (!requiresOsPermission) return true;
+    try {
+      final granted =
+          await _nativeChannel.invokeMethod<bool>('requestPermission') ?? false;
+      osPermissionNotifier.value = granted;
+      return granted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Opens System Settings > Privacy & Security > Screen Recording.
+  static Future<bool> openOsPermissionSettings() async {
+    if (!requiresOsPermission) return false;
+    try {
+      return await _nativeChannel.invokeMethod<bool>('openPermissionSettings') ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Relaunches the app; macOS applies a new Screen Recording grant only to a
+  /// freshly started process.
+  static Future<void> relaunchApp() async {
+    if (!requiresOsPermission) return;
+    try {
+      await _nativeChannel.invokeMethod<bool>('relaunchApp');
+    } catch (_) {}
+  }
+
   final List<_ScreenShareWsClient> _wsClients = [];
   Timer? _fallbackPollTimer;
   Uint8List? _latestFrame;
@@ -205,6 +293,11 @@ class ScreenShareService {
   bool _loopRunning = false;
   bool _useNativeCapture = true;
   DateTime? _lastPermissionWarningAt;
+  DateTime? _lastPermissionNoticeSentAt;
+
+  /// Sequence number of the last captured frame (macOS). Unchanged sequence =
+  /// unchanged screen content.
+  int? _lastCaptureSeq;
 
   /// Last capture error that the viewer should know about (e.g. macOS Screen
   /// Recording permission missing). Null when frames are flowing.
@@ -226,6 +319,7 @@ class ScreenShareService {
         viewerName: _viewerName,
         lastFrameAt: _lastFrameAt,
         clientCount: _wsClients.length,
+        permissionMissing: osPermissionNotifier.value == false,
       );
 
   static String get _appDataDir {
@@ -282,6 +376,10 @@ class ScreenShareService {
     consentNotifier.value = granted;
     if (!granted) {
       await _activeInstance?.stop();
+    } else if (requiresOsPermission && !await checkOsPermission()) {
+      // Ask for Screen Recording right when the user turns sharing on, while
+      // they are looking at the Mac, instead of when the phone first connects.
+      await requestOsPermission();
     }
   }
 
@@ -309,9 +407,19 @@ class ScreenShareService {
       (message) {
         if (message is String) {
           if (message == 'ack') {
-            final rtt = DateTime.now().difference(client.lastSentAt).inMilliseconds;
+            final now = DateTime.now();
+            final sentAt = client.inFlightSentAt.isNotEmpty
+                ? client.inFlightSentAt.removeAt(0)
+                : client.lastSentAt;
+            // Round trip: send -> phone decodes & shows -> ack received.
+            final rtt = now.difference(sentAt).inMilliseconds;
             client.lastRttMs = rtt;
-            client.isReady = true;
+            if (now.difference(client.lastRttReportAt).inMilliseconds >= 1000) {
+              client.lastRttReportAt = now;
+              try {
+                socket.add('rtt:$rtt');
+              } catch (_) {}
+            }
             // Adaptive quality: sustained high RTT -> downgrade; sustained low RTT -> upgrade.
             // Slow threshold 220ms (~2x frame interval), fast threshold 60ms.
             if (rtt > 220) {
@@ -433,6 +541,13 @@ class ScreenShareService {
     _latestFrame = null;
     _lastFrameAt = null;
     _publishStatus();
+    _stopNativeCapture();
+  }
+
+  /// macOS: stop ScreenCaptureKit right away (it also auto-stops when idle).
+  void _stopNativeCapture() {
+    if (!requiresOsPermission) return;
+    _nativeChannel.invokeMethod<bool>('stopCapture').catchError((_) => false);
   }
 
   Uint8List? takeLatestFrame() => _latestFrame;
@@ -479,12 +594,24 @@ class ScreenShareService {
     //    macOS CoreGraphics + ImageIO (MainFlutterWindow.swift).
     if ((Platform.isWindows || Platform.isMacOS) && _useNativeCapture) {
       try {
-        final result = await _nativeChannel.invokeMethod<Uint8List>(
+        final raw = await _nativeChannel.invokeMethod<Object>(
           'captureFrame',
           <String, dynamic>{'maxWidth': maxWidth, 'quality': quality},
         );
+        Uint8List? result;
+        if (raw is Uint8List) {
+          result = raw; // Windows
+          _lastCaptureSeq = null;
+        } else if (raw is Map) {
+          result = raw['jpeg'] as Uint8List?; // macOS: {jpeg, seq}
+          _lastCaptureSeq = (raw['seq'] as num?)?.toInt();
+        }
         if (result != null && result.isNotEmpty) {
           lastCaptureError = null;
+          if (requiresOsPermission && osPermissionNotifier.value != true) {
+            osPermissionNotifier.value = true;
+            _publishStatus();
+          }
           return result;
         }
       } on PlatformException catch (e) {
@@ -493,6 +620,16 @@ class ScreenShareService {
           // would only capture the wallpaper, so don't fall back: keep
           // retrying natively so streaming starts once access is granted.
           lastCaptureError = e.message;
+          final details = e.details;
+          if (details is Map && details['responsibleIsSelf'] == false) {
+            osPermissionResponsibleApp.value =
+                details['responsibleApp'] as String? ?? 'another app';
+          }
+          if (osPermissionNotifier.value != false) {
+            osPermissionNotifier.value = false;
+            _publishStatus();
+          }
+          _notifyViewersPermissionMissing();
           final now = DateTime.now();
           if (_lastPermissionWarningAt == null ||
               now.difference(_lastPermissionWarningAt!).inSeconds > 10) {
@@ -502,9 +639,24 @@ class ScreenShareService {
           await Future.delayed(const Duration(milliseconds: 500));
           return null;
         }
+        if (Platform.isMacOS && e.code == 'NO_FRAME') {
+          // ScreenCaptureKit is starting up; first frame arrives shortly.
+          await Future.delayed(const Duration(milliseconds: 30));
+          return null;
+        }
         if (Platform.isMacOS && e.code == 'CAPTURE_FAILED') {
-          // Transient (e.g. display asleep / switching). Try again next frame.
+          // Transient (e.g. display asleep / switching). Try again shortly.
           debugPrint('ScreenShareService: native capture failed: ${e.message}');
+          await Future.delayed(const Duration(milliseconds: 250));
+          return null;
+        }
+        if (Platform.isMacOS) {
+          // Never fall back to flutter_screen_capture on macOS: it uses the
+          // obsolete full-resolution CGWindowListCreateImage path (~5 fps on a
+          // Retina iMac) and silently returns only the wallpaper and this
+          // app's own window when permission is missing.
+          debugPrint('ScreenShareService: native capture error: $e');
+          await Future.delayed(const Duration(milliseconds: 250));
           return null;
         }
         debugPrint(
@@ -543,13 +695,30 @@ class ScreenShareService {
     }
   }
 
+  bool _fallbackCaptureInFlight = false;
+
+  /// Feeds the HTTP polling endpoint (/frame) for phones without WebSocket.
+  ///
+  /// Previously this ran every 100 ms with no in-flight guard and kept running
+  /// after the phone switched to the WebSocket stream. Fast on Windows GDI
+  /// (~6 ms), but on macOS each capture took ~170 ms, so calls piled up behind
+  /// each other and competed with the WebSocket loop: frames stalled to 0 fps
+  /// and arrived in bursts of 2-4 fps.
   Future<void> _captureFallbackFrame() async {
     if (!_isCapturing || kIsWeb || !isDesktopHost) return;
-    final frame = await _captureFrame(maxWidth: 1920, quality: 85);
-    if (frame != null && _isCapturing) {
-      _latestFrame = frame;
-      _lastFrameAt = DateTime.now();
-      _publishStatus();
+    // The WebSocket loop already refreshes _latestFrame for /frame.
+    if (_wsClients.isNotEmpty) return;
+    if (_fallbackCaptureInFlight) return;
+    _fallbackCaptureInFlight = true;
+    try {
+      final frame = await _captureFrame(maxWidth: 1920, quality: 85);
+      if (frame != null && _isCapturing) {
+        _latestFrame = frame;
+        _lastFrameAt = DateTime.now();
+        _publishStatus();
+      }
+    } finally {
+      _fallbackCaptureInFlight = false;
     }
   }
 
@@ -587,10 +756,20 @@ class ScreenShareService {
           _lastFrameAt = DateTime.now();
 
           final now = DateTime.now();
+          final seq = _lastCaptureSeq;
           for (final client in readyClients) {
+            // Unchanged screen (macOS): don't resend the identical ~200 KB
+            // frame every 33 ms - that flooded the link and delayed real
+            // updates. Send a refresh once per second instead.
+            if (seq != null &&
+                seq == client.lastSentSeq &&
+                now.difference(client.lastSentAt).inMilliseconds < 1000) {
+              continue;
+            }
             try {
-              client.isReady = false; // Mark awaiting ACK from mobile
+              client.inFlightSentAt.add(now);
               client.lastSentAt = now;
+              client.lastSentSeq = seq;
               client.socket.add(encoded);
             } catch (e) {
               _removeClient(client);
@@ -617,6 +796,22 @@ class ScreenShareService {
     _loopRunning = false;
   }
 
+  /// Tells connected phones why no frames arrive, so they can show a
+  /// permission message instead of spinning on "Connecting" forever.
+  void _notifyViewersPermissionMissing() {
+    final now = DateTime.now();
+    if (_lastPermissionNoticeSentAt != null &&
+        now.difference(_lastPermissionNoticeSentAt!).inSeconds < 2) {
+      return;
+    }
+    _lastPermissionNoticeSentAt = now;
+    for (final client in List<_ScreenShareWsClient>.from(_wsClients)) {
+      try {
+        client.socket.add(permissionErrorMessage);
+      } catch (_) {}
+    }
+  }
+
   void _publishStatus() {
     if (!_statusController.isClosed) _statusController.add(status);
   }
@@ -634,6 +829,10 @@ class ScreenShareStatus {
   final DateTime? lastFrameAt;
   final int clientCount;
 
+  /// The host is connected to a viewer but cannot capture frames because the
+  /// OS screen-recording permission is missing (macOS).
+  final bool permissionMissing;
+
   // Backward compatibility getter for existing UI referencing .enabled
   bool get enabled => isStreaming;
 
@@ -643,5 +842,6 @@ class ScreenShareStatus {
     required this.viewerName,
     required this.lastFrameAt,
     this.clientCount = 0,
+    this.permissionMissing = false,
   });
 }
