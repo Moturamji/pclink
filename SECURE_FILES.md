@@ -12,8 +12,9 @@ This document lists all sensitive credential files used by PCLink for authentica
 
 | File Name | Relative Location | Absolute Default Location | Description & Contents |
 | :--- | :--- | :--- | :--- |
-| **`pclink-34bfa-firebase-adminsdk-fbsvc-*.json`** | `./` (Root) | `%APPDATA%\pclink\` & `./` | Google Cloud IAM Service Account private key (`type: service_account`, `project_id: pclink-34bfa`). Kept locally on Windows only and never committed. |
-| **`firebase_service_account.json`** | `./` (Root) & `%APPDATA%\pclink\` | `.\firebase_service_account.json`<br>`%APPDATA%\pclink\firebase_service_account.json` | Standard copy of the Firebase Service Account JSON. Auto-detected by `DatabaseService` at runtime on Windows. |
+| **`firebase-admin-sdk.json`** | `./` (Root) & `%APPDATA%\pclink\` | `.\firebase-admin-sdk.json`<br>`%APPDATA%\pclink\firebase-admin-sdk.json` | Firebase Admin SDK service account key. Primary candidate detected by `DatabaseService` at runtime. |
+| **`firebase_service_account.json`** | `./` (Root) & `%APPDATA%\pclink\` | `.\firebase_service_account.json`<br>`%APPDATA%\pclink\firebase_service_account.json` | Standard copy of the Firebase Service Account JSON. Auto-detected by `DatabaseService` at runtime on Windows and macOS. |
+| **`pclink-34bfa-firebase-adminsdk-fbsvc-*.json`** | `./` (Root) | `%APPDATA%\pclink\` & `./` | Google Cloud IAM Service Account private key (`type: service_account`, `project_id: pclink-34bfa`). Kept locally only and never committed. |
 | **`fcm_server_key.txt`** | `./` (Root) & `%APPDATA%\pclink\` | `.\fcm_server_key.txt`<br>`%APPDATA%\pclink\fcm_server_key.txt` | Cloud messaging key string. Kept locally in `%APPDATA%\pclink\` or project root for the desktop app to dispatch push alerts. Never committed to Git. |
 | **`google-services.json`** | `android/app/` | `android\app\google-services.json` | Android Firebase client configuration file containing project number, mobile SDK app ID, and API keys. |
 | **`firebase_options.dart`** | `lib/` | `lib\firebase_options.dart` | FlutterFire generated configuration containing client API keys, project ID, Realtime Database URL, and Storage bucket URLs. |
@@ -40,11 +41,10 @@ To configure locally on Windows without exposing credentials:
 
 ## App Runtime Discovery
 
-On Windows, `DatabaseService.sendDirectFcmPush` automatically checks for service account credentials in the following order:
-1. `./firebase_service_account.json` (Working directory)
-2. `./pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json` (Working directory)
-3. `<AppExecutableDir>\firebase_service_account.json`
-4. `<AppExecutableDir>\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json`
-5. `%APPDATA%\pclink\firebase_service_account.json`
-6. `%APPDATA%\pclink\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json`
-7. Any `*adminsdk*.json` file discovered in the current directory, executable directory, or `%APPDATA%\pclink\`
+On Windows and macOS, `DatabaseService.sendDirectFcmPush` automatically checks for service account credentials in the following order:
+1. `./firebase-admin-sdk.json` (Working directory)
+2. `./firebase_service_account.json` (Working directory)
+3. Candidate specific files such as `pclink-34bfa-*.json`
+4. App executable directories (`<AppExecutableDir>\firebase-admin-sdk.json`, `<AppExecutableDir>\firebase_service_account.json`)
+5. System application support folders (`%APPDATA%\pclink\` on Windows, `~/Library/Application Support/pclink/` on macOS)
+6. Any `*adminsdk*.json` or `*admin-sdk*.json` file discovered in the current directory or app support paths

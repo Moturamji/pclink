@@ -77,7 +77,7 @@ class _SplashScreenState extends State<SplashScreen>
     final user = _authService.currentUser;
     if (user != null) {
       final isDesktop = isDesktopHost;
-      final currentPlatformKey = platformKey;
+      final currentPlatformKey = sessionSlotKey;
       try {
         final details = await _deviceService.getDeviceDetails();
         final isValid = await _sessionService.isSessionValid(

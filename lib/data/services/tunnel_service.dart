@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -19,7 +20,10 @@ import 'platform_helpers.dart';
 class TunnelService {
   static String get downloadUrl {
     if (!kIsWeb && Platform.isMacOS) {
-      return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-amd64.tgz';
+      // Native build per CPU: the amd64 binary only runs on Apple Silicon
+      // when Rosetta 2 happens to be installed.
+      final arch = Abi.current() == Abi.macosArm64 ? 'arm64' : 'amd64';
+      return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-$arch.tgz';
     }
     return 'https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe';
   }
@@ -72,6 +76,8 @@ class TunnelService {
       _starting = false;
       return null;
     }
+
+    await _killStaleRelays();
 
     try {
       debugPrint(
@@ -128,6 +134,19 @@ class TunnelService {
   // ---------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------
+
+  /// On macOS the relay child process outlives the app when it is killed or a
+  /// debug session is stopped. Stale relays keep publishing dead tunnel URLs
+  /// and pile up across restarts, so terminate any left over for this port.
+  Future<void> _killStaleRelays() async {
+    if (kIsWeb || !Platform.isMacOS || _binaryPath == null) return;
+    try {
+      await Process.run('/usr/bin/pkill', [
+        '-f',
+        '$_binaryPath tunnel --url http://127.0.0.1:$_targetPort',
+      ]).timeout(const Duration(seconds: 2));
+    } catch (_) {}
+  }
 
   Future<String?> _waitForFirstUrl(Duration timeout) async {
     final deadline = DateTime.now().add(timeout);

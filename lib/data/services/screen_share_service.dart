@@ -31,10 +31,20 @@ class _FrameEncodeTask {
 /// Standalone top-level worker for background isolate processing fallback.
 /// Uses BGRA pixel channel ordering on Windows/macOS to ensure 100% color accuracy.
 Uint8List _encodeFrameWorker(_FrameEncodeTask task) {
+  final bpp = task.bytesPerPixel > 0 ? task.bytesPerPixel : 4;
+  // CoreGraphics pads each row (bytesPerRow > width * bpp). Derive the real
+  // stride from the buffer size, otherwise rows are skewed or fromBytes throws.
+  final packedStride = task.width * bpp;
+  final derivedStride =
+      task.height > 0 ? task.buffer.lengthInBytes ~/ task.height : packedStride;
+  final rowStride = derivedStride >= packedStride ? derivedStride : packedStride;
   final img = image.Image.fromBytes(
     width: task.width,
     height: task.height,
     bytes: task.buffer.buffer,
+    bytesOffset: task.buffer.offsetInBytes,
+    rowStride: rowStride,
+    numChannels: bpp,
     order: task.isBgra ? image.ChannelOrder.bgra : image.ChannelOrder.rgba,
   );
 
@@ -194,6 +204,11 @@ class ScreenShareService {
   bool _isCapturing = false;
   bool _loopRunning = false;
   bool _useNativeCapture = true;
+  DateTime? _lastPermissionWarningAt;
+
+  /// Last capture error that the viewer should know about (e.g. macOS Screen
+  /// Recording permission missing). Null when frames are flowing.
+  String? lastCaptureError;
 
   final StreamController<ScreenShareStatus> _statusController =
       StreamController<ScreenShareStatus>.broadcast();
@@ -214,6 +229,7 @@ class ScreenShareService {
       );
 
   static String get _appDataDir {
+    if (isFlutterTest) return testSandboxDir.path;
     if (!kIsWeb && Platform.isWindows) {
       final appData = Platform.environment['APPDATA'];
       return appData == null || appData.isEmpty ? '.' : '$appData\\pclink';
@@ -459,16 +475,45 @@ class ScreenShareService {
   }) async {
     if (!_isCapturing || kIsWeb || !isDesktopHost) return null;
 
-    // 1. Try Native Windows GDI + GDI+ SIMD hardware compression
-    if (Platform.isWindows && _useNativeCapture) {
+    // 1. Native capture: Windows GDI + GDI+ (native_screen_share.cpp) or
+    //    macOS CoreGraphics + ImageIO (MainFlutterWindow.swift).
+    if ((Platform.isWindows || Platform.isMacOS) && _useNativeCapture) {
       try {
         final result = await _nativeChannel.invokeMethod<Uint8List>(
           'captureFrame',
           <String, dynamic>{'maxWidth': maxWidth, 'quality': quality},
         );
         if (result != null && result.isNotEmpty) {
+          lastCaptureError = null;
           return result;
         }
+      } on PlatformException catch (e) {
+        if (e.code == 'PERMISSION_DENIED') {
+          // macOS Screen Recording permission missing. The plugin fallback
+          // would only capture the wallpaper, so don't fall back: keep
+          // retrying natively so streaming starts once access is granted.
+          lastCaptureError = e.message;
+          final now = DateTime.now();
+          if (_lastPermissionWarningAt == null ||
+              now.difference(_lastPermissionWarningAt!).inSeconds > 10) {
+            _lastPermissionWarningAt = now;
+            debugPrint('ScreenShareService: ${e.message}');
+          }
+          await Future.delayed(const Duration(milliseconds: 500));
+          return null;
+        }
+        if (Platform.isMacOS && e.code == 'CAPTURE_FAILED') {
+          // Transient (e.g. display asleep / switching). Try again next frame.
+          debugPrint('ScreenShareService: native capture failed: ${e.message}');
+          return null;
+        }
+        debugPrint(
+            'ScreenShareService: Native capture unavailable, falling back to isolate: $e');
+        _useNativeCapture = false;
+      } on MissingPluginException catch (e) {
+        debugPrint(
+            'ScreenShareService: Native capture unavailable, falling back to isolate: $e');
+        _useNativeCapture = false;
       } catch (e) {
         debugPrint(
             'ScreenShareService: Native capture unavailable, falling back to isolate: $e');

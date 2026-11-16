@@ -5,8 +5,21 @@ import 'package:googleapis_auth/auth_io.dart';
 
 void main() {
   test('Verify Firebase service account credentials against Google IAM', () async {
-    final file = File('firebase_service_account.json');
-    if (!file.existsSync()) {
+    File? file;
+    for (final candidate in [
+      'firebase-admin-sdk.json',
+      'firebase_service_account.json',
+      'pclink-34bfa-53c4ed90415c.json',
+      'pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json',
+      'pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json',
+    ]) {
+      final f = File(candidate);
+      if (f.existsSync()) {
+        file = f;
+        break;
+      }
+    }
+    if (file == null || !file.existsSync()) {
       // Allow running in environments where local credentials are not deployed
       return;
     }

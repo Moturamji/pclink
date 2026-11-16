@@ -159,7 +159,9 @@ class LinkedDevicesCard extends StatelessWidget {
             border: Border.all(color: avatarColor.withValues(alpha: 0.25)),
           ),
           child: Icon(
-            isWindows ? Icons.laptop_windows_rounded : Icons.phone_android_rounded,
+            isWindows
+                ? (device.isMac ? Icons.laptop_mac_rounded : Icons.laptop_windows_rounded)
+                : Icons.phone_android_rounded,
             size: 20,
             color: avatarColor,
           ),

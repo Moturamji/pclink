@@ -53,7 +53,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
     if (!server.isFreshlyLive()) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Windows PC is currently offline or not responding. Please start Link Service on PC.'),
+          content: Text('Your PC is currently offline or not responding. Please start Link Service on your PC.'),
           backgroundColor: AppColors.error,
         ),
       );
@@ -371,7 +371,11 @@ class _ServerControlCardState extends State<ServerControlCard> {
         if (server != null) {
           _lastKnownServer = server;
         }
-        final isLive = server != null && server.isFreshlyLive();
+        // watchUserServer() already applied the heartbeat freshness check
+        // against Firebase's server clock. Re-checking against the phone's
+        // own clock here marked the PC offline whenever the phone's clock
+        // was more than 20s off.
+        final isLive = server != null && server.isLive;
         final isClientMatch = server?.connectedClientId != null &&
             server!.connectedClientId!.isNotEmpty &&
             widget.localDeviceId != null &&
@@ -426,7 +430,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                 title: 'WINDOWS PC LINK',
                 subtitle: isConnected
                     ? 'Securely syncing with your PC'
-                    : (isLive ? 'Your Windows PC is online' : 'Windows PC is currently offline'),
+                    : (isLive ? 'Your PC is online' : 'Your PC is currently offline'),
                 trailing: StatusBadge(
                   label: isConnected ? 'CONNECTED' : (isLive ? 'LIVE' : 'STANDBY'),
                   isActive: isConnected || isLive,
@@ -546,20 +550,26 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.wifi_tethering_rounded, color: AppColors.successLight, size: 18),
-                              const SizedBox(width: 8),
-                              Text(
-                                'PC Link is Ready',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                  color: colors.textPrimary,
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(Icons.wifi_tethering_rounded, color: AppColors.successLight, size: 18),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    'PC Link is Ready',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 14,
+                                      color: colors.textPrimary,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
+                          const SizedBox(width: 8),
                           const StatusBadge(
                             label: 'Encrypted',
                             isActive: true,
@@ -569,7 +579,7 @@ class _ServerControlCardState extends State<ServerControlCard> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Your Windows PC is active and ready for secure synchronization across any network (Wi-Fi, 4G, 5G).',
+                        'Your PC is active and ready for secure synchronization across any network (Wi-Fi, 4G, 5G).',
                         style: TextStyle(
                           fontSize: 12,
                           height: 1.4,

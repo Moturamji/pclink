@@ -203,8 +203,17 @@ class SessionService {
         );
         return true;
       }
-      // Belongs to a different device on this platform
-      return false;
+      // The slot belongs to a different device, but THIS device is the one
+      // the user is actively signed in on (Firebase auth is still valid and
+      // there is no local record of being evicted). The current device wins:
+      // claim the slot so the *other* device is the one that gets logged out.
+      await registerNewSession(
+        user: user,
+        platformKey: platformKey,
+        deviceId: deviceId,
+        databaseService: dbService,
+      );
+      return true;
     }
 
     // Both local and remote session IDs exist

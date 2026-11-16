@@ -15,8 +15,10 @@ class DatabaseService {
   static const String _dbBaseUrl =
       'https://pclink-34bfa-default-rtdb.asia-southeast1.firebasedatabase.app';
 
-  static String fcmServerKey =
-      const String.fromEnvironment('FCM_SERVER_KEY', defaultValue: '');
+  static String fcmServerKey = const String.fromEnvironment(
+    'FCM_SERVER_KEY',
+    defaultValue: '',
+  );
 
   final http.Client _client;
 
@@ -64,11 +66,14 @@ class DatabaseService {
             'lastActive': nowIso,
           }),
         );
-        debugPrint('DatabaseService: Created user profile with status ${putResp.statusCode}');
+        debugPrint(
+          'DatabaseService: Created user profile with status ${putResp.statusCode}',
+        );
       } else if (userResponse.statusCode == 200) {
         // Update lastActive
-        final lastActiveUri =
-            Uri.parse('$_dbBaseUrl/users/${user.uid}/lastActive.json$authQuery');
+        final lastActiveUri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/lastActive.json$authQuery',
+        );
         await _client.put(
           lastActiveUri,
           headers: {'Content-Type': 'application/json'},
@@ -76,13 +81,15 @@ class DatabaseService {
         );
       } else {
         debugPrint(
-            'DatabaseService sync warning: user get returned [${userResponse.statusCode}] ${userResponse.body}');
+          'DatabaseService sync warning: user get returned [${userResponse.statusCode}] ${userResponse.body}',
+        );
       }
 
       // 2. Store or update platform device node (use PATCH to prevent wiping out fcmToken)
-      final platformKey = details.isWindows ? 'windows' : 'android';
+      final platformKey = details.isDesktop ? 'windows' : 'android';
       final deviceUri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery',
+      );
 
       final patchData = <String, dynamic>{
         'deviceId': details.deviceId,
@@ -91,6 +98,9 @@ class DatabaseService {
         'ipAddress': details.primaryIp,
         'lastSeen': {'.sv': 'timestamp'},
         'isOnline': true,
+        // The slot key is only 'windows' (PC) or 'android' (phone); record
+        // the real OS so a Mac in the PC slot is identifiable.
+        'platform': details.platform,
       };
       if (sessionId != null && sessionId.isNotEmpty) {
         patchData['sessionId'] = sessionId;
@@ -102,7 +112,22 @@ class DatabaseService {
         body: jsonEncode(patchData),
       );
       debugPrint(
-          'DatabaseService: Synced $platformKey device node with status ${devResp.statusCode}');
+        'DatabaseService: Synced $platformKey device node with status ${devResp.statusCode}',
+      );
+
+      // Remove legacy per-OS nodes written by older builds (a Mac used to
+      // write to devices/macos). Nothing reads them any more, and leaving
+      // them makes the account show a phantom offline device.
+      for (final legacyKey in const ['macos', 'ios']) {
+        if (legacyKey == platformKey) continue;
+        try {
+          await _client.delete(
+            Uri.parse(
+              '$_dbBaseUrl/users/${user.uid}/devices/$legacyKey.json$authQuery',
+            ),
+          );
+        } catch (_) {}
+      }
     } catch (e) {
       debugPrint('DatabaseService sync exception: $e');
     }
@@ -117,7 +142,8 @@ class DatabaseService {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/sessionId.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/sessionId.json$authQuery',
+      );
       final response = await _safeGet(uri);
 
       if (response != null &&
@@ -144,7 +170,8 @@ class DatabaseService {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/deviceId.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/$platformKey/deviceId.json$authQuery',
+      );
       final response = await _safeGet(uri);
 
       if (response != null &&
@@ -173,7 +200,8 @@ class DatabaseService {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery',
+      );
 
       await _client.patch(
         uri,
@@ -204,7 +232,10 @@ class DatabaseService {
 
     Future<void> poll() async {
       try {
-        final sid = await getDeviceSessionId(user: user, platformKey: platformKey);
+        final sid = await getDeviceSessionId(
+          user: user,
+          platformKey: platformKey,
+        );
         if (!controller.isClosed) {
           controller.add(sid);
         }
@@ -235,7 +266,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/server.json$authQuery',
+      );
 
       final map = serverInfo.toMap();
       if (serverInfo.isLive) {
@@ -247,7 +280,9 @@ class DatabaseService {
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(map),
       );
-      debugPrint('DatabaseService: Updated server info with status ${resp.statusCode}');
+      debugPrint(
+        'DatabaseService: Updated server info with status ${resp.statusCode}',
+      );
     } catch (e) {
       debugPrint('DatabaseService updateServerInfo error: $e');
     }
@@ -258,7 +293,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/server.json$authQuery',
+      );
 
       await _client.patch(
         uri,
@@ -282,7 +319,8 @@ class DatabaseService {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery',
+      );
 
       await _client.patch(
         uri,
@@ -306,16 +344,19 @@ class DatabaseService {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/$platformKey.json$authQuery',
+      );
 
-      await http.patch(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'isOnline': false,
-          'lastSeen': {'.sv': 'timestamp'},
-        }),
-      ).timeout(const Duration(seconds: 2));
+      await http
+          .patch(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'isOnline': false,
+              'lastSeen': {'.sv': 'timestamp'},
+            }),
+          )
+          .timeout(const Duration(seconds: 2));
       debugPrint('DatabaseService: Marked $platformKey device offline');
     } catch (e) {
       debugPrint('DatabaseService setDeviceOffline error: $e');
@@ -323,23 +364,25 @@ class DatabaseService {
   }
 
   /// Marks the local Windows server as offline in Firebase RTDB.
-  Future<void> setServerOffline({
-    required User user,
-  }) async {
+  Future<void> setServerOffline({required User user}) async {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/server.json$authQuery',
+      );
 
-      await http.patch(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'isLive': false,
-          'lastHeartbeat': {'.sv': 'timestamp'},
-          'connectedClientId': null,
-        }),
-      ).timeout(const Duration(seconds: 2));
+      await http
+          .patch(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'isLive': false,
+              'lastHeartbeat': {'.sv': 'timestamp'},
+              'connectedClientId': null,
+            }),
+          )
+          .timeout(const Duration(seconds: 2));
       debugPrint('DatabaseService: Marked server offline');
     } catch (e) {
       debugPrint('DatabaseService setServerOffline error: $e');
@@ -366,7 +409,9 @@ class DatabaseService {
       try {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices.json$authQuery');
+        final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/devices.json$authQuery',
+        );
         final response = await _safeGet(uri);
 
         if (response != null &&
@@ -378,8 +423,11 @@ class DatabaseService {
             final serverTime = _extractServerTime(response);
             final List<LinkedDevice> list = [];
             data.forEach((key, value) {
+              // Only the two real slots; ignore legacy nodes like 'macos'.
+              final slot = key.toString();
+              if (slot != 'windows' && slot != 'android') return;
               if (value is Map) {
-                final dev = LinkedDevice.fromMap(key.toString(), value);
+                final dev = LinkedDevice.fromMap(slot, value);
                 final isFresh = dev.isFreshlyOnline(referenceTime: serverTime);
                 list.add(dev.copyWith(isOnline: isFresh));
               }
@@ -404,7 +452,10 @@ class DatabaseService {
     controller = StreamController<List<LinkedDevice>>.broadcast(
       onListen: () {
         fetchDevices();
-        timer = Timer.periodic(const Duration(seconds: 4), (_) => fetchDevices());
+        timer = Timer.periodic(
+          const Duration(seconds: 4),
+          (_) => fetchDevices(),
+        );
       },
       onCancel: () {
         timer?.cancel();
@@ -423,7 +474,9 @@ class DatabaseService {
       try {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server.json$authQuery');
+        final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/server.json$authQuery',
+        );
         final response = await _safeGet(uri);
 
         if (response != null &&
@@ -456,7 +509,10 @@ class DatabaseService {
     controller = StreamController<ServerInfo?>.broadcast(
       onListen: () {
         fetchServer();
-        timer = Timer.periodic(const Duration(seconds: 3), (_) => fetchServer());
+        timer = Timer.periodic(
+          const Duration(seconds: 3),
+          (_) => fetchServer(),
+        );
       },
       onCancel: () {
         timer?.cancel();
@@ -480,7 +536,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_request.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/channel/handshake_request.json$authQuery',
+      );
 
       final response = await _client.put(
         uri,
@@ -510,7 +568,9 @@ class DatabaseService {
       try {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_request.json$authQuery');
+        final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/channel/handshake_request.json$authQuery',
+        );
         final response = await _client.get(uri);
 
         if (response.statusCode == 200 &&
@@ -535,7 +595,10 @@ class DatabaseService {
     controller = StreamController<Map<String, dynamic>?>.broadcast(
       onListen: () {
         fetchRequest();
-        timer = Timer.periodic(const Duration(seconds: 2), (_) => fetchRequest());
+        timer = Timer.periodic(
+          const Duration(seconds: 2),
+          (_) => fetchRequest(),
+        );
       },
       onCancel: () {
         timer?.cancel();
@@ -556,7 +619,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_response.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/channel/handshake_response.json$authQuery',
+      );
 
       await _client.put(
         uri,
@@ -585,7 +650,9 @@ class DatabaseService {
       try {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel/handshake_response.json$authQuery');
+        final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/channel/handshake_response.json$authQuery',
+        );
         final response = await _client.get(uri);
 
         if (response.statusCode == 200 &&
@@ -602,7 +669,8 @@ class DatabaseService {
 
     return {
       'success': false,
-      'error': 'Connection timed out. Ensure the Windows PC is running DeskPocket.',
+      'error':
+          'Connection timed out. Ensure the Windows PC is running DeskPocket.',
     };
   }
 
@@ -614,7 +682,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server/connectedClientId.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/server/connectedClientId.json$authQuery',
+      );
 
       await _client.put(
         uri,
@@ -631,7 +701,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/server/connectedClientId.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/server/connectedClientId.json$authQuery',
+      );
 
       await _client.put(
         uri,
@@ -639,7 +711,9 @@ class DatabaseService {
         body: jsonEncode(null),
       );
       // Clean up channel request & response
-      final chanUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/channel.json$authQuery');
+      final chanUri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/channel.json$authQuery',
+      );
       await _client.delete(chanUri);
     } catch (e) {
       debugPrint('DatabaseService disconnectClient error: $e');
@@ -656,7 +730,9 @@ class DatabaseService {
       final authQuery = token != null ? '?auth=$token' : '';
 
       // 1. Direct leaf node
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery',
+      );
       await _client.put(
         uri,
         headers: {'Content-Type': 'application/json'},
@@ -664,7 +740,9 @@ class DatabaseService {
       );
 
       // 2. Also patch into devices/android object to preserve other fields
-      final devUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android.json$authQuery');
+      final devUri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/devices/android.json$authQuery',
+      );
       await _client.patch(
         devUri,
         headers: {'Content-Type': 'application/json'},
@@ -672,14 +750,18 @@ class DatabaseService {
       );
 
       // 3. Also write to root user fcmToken node as convenience fallback
-      final userFcmUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/fcmToken.json$authQuery');
+      final userFcmUri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/fcmToken.json$authQuery',
+      );
       await _client.put(
         userFcmUri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(fcmToken),
       );
 
-      debugPrint('DatabaseService: Registered Android FCM Token successfully across RTDB nodes');
+      debugPrint(
+        'DatabaseService: Registered Android FCM Token successfully across RTDB nodes',
+      );
     } catch (e) {
       debugPrint('DatabaseService updateFcmToken error: $e');
     }
@@ -692,7 +774,9 @@ class DatabaseService {
       final authQuery = token != null ? '?auth=$token' : '';
 
       // 1. Primary path: /users/{uid}/devices/android/fcmToken.json
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/devices/android/fcmToken.json$authQuery',
+      );
       final response = await _safeGet(uri);
 
       if (response != null &&
@@ -706,7 +790,9 @@ class DatabaseService {
       }
 
       // 2. Fallback path: /users/{uid}/fcmToken.json
-      final fallbackUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/fcmToken.json$authQuery');
+      final fallbackUri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/fcmToken.json$authQuery',
+      );
       final fallbackResp = await _safeGet(fallbackUri);
       if (fallbackResp != null &&
           fallbackResp.statusCode == 200 &&
@@ -719,7 +805,9 @@ class DatabaseService {
       }
 
       // 3. Fallback path: check /users/{uid}/devices/android.json if fcmToken is nested inside
-      final devUri = Uri.parse('$_dbBaseUrl/users/${user.uid}/devices/android.json$authQuery');
+      final devUri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/devices/android.json$authQuery',
+      );
       final devResp = await _safeGet(devUri);
       if (devResp != null &&
           devResp.statusCode == 200 &&
@@ -744,7 +832,8 @@ class DatabaseService {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
       final uri = Uri.parse(
-          '$_dbBaseUrl/users/${user.uid}/devices/android/deviceId.json$authQuery');
+        '$_dbBaseUrl/users/${user.uid}/devices/android/deviceId.json$authQuery',
+      );
       final response = await _safeGet(uri);
 
       if (response != null &&
@@ -772,7 +861,9 @@ class DatabaseService {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
-      final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/notifications/latest.json$authQuery');
+      final uri = Uri.parse(
+        '$_dbBaseUrl/users/${user.uid}/notifications/latest.json$authQuery',
+      );
 
       await _client.put(
         uri,
@@ -780,7 +871,8 @@ class DatabaseService {
         body: jsonEncode({
           'id': 'notif_${DateTime.now().millisecondsSinceEpoch}',
           'title': 'Windows PC is Live',
-          'body': '$pcHostName is running DeskPocket and ready for secure connection.',
+          'body':
+              '$pcHostName is running DeskPocket and ready for secure connection.',
           'timestamp': DateTime.now().toIso8601String(),
           'type': 'server_live',
           'hostName': pcHostName,
@@ -794,7 +886,8 @@ class DatabaseService {
       await sendDirectFcmPush(
         user: user,
         title: 'Windows PC is Live',
-        body: '$pcHostName is running DeskPocket and ready for secure connection.',
+        body:
+            '$pcHostName is running DeskPocket and ready for secure connection.',
         hostName: pcHostName,
       );
     } catch (e) {
@@ -811,7 +904,9 @@ class DatabaseService {
       try {
         final token = await user.getIdToken();
         final authQuery = token != null ? '?auth=$token' : '';
-        final uri = Uri.parse('$_dbBaseUrl/users/${user.uid}/notifications/latest.json$authQuery');
+        final uri = Uri.parse(
+          '$_dbBaseUrl/users/${user.uid}/notifications/latest.json$authQuery',
+        );
         final response = await _safeGet(uri);
 
         if (response != null &&
@@ -840,7 +935,10 @@ class DatabaseService {
     controller = StreamController<Map<String, dynamic>?>.broadcast(
       onListen: () {
         fetchLatestNotification();
-        timer = Timer.periodic(const Duration(seconds: 3), (_) => fetchLatestNotification());
+        timer = Timer.periodic(
+          const Duration(seconds: 3),
+          (_) => fetchLatestNotification(),
+        );
       },
       onCancel: () {
         timer?.cancel();
@@ -860,7 +958,9 @@ class DatabaseService {
     try {
       final fcmToken = await getAndroidFcmToken(user: user);
       if (fcmToken == null || fcmToken.isEmpty) {
-        debugPrint('DatabaseService: No registered Android FCM token found for user ${user.uid}');
+        debugPrint(
+          'DatabaseService: No registered Android FCM token found for user ${user.uid}',
+        );
         return false;
       }
 
@@ -868,25 +968,63 @@ class DatabaseService {
       if (!kIsWeb) {
         try {
           final saCandidates = <File>[
+            File('firebase-admin-sdk.json'),
             File('firebase_service_account.json'),
             File('pclink-34bfa-53c4ed90415c.json'),
-            File('pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
+            File(
+              'pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json',
+            ),
             File('pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
-            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}firebase_service_account.json'),
-            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-53c4ed90415c.json'),
-            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
-            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
-            if (Platform.isWindows && Platform.environment.containsKey('APPDATA')) ...[
-              File('${Platform.environment['APPDATA']}\\pclink\\firebase_service_account.json'),
-              File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-53c4ed90415c.json'),
-              File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
-              File('${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            File(
+              '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}firebase-admin-sdk.json',
+            ),
+            File(
+              '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}firebase_service_account.json',
+            ),
+            File(
+              '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-53c4ed90415c.json',
+            ),
+            File(
+              '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json',
+            ),
+            File(
+              '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json',
+            ),
+            if (Platform.isWindows &&
+                Platform.environment.containsKey('APPDATA')) ...[
+              File(
+                '${Platform.environment['APPDATA']}\\pclink\\firebase-admin-sdk.json',
+              ),
+              File(
+                '${Platform.environment['APPDATA']}\\pclink\\firebase_service_account.json',
+              ),
+              File(
+                '${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-53c4ed90415c.json',
+              ),
+              File(
+                '${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json',
+              ),
+              File(
+                '${Platform.environment['APPDATA']}\\pclink\\pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json',
+              ),
             ],
-            if (Platform.isMacOS && Platform.environment.containsKey('HOME')) ...[
-              File('${Platform.environment['HOME']}/Library/Application Support/pclink/firebase_service_account.json'),
-              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-53c4ed90415c.json'),
-              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json'),
-              File('${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json'),
+            if (Platform.isMacOS &&
+                Platform.environment.containsKey('HOME')) ...[
+              File(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink/firebase-admin-sdk.json',
+              ),
+              File(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink/firebase_service_account.json',
+              ),
+              File(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-53c4ed90415c.json',
+              ),
+              File(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f965fa6b41ce5e66a9b96968603e4cb6d4159867.json',
+              ),
+              File(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink/pclink-34bfa-firebase-adminsdk-fbsvc-f59d05ec0b.json',
+              ),
             ],
           ];
 
@@ -894,10 +1032,13 @@ class DatabaseService {
           final searchDirs = <Directory>[
             Directory.current,
             File(Platform.resolvedExecutable).parent,
-            if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
+            if (Platform.isWindows &&
+                Platform.environment.containsKey('APPDATA'))
               Directory('${Platform.environment['APPDATA']}\\pclink'),
             if (Platform.isMacOS && Platform.environment.containsKey('HOME'))
-              Directory('${Platform.environment['HOME']}/Library/Application Support/pclink'),
+              Directory(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink',
+              ),
           ];
           for (final dir in searchDirs) {
             try {
@@ -906,8 +1047,9 @@ class DatabaseService {
                   if (entity is File &&
                       entity.path.endsWith('.json') &&
                       (entity.path.contains('adminsdk') ||
-                       entity.path.contains('pclink-34bfa') ||
-                       entity.path.contains('service_account'))) {
+                          entity.path.contains('admin-sdk') ||
+                          entity.path.contains('pclink-34bfa') ||
+                          entity.path.contains('service_account'))) {
                     saCandidates.add(entity);
                   }
                 }
@@ -918,7 +1060,9 @@ class DatabaseService {
             if (saFile.existsSync()) {
               final saJson = saFile.readAsStringSync().trim();
               if (saJson.isNotEmpty) {
-                debugPrint('DatabaseService: Dispatching push via Google FCM v1 Service Account (${saFile.path})...');
+                debugPrint(
+                  'DatabaseService: Dispatching push via Google FCM v1 Service Account (${saFile.path})...',
+                );
                 final v1Success = await _sendFcmV1Push(
                   fcmToken: fcmToken,
                   title: title,
@@ -927,7 +1071,9 @@ class DatabaseService {
                   serviceAccountJson: saJson,
                 );
                 if (v1Success) {
-                  debugPrint('DatabaseService: FCM v1 push delivered successfully to phone!');
+                  debugPrint(
+                    'DatabaseService: FCM v1 push delivered successfully to phone!',
+                  );
                   return true;
                 }
               }
@@ -943,18 +1089,27 @@ class DatabaseService {
         try {
           final keyCandidates = [
             File('fcm_server_key.txt'),
-            File('${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}fcm_server_key.txt'),
-            if (Platform.isWindows && Platform.environment.containsKey('APPDATA'))
-              File('${Platform.environment['APPDATA']}\\pclink\\fcm_server_key.txt'),
+            File(
+              '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}fcm_server_key.txt',
+            ),
+            if (Platform.isWindows &&
+                Platform.environment.containsKey('APPDATA'))
+              File(
+                '${Platform.environment['APPDATA']}\\pclink\\fcm_server_key.txt',
+              ),
             if (Platform.isMacOS && Platform.environment.containsKey('HOME'))
-              File('${Platform.environment['HOME']}/Library/Application Support/pclink/fcm_server_key.txt'),
+              File(
+                '${Platform.environment['HOME']}/Library/Application Support/pclink/fcm_server_key.txt',
+              ),
           ];
           for (final keyFile in keyCandidates) {
             if (keyFile.existsSync()) {
               final content = keyFile.readAsStringSync().trim();
               if (content.isNotEmpty) {
                 fcmServerKey = content;
-                debugPrint('DatabaseService: Loaded FCM Server Key from ${keyFile.path}');
+                debugPrint(
+                  'DatabaseService: Loaded FCM Server Key from ${keyFile.path}',
+                );
                 break;
               }
             }
@@ -996,12 +1151,14 @@ class DatabaseService {
           body: jsonEncode(payload),
         );
 
-        debugPrint('DatabaseService legacy FCM response: ${fcmResponse.statusCode}, body: ${fcmResponse.body}');
+        debugPrint(
+          'DatabaseService legacy FCM response: ${fcmResponse.statusCode}, body: ${fcmResponse.body}',
+        );
         return fcmResponse.statusCode == 200;
       }
 
       debugPrint(
-        'DatabaseService: Neither firebase_service_account.json nor FCM server key found.\n'
+        'DatabaseService: Neither firebase-admin-sdk.json / firebase_service_account.json nor FCM server key found.\n'
         'Direct wake-up push skipped.',
       );
       return false;
@@ -1021,22 +1178,22 @@ class DatabaseService {
   }) async {
     AutoRefreshingAuthClient? authClient;
     try {
-      final credentials = ServiceAccountCredentials.fromJson(serviceAccountJson);
-      authClient = await clientViaServiceAccount(
-        credentials,
-        ['https://www.googleapis.com/auth/firebase.messaging'],
+      final credentials = ServiceAccountCredentials.fromJson(
+        serviceAccountJson,
       );
+      authClient = await clientViaServiceAccount(credentials, [
+        'https://www.googleapis.com/auth/firebase.messaging',
+      ]);
 
       final projectId = credentials.projectId;
-      final fcmV1Uri = Uri.parse('https://fcm.googleapis.com/v1/projects/$projectId/messages:send');
+      final fcmV1Uri = Uri.parse(
+        'https://fcm.googleapis.com/v1/projects/$projectId/messages:send',
+      );
 
       final payload = {
         'message': {
           'token': fcmToken,
-          'notification': {
-            'title': title,
-            'body': body,
-          },
+          'notification': {'title': title, 'body': body},
           'data': {
             'click_action': 'FLUTTER_NOTIFICATION_CLICK',
             'title': title,
@@ -1064,7 +1221,9 @@ class DatabaseService {
         body: jsonEncode(payload),
       );
 
-      debugPrint('DatabaseService: FCM v1 response status: ${response.statusCode}');
+      debugPrint(
+        'DatabaseService: FCM v1 response status: ${response.statusCode}',
+      );
       if (response.statusCode != 200) {
         debugPrint('DatabaseService: FCM v1 error body: ${response.body}');
       }
@@ -1103,7 +1262,9 @@ class DatabaseService {
           'deleteRequested': null,
         }),
       );
-      debugPrint('DatabaseService: Account deletion requested, status: ${resp.statusCode}');
+      debugPrint(
+        'DatabaseService: Account deletion requested, status: ${resp.statusCode}',
+      );
       return resp.statusCode == 200;
     } catch (e) {
       debugPrint('DatabaseService requestAccountDeletion error: $e');
@@ -1133,7 +1294,9 @@ class DatabaseService {
           'deleteRequested': null,
         }),
       );
-      debugPrint('DatabaseService: Account deletion cancelled (undeleted), status: ${resp.statusCode}');
+      debugPrint(
+        'DatabaseService: Account deletion cancelled (undeleted), status: ${resp.statusCode}',
+      );
       return resp.statusCode == 200;
     } catch (e) {
       debugPrint('DatabaseService cancelAccountDeletion error: $e');
@@ -1142,7 +1305,9 @@ class DatabaseService {
   }
 
   /// Fetches the user's current account deletion status from Firebase RTDB.
-  Future<UserDeletionStatus> getAccountDeletionStatus({required User user}) async {
+  Future<UserDeletionStatus> getAccountDeletionStatus({
+    required User user,
+  }) async {
     try {
       final token = await user.getIdToken();
       final authQuery = token != null ? '?auth=$token' : '';
@@ -1180,7 +1345,9 @@ class DatabaseService {
           controller.add(status);
         }
       } catch (e) {
-        debugPrint('DatabaseService listenAccountDeletionStatus poll error: $e');
+        debugPrint(
+          'DatabaseService listenAccountDeletionStatus poll error: $e',
+        );
       }
     }
 
@@ -1206,7 +1373,9 @@ class DatabaseService {
       final userUri = Uri.parse('$_dbBaseUrl/users/${user.uid}.json$authQuery');
 
       final resp = await _client.delete(userUri);
-      debugPrint('DatabaseService: Purged expired account from DB, status: ${resp.statusCode}');
+      debugPrint(
+        'DatabaseService: Purged expired account from DB, status: ${resp.statusCode}',
+      );
       try {
         await user.delete();
       } catch (e) {
@@ -1219,6 +1388,3 @@ class DatabaseService {
     }
   }
 }
-
-
-

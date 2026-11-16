@@ -13,6 +13,10 @@ class LinkedDevice {
 
   final String? sessionId;
 
+  /// OS reported by the device itself ('Windows', 'macOS', 'Android', 'iOS').
+  /// The slot key only says PC vs phone; this says which OS is in the slot.
+  final String? platform;
+
   const LinkedDevice({
     required this.platformKey,
     required this.deviceId,
@@ -22,7 +26,12 @@ class LinkedDevice {
     this.lastSeen,
     this.isOnline = false,
     this.sessionId,
+    this.platform,
   });
+
+  /// True for the PC slot (a Windows PC or a Mac).
+  bool get isDesktop => isWindows;
+  bool get isMac => platform == 'macOS';
 
   bool get isWindows => platformKey.toLowerCase() == 'windows';
   bool get isAndroid => platformKey.toLowerCase() == 'android';
@@ -45,6 +54,7 @@ class LinkedDevice {
       lastSeen: parsedLastSeen,
       isOnline: (map['isOnline'] as bool?) ?? false,
       sessionId: map['sessionId'] as String?,
+      platform: map['platform'] as String?,
     );
   }
 
@@ -69,6 +79,7 @@ class LinkedDevice {
     DateTime? lastSeen,
     bool? isOnline,
     String? sessionId,
+    String? platform,
   }) {
     return LinkedDevice(
       platformKey: platformKey ?? this.platformKey,
@@ -79,6 +90,7 @@ class LinkedDevice {
       lastSeen: lastSeen ?? this.lastSeen,
       isOnline: isOnline ?? this.isOnline,
       sessionId: sessionId ?? this.sessionId,
+      platform: platform ?? this.platform,
     );
   }
 
@@ -91,6 +103,7 @@ class LinkedDevice {
       'lastSeen': lastSeen?.toIso8601String() ?? DateTime.now().toIso8601String(),
       'isOnline': isOnline,
       if (sessionId != null) 'sessionId': sessionId,
+      if (platform != null) 'platform': platform,
     };
   }
 
@@ -105,7 +118,8 @@ class LinkedDevice {
           osVersion == other.osVersion &&
           ipAddress == other.ipAddress &&
           isOnline == other.isOnline &&
-          sessionId == other.sessionId;
+          sessionId == other.sessionId &&
+          platform == other.platform;
 
   @override
   int get hashCode =>
@@ -115,5 +129,6 @@ class LinkedDevice {
       osVersion.hashCode ^
       ipAddress.hashCode ^
       isOnline.hashCode ^
-      sessionId.hashCode;
+      sessionId.hashCode ^
+      platform.hashCode;
 }

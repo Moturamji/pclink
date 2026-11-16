@@ -93,6 +93,9 @@ class AuthService {
   static File? get _sessionFile {
     try {
       if (kIsWeb) return null;
+      if (isFlutterTest) {
+        return File('${testSandboxDir.path}/auth_session.json');
+      }
       if (Platform.isMacOS && Platform.environment.containsKey('HOME')) {
         final dir = Directory(
             '${Platform.environment['HOME']}/Library/Application Support/pclink');

@@ -51,6 +51,8 @@ PCLink/
 tunnel_url.txt
 pclink-*.json
 firebase_service_account.json
+firebase-admin-sdk*.json
+*-admin-sdk*.json
 .auth_session.json
 credentials_backup.zip
 *.zip

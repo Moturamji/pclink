@@ -309,7 +309,11 @@ class ServerService {
     if (_sharedDir != null && await _sharedDir!.exists()) return _sharedDir!;
 
     Directory? targetDir;
-    if (!kIsWeb && Platform.isWindows) {
+    if (isFlutterTest) {
+      targetDir = Directory(
+        '${testSandboxDir.path}${Platform.pathSeparator}DeskPocket',
+      );
+    } else if (!kIsWeb && Platform.isWindows) {
       final userProfile = Platform.environment['USERPROFILE'];
       if (userProfile != null && userProfile.isNotEmpty) {
         final candidate = Directory('$userProfile\\Downloads\\DeskPocket');
@@ -356,6 +360,9 @@ class ServerService {
         final underscore = fullName.indexOf('_');
         if (underscore <= 0) continue; // Not a PCLink shared file.
         final id = fullName.substring(0, underscore);
+        // startServer() runs on every server start; without this check each
+        // restart appended the whole folder again (42 -> 84 -> 126 entries).
+        if (_sharedFiles.any((f) => f.id == id)) continue;
         final originalName = fullName.substring(underscore + 1);
         final stat = await entity.stat();
         _sharedFiles.add(
@@ -797,6 +804,8 @@ class ServerService {
       'isStreaming': state.isStreaming,
       'viewerName': state.viewerName,
       'viewOnly': true,
+      if (_screenShareService.lastCaptureError != null)
+        'captureError': _screenShareService.lastCaptureError,
     }));
     await request.response.close();
   }
@@ -1627,7 +1636,7 @@ class ServerService {
       jsonEncode({
         'status': 'ok',
         'message': ServerConstants.msgServerRunning,
-        'serverPlatform': 'Windows',
+        'serverPlatform': Platform.isMacOS ? 'macOS' : 'Windows',
         'hostName': Platform.localHostname,
         'encryption': 'TLS_1_3_RELAY',
         'timestamp': DateTime.now().toIso8601String(),

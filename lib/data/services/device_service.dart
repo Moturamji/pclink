@@ -117,7 +117,10 @@ class DeviceService {
     }
 
     final List<NetworkAddressInfo> interfaces = await _getNetworkInterfaces();
-    final String primaryIp = _determinePrimaryIp(interfaces);
+    final String primaryIp = _determinePrimaryIp(
+      interfaces,
+      preferredInterface: await _defaultRouteInterface(),
+    );
     final String? publicIp = await getPublicIpAddress();
 
     return DeviceDetails(
@@ -276,11 +279,54 @@ class DeviceService {
         lower.contains('tailscale') ||
         lower.contains('zerotier') ||
         lower.contains('tap') ||
-        lower.contains('tun');
+        lower.contains('tun') ||
+        // macOS: Internet Sharing / VM bridges, Docker/UTM vmnet, AWDL, low-latency WLAN
+        lower.startsWith('bridge') ||
+        lower.startsWith('vmenet') ||
+        lower.startsWith('vmnet') ||
+        lower.startsWith('awdl') ||
+        lower.startsWith('llw') ||
+        lower.startsWith('anpi') ||
+        lower.startsWith('ap1');
   }
 
-  String _determinePrimaryIp(List<NetworkAddressInfo> interfaces) {
+  /// Name of the interface that carries the default route (e.g. `en0`).
+  ///
+  /// Macs frequently have several active LAN interfaces at once (Wi-Fi +
+  /// Ethernet/USB/Thunderbolt adapters, each on a different 192.168.x subnet).
+  /// Ranking by subnet alone then publishes an arbitrary one, and the phone
+  /// tries an address on a network it isn't on. The default-route interface is
+  /// the one the Mac actually uses for its primary network.
+  Future<String?> _defaultRouteInterface() async {
+    if (kIsWeb || !Platform.isMacOS) return null;
+    try {
+      final result = await Process.run('/sbin/route', ['-n', 'get', 'default'])
+          .timeout(const Duration(seconds: 2));
+      if (result.exitCode != 0) return null;
+      final match = RegExp(r'interface:\s*(\S+)')
+          .firstMatch(result.stdout.toString());
+      return match?.group(1);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _determinePrimaryIp(
+    List<NetworkAddressInfo> interfaces, {
+    String? preferredInterface,
+  }) {
     if (interfaces.isEmpty) return 'Not Connected';
+
+    if (preferredInterface != null) {
+      for (final info in interfaces) {
+        if (info.interfaceName == preferredInterface &&
+            !info.isLoopback &&
+            info.type == InternetAddressType.IPv4 &&
+            _isUsableSiteLocalAddress(info.address)) {
+          return info.address;
+        }
+      }
+    }
 
     final nonLoopbackIpv4 = interfaces
         .where(

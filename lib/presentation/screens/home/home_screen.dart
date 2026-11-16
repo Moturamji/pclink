@@ -297,7 +297,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (user == null) return;
 
     final isDesktop = isDesktopHost;
-    final currentPlatformKey = platformKey;
+    final currentPlatformKey = sessionSlotKey;
 
     final futures = <Future<void>>[
       _databaseService.setDeviceOffline(user: user, platformKey: currentPlatformKey),
@@ -415,7 +415,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _syncWithCloudAndStartServer(DeviceDetails details) async {
     final user = _authService.currentUser;
     if (user != null) {
-      final currentPlatformKey = platformKey;
+      final currentPlatformKey = sessionSlotKey;
       try {
         await _sessionService.init();
         var currentSession = _sessionService.currentSessionId;

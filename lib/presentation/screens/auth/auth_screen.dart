@@ -11,6 +11,7 @@ import '../../../core/widgets/universal/theme_toggle_button.dart';
 import '../../../data/services/auth_service.dart';
 import '../../../data/services/database_service.dart';
 import '../../../data/services/device_service.dart';
+import '../../../data/services/platform_helpers.dart';
 import '../../../data/services/session_service.dart';
 import '../home/home_screen.dart';
 import 'widgets/auth_header.dart';
@@ -102,7 +103,7 @@ class _AuthScreenState extends State<AuthScreen> {
       if (user != null) {
         try {
           final details = await _deviceService.getDeviceDetails();
-          final platformKey = details.isWindows ? 'windows' : 'android';
+          final platformKey = sessionSlotKeyFor(isDesktop: details.isDesktop);
           await _sessionService.registerNewSession(
             user: user,
             platformKey: platformKey,
